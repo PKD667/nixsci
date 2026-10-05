@@ -3,6 +3,7 @@
 Needs the optional `nix-deploy` package (`pip install nix-lab[deploy]`); the
 record side of nix-lab (`import lab`, loading and querying runs) does not.
 """
+
 from __future__ import annotations
 
 import json
@@ -27,8 +28,14 @@ def _deploy():
     return factory, providers, resolver
 
 
-def run(spec: Spec, out_root: Path, *, poll: float = 1.0, timeout: float = 24 * 3600,
-        log: Callable[[str], None] = print) -> list[dict[str, Any]]:
+def run(
+    spec: Spec,
+    out_root: Path,
+    *,
+    poll: float = 1.0,
+    timeout: float = 24 * 3600,
+    log: Callable[[str], None] = print,
+) -> list[dict[str, Any]]:
     factory, providers, resolver = _deploy()
     jobs = spec.jobs()
     lease = providers.acquire(spec.provider, spec.resources, spec.resources.get("opts", {}))
@@ -43,7 +50,9 @@ def run(spec: Spec, out_root: Path, *, poll: float = 1.0, timeout: float = 24 * 
 
         def one(job: Job) -> dict[str, Any]:
             name = names[job.index % len(names)]
-            return _run_job(spec, job, name, configs, closures, factory, out_root, stamp, poll, timeout, log)
+            return _run_job(
+                spec, job, name, configs, closures, factory, out_root, stamp, poll, timeout, log
+            )
 
         with ThreadPoolExecutor(max_workers=len(names)) as pool:
             return list(pool.map(one, jobs))
@@ -75,11 +84,24 @@ def _run_job(spec, job, name, configs, closures, factory, out_root, stamp, poll,
         be.fetch(handle, "lab", dest / "lab")
     status = json.loads(be.read_file(handle, "lab/status.json") or "null")
     state = "incomplete" if status is None else ("ok" if status["exit_code"] == 0 else "failed")
-    manifest = {"v": 1, "app": spec.name, "run": run_id, "state": state, "seed": job.seed,
-                "params": job.params, "status": status, "target": name, "started": started,
-                "ended": _utc(), "source": closure.source, "closure": closure.path,
-                "spec": spec.path.name}
-    (dest / "manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=1, default=str) + "\n")
+    manifest = {
+        "v": 1,
+        "app": spec.name,
+        "run": run_id,
+        "state": state,
+        "seed": job.seed,
+        "params": job.params,
+        "status": status,
+        "target": name,
+        "started": started,
+        "ended": _utc(),
+        "source": closure.source,
+        "closure": closure.path,
+        "spec": spec.path.name,
+    }
+    (dest / "manifest.json").write_text(
+        json.dumps(manifest, sort_keys=True, indent=1, default=str) + "\n"
+    )
     if state == "ok":
         be.remove(handle)
     log(f"[{run_id}] {state} -> {dest}")

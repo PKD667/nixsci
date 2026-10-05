@@ -1,4 +1,5 @@
 """Experiment spec (TOML) -> a list of concrete jobs."""
+
 from __future__ import annotations
 
 import itertools
@@ -38,10 +39,14 @@ class Spec:
 
     def jobs(self) -> list[Job]:
         keys = sorted(self.sweep)
-        grid = [dict(zip(keys, combo)) for combo in itertools.product(*(self.sweep[k] for k in keys))] or [{}]
+        grid = [
+            dict(zip(keys, combo)) for combo in itertools.product(*(self.sweep[k] for k in keys))
+        ] or [{}]
         seeds: tuple[int | None, ...] = self.seeds or (None,)
-        return [Job(i, seed, {**self.params, **point})
-                for i, (point, seed) in enumerate(itertools.product(grid, seeds))]
+        return [
+            Job(i, seed, {**self.params, **point})
+            for i, (point, seed) in enumerate(itertools.product(grid, seeds))
+        ]
 
 
 def load(path: str | Path) -> Spec:
@@ -54,7 +59,9 @@ def load(path: str | Path) -> Spec:
     if not isinstance(exp, dict) or not _NAME.fullmatch(str(exp.get("name", ""))):
         raise ValueError(f"{path}: [experiment] needs a name matching {_NAME.pattern}")
     seeds = exp.get("seeds", [])
-    if not isinstance(seeds, list) or not all(isinstance(s, int) and not isinstance(s, bool) for s in seeds):
+    if not isinstance(seeds, list) or not all(
+        isinstance(s, int) and not isinstance(s, bool) for s in seeds
+    ):
         raise ValueError(f"{path}: experiment.seeds must be a list of integers")
     sweep = raw.get("sweep", {})
     if not all(isinstance(v, list) and v for v in sweep.values()):
@@ -62,6 +69,14 @@ def load(path: str | Path) -> Spec:
     flake = str(exp.get("flake", "."))
     if flake.startswith((".", "/")):
         flake = str((path.parent / flake).resolve())
-    return Spec(name=exp["name"], flake=flake, attr=str(exp.get("attr", exp["name"])),
-                seeds=tuple(seeds), params=dict(raw.get("params", {})), sweep=dict(sweep),
-                resources=dict(raw.get("resources", {})), outputs=dict(raw.get("outputs", {})), path=path)
+    return Spec(
+        name=exp["name"],
+        flake=flake,
+        attr=str(exp.get("attr", exp["name"])),
+        seeds=tuple(seeds),
+        params=dict(raw.get("params", {})),
+        sweep=dict(sweep),
+        resources=dict(raw.get("resources", {})),
+        outputs=dict(raw.get("outputs", {})),
+        path=path,
+    )

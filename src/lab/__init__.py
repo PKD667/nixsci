@@ -1,10 +1,11 @@
 """lab.record(...): write experimental data where nix-lab will collect it.
 
-    import lab
-    lab.record("loss", 0.25, epoch=3)
-    lab.record("weights", numpy_array)        # stored as an artifact
-    lab.params()                              # this run's parameters
+import lab
+lab.record("loss", 0.25, epoch=3)
+lab.record("weights", numpy_array)        # stored as an artifact
+lab.params()                              # this run's parameters
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -33,7 +34,9 @@ def _now() -> str:
 
 
 def _append(entry: dict[str, Any]) -> None:
-    line = (json.dumps(entry, sort_keys=True, allow_nan=False, separators=(",", ":")) + "\n").encode()
+    line = (
+        json.dumps(entry, sort_keys=True, allow_nan=False, separators=(",", ":")) + "\n"
+    ).encode()
     fd = os.open(_dir() / "records.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
     try:
         os.write(fd, line)
@@ -70,8 +73,13 @@ def record(name: str, value: Any, **tags: Any) -> None:
         raise ValueError("record name must be a non-empty string")
     if not _jsonable(tags):
         raise TypeError("tags must be JSON-like")
-    entry: dict[str, Any] = {"v": VERSION, "id": f"{os.getpid()}-{next(_counter)}",
-                             "time": _now(), "name": name, "tags": tags}
+    entry: dict[str, Any] = {
+        "v": VERSION,
+        "id": f"{os.getpid()}-{next(_counter)}",
+        "time": _now(),
+        "name": name,
+        "tags": tags,
+    }
     if _jsonable(value):
         entry.update(kind="value", data=value)
     else:
@@ -95,8 +103,10 @@ def _blob(value: Any) -> tuple[bytes, str]:
         out = io.BytesIO()
         np.save(out, value, allow_pickle=False)
         return out.getvalue(), "application/x-npy"
-    raise TypeError(f"cannot record {type(value).__name__}: only JSON values, numpy arrays, "
-                    "bytes and paths are supported (no pickle)")
+    raise TypeError(
+        f"cannot record {type(value).__name__}: only JSON values, numpy arrays, "
+        "bytes and paths are supported (no pickle)"
+    )
 
 
 def params() -> dict[str, Any]:

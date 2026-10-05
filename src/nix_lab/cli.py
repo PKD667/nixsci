@@ -22,6 +22,7 @@ def main(argv=None) -> int:
             print(f"{job.index:03d} seed={job.seed} params={job.params}")
         return 0
     from .runner import run
+
     results = run(spec, Path(args.out))
     bad = [m for m in results if m["state"] != "ok"]
     print(f"{len(results) - len(bad)}/{len(results)} ok")
