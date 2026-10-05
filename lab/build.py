@@ -18,9 +18,9 @@ from .spec import Spec
 
 
 def build(spec: Spec, *, again: bool = False, log: Callable[[str], None] = print) -> int:
-    runs_root, data_root = home.runs_dir(), home.data_dir()
-    analysis_root = home.analysis_dir() / spec.name
-    log(f"store: {home.store_root()}")
+    runs_root, data_root = home.runs_dir(spec.path), home.data_dir(spec.path)
+    analysis_root = home.analysis_dir(spec.path) / spec.name
+    log(f"store: {home.store_root(spec.path)}")
 
     if spec.kind == "analysis":
         from .analysis import analyze

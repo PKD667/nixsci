@@ -35,7 +35,7 @@ from nixsci.lab import spec as spec_mod
 from nixsci.lab.run import sha256_file
 from nixsci.lab.spec import Spec
 
-_HIDDEN = {"NIX_LAB_STORE", "NIX_LAB_DATA", "NIX_LAB_RUNS", "NIX_LAB_VIEW", "NIX_LAB_OUT"}
+_HIDDEN = {"NIXSCI_STORE", "NIXSCI_INPUTS", "NIX_LAB_VIEW", "NIX_LAB_OUT"}
 
 
 def _sha(path: Path) -> str:

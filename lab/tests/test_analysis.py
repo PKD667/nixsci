@@ -39,9 +39,9 @@ class Analysis(unittest.TestCase):
         )
         fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
         os.environ["NIX_LAB_RSCRIPT"] = str(fake)
-        os.environ["NIX_LAB_STORE"] = str(self.root / "ambient-store")
+        os.environ["NIXSCI_STORE"] = str(self.root / "ambient-store")
         self.addCleanup(os.environ.pop, "NIX_LAB_RSCRIPT", None)
-        self.addCleanup(os.environ.pop, "NIX_LAB_STORE", None)
+        self.addCleanup(os.environ.pop, "NIXSCI_STORE", None)
 
     def add_run(self, name):
         directory = self.runs / "e" / name
@@ -87,7 +87,7 @@ class Analysis(unittest.TestCase):
         self.run_it()
         names = {line.split("=")[0] for line in self.env.read_text().split()}
         self.assertTrue({"NIX_LAB_VIEW", "NIX_LAB_OUT"} <= names)
-        self.assertTrue({"NIX_LAB_STORE", "NIX_LAB_DATA", "NIX_LAB_RUNS"}.isdisjoint(names))
+        self.assertTrue({"NIXSCI_STORE", "NIXSCI_INPUTS"}.isdisjoint(names))
 
     def test_missing_locked_data_stops_before_r_starts(self):
         (self.runs / "e" / "e-0" / "manifest.json").unlink()

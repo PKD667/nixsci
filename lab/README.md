@@ -120,11 +120,13 @@ with lab.Run("runs", lab.run_name("meas", seed=3), spec="measure.toml", seed=3,
 
 ## Where the data lives
 
-One **store per machine**, never inside a project: `$NIX_LAB_STORE`, else
-`$XDG_DATA_HOME/nix-lab` (`~/.local/share/nix-lab`). It holds `runs/` (immutable, sealed),
-`data/` (Parquet, rebuildable) and `analysis/` (pipeline outputs, rebuildable). Nothing needs a
-directory argument: `lab.Run(None, name, spec=...)`, `nixsci lab run`, `compact` and `analyze` all
-default to it, and `nixsci lab ls` shows what is in it.
+Outputs belong to the project and are not shared. A project is the nearest directory with a `.git`,
+searched from the spec or the working directory upwards, or else the directory of the spec. Its
+outputs live in `<project>/.nixsci/`, which ignores itself in git: `runs/` (immutable, sealed),
+`data/` (Parquet, rebuildable) and `analysis/` (pipeline outputs, rebuildable). `$NIXSCI_STORE` or
+`--store` puts them somewhere else. Nothing needs a directory argument: `lab.Run(None, name,
+spec=...)`, `nixsci lab run`, `compact` and `analyze` all default to it, and `nixsci lab ls` shows
+what is in it. Inputs are the exception: see [Inputs](#inputs-datasets-and-models).
 
 ```sh
 nixsci lab build experiments/demo.toml            # experiment: run what is missing -> compact -> lock

@@ -58,8 +58,9 @@ HPC-focused survey: [arXiv:2402.07530](https://arxiv.org/pdf/2402.07530).
    when the claim fails is already a claim check. Planned: `verify --claims` runs the declared
    pipelines on original + replicates.
 6. **Where data lives** (decided with the user's constraints: no central storage, no `<repo>/data`):
-   - a **per-machine content store**, default `$XDG_DATA_HOME/nix-lab` (override with
-     `NIX_LAB_STORE`), shared by all projects; runs are write-once and addressed by `input_id`;
+   - a **per-project store**, `<project>/.nixsci/` (override with `NIXSCI_STORE`); outputs are not
+     shareable data, so they stay with their project; runs are write-once and addressed by `input_id`.
+     Inputs (datasets and models) are the shared part and live in a separate store, per grid;
    - a small **`<spec>.lab.lock`** next to each spec, committed to git. An experiment's lock lists
      its finished runs and their `records_sha256`; an analysis' lock pins the experiment locks it
      `use`s by hash and lists each pipeline's `fingerprint` and output hashes. The lock is the

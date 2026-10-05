@@ -60,7 +60,7 @@ def _data(args) -> int:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="nixsci lab")
     ap.add_argument(
-        "--store", help="data store (default: $NIX_LAB_STORE or ~/.local/share/nix-lab)"
+        "--store", help="outputs store (default: <project>/.nixsci, or $NIXSCI_STORE)"
     )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -131,9 +131,10 @@ def main(argv=None) -> int:
 
     args = ap.parse_args(argv)
     if args.store:
-        os.environ["NIX_LAB_STORE"] = args.store
+        os.environ["NIXSCI_STORE"] = args.store
+    near = getattr(args, "spec", None)
     runs_root = (
-        Path(getattr(args, "runs", None) or home.runs_dir()) if args.cmd != "compact" else None
+        Path(getattr(args, "runs", None) or home.runs_dir(near)) if args.cmd != "compact" else None
     )
 
     if args.cmd == "data":
@@ -147,7 +148,7 @@ def main(argv=None) -> int:
         from .compact import compact
 
         for path in compact(
-            args.runs or home.runs_dir(), args.out or home.data_dir(), force=args.force
+            args.runs or home.runs_dir(near), args.out or home.data_dir(near), force=args.force
         ):
             print(path)
         return 0
@@ -179,9 +180,9 @@ def main(argv=None) -> int:
 
         results = analyze(
             spec,
-            Path(args.runs or home.runs_dir()),
-            Path(args.data or home.data_dir()),
-            Path(args.out or home.analysis_dir() / spec.name),
+            Path(args.runs or home.runs_dir(near)),
+            Path(args.data or home.data_dir(near)),
+            Path(args.out or home.analysis_dir(near) / spec.name),
             args.only,
             args.force,
         )
@@ -192,7 +193,7 @@ def main(argv=None) -> int:
         from . import lock
 
         written = lock.write(
-            spec.path, lock.collect(spec, home.runs_dir(), home.analysis_dir() / spec.name)
+            spec.path, lock.collect(spec, home.runs_dir(near), home.analysis_dir(near) / spec.name)
         )
         print(written)
         return 0
@@ -201,19 +202,19 @@ def main(argv=None) -> int:
 
         data = lock.read(spec.path)
         if args.cmd == "push":
-            failed = sync.push(args.remote, data, home.store_root())
+            failed = sync.push(args.remote, data, home.store_root(near))
             return 1 if failed else 0
         if args.cmd == "pull":
-            problems = sync.pull(args.remote, data, home.store_root())
+            problems = sync.pull(args.remote, data, home.store_root(near))
         else:
-            problems = lock.check(data, home.runs_dir(), home.analysis_dir() / data["app"])
+            problems = lock.check(data, home.runs_dir(near), home.analysis_dir(near) / data["app"])
         for kind, what, detail in problems:
             print(f"{kind}: {what}: {detail}")
         print("store matches the lock" if not problems else f"{len(problems)} problem(s)")
         return 1 if problems else 0
     from .runner import run
 
-    runs = run(spec, Path(args.out or home.runs_dir()), again=args.again)
+    runs = run(spec, Path(args.out or home.runs_dir(near)), again=args.again)
     bad = [m for m in runs if m["state"] != "ok"]
     print(
         f"{len(runs) - len(bad)}/{len(runs)} new run(s) ok"

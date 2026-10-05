@@ -31,8 +31,8 @@ class Env(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.store = self.root / "store"
-        self.old = {k: os.environ.get(k) for k in ("NIX_LAB_STORE", "XDG_DATA_HOME")}
-        os.environ["NIX_LAB_STORE"] = str(self.store)
+        self.old = {k: os.environ.get(k) for k in ("NIXSCI_STORE",)}
+        os.environ["NIXSCI_STORE"] = str(self.store)
         self.addCleanup(self.restore)
         self.spec_path = self.root / "proj" / "meas.toml"
         self.analysis_path = self.root / "proj" / "fig.toml"
