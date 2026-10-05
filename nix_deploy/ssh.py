@@ -35,7 +35,7 @@ class SSH(Backend):
             raise RuntimeError(f"SSH link failed: {self.host}")
         return result
     def _remote_nix(self, *args: str, check: bool = True, data: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
-        command = shlex.join([self.remote_bootstrap, "--store", self.store, *args])
+        command = shlex.join(nix.command(self.remote_bootstrap, self.store, *args))
         return self._remote(command, data=data, check=check)
     def _ship_bootstrap(self) -> None:
         if self._bootstrap_shipped:
