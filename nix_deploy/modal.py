@@ -27,7 +27,6 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
-
 _RUN = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -51,7 +50,9 @@ class Modal:
         if not isinstance(config, dict):
             raise TypeError("Modal config must be an object")
         required = ("registry", "image_digest", "app", "function", "volume", "run_root", "gpu")
-        missing = [key for key in required if not isinstance(config.get(key), str) or not config[key]]
+        missing = [
+            key for key in required if not isinstance(config.get(key), str) or not config[key]
+        ]
         if missing:
             raise RuntimeError("Modal setup is incomplete; missing " + ", ".join(missing))
         if not _DIGEST.fullmatch(config["image_digest"]):
@@ -63,7 +64,10 @@ class Modal:
             raise ValueError("Modal run_root must be an absolute volume path")
         if config.get("min_containers", 0) != 0:
             raise RuntimeError("Modal deployment must keep min_containers=0 for scale-to-zero")
-        if config.get("enable_memory_snapshot") is not True or config.get("enable_gpu_snapshot") is not True:
+        if (
+            config.get("enable_memory_snapshot") is not True
+            or config.get("enable_gpu_snapshot") is not True
+        ):
             raise RuntimeError("Modal deployment must enable memory and GPU snapshots")
         if not isinstance(config.get("scaledown_window"), int) or config["scaledown_window"] <= 0:
             raise RuntimeError("Modal deployment requires a positive scaledown_window")
@@ -72,7 +76,9 @@ class Modal:
         except ImportError as exc:
             raise RuntimeError("Modal provider requires the pinned modal SDK 1.5.2") from exc
         if getattr(modal, "__version__", None) != "1.5.2":
-            raise RuntimeError(f"Modal provider requires SDK 1.5.2, found {getattr(modal, '__version__', 'unknown')}")
+            raise RuntimeError(
+                f"Modal provider requires SDK 1.5.2, found {getattr(modal, '__version__', 'unknown')}"
+            )
         self.modal = modal
         self.config = dict(config)
         self.image_ref = f"{registry}@{config['image_digest']}"
@@ -95,8 +101,14 @@ class Modal:
             raise ValueError("closure metadata must be an object")
         declared = metadata.get("image") or metadata.get("oci_image")
         if declared is not None and declared != self.image_ref:
-            raise RuntimeError(f"closure image {declared!r} does not match configured Modal image {self.image_ref!r}")
-        return {"image": self.image_ref, "system": manifest.get("system"), "closure": manifest.get("closure", {})}
+            raise RuntimeError(
+                f"closure image {declared!r} does not match configured Modal image {self.image_ref!r}"
+            )
+        return {
+            "image": self.image_ref,
+            "system": manifest.get("system"),
+            "closure": manifest.get("closure", {}),
+        }
 
     def _workdir(self, run_id: str) -> str:
         if not isinstance(run_id, str) or not _RUN.fullmatch(run_id):
@@ -157,8 +169,16 @@ class Modal:
             return asyncio.run(awaitable)
         raise RuntimeError("Modal lifecycle calls must not run inside an active asyncio loop")
 
-    def launch(self, closure, *, run_id: str, argv=(), env: Mapping[str, str] | None = None,
-               inputs: Mapping[str, Any] | None = None, program: str = "run") -> dict[str, Any]:
+    def launch(
+        self,
+        closure,
+        *,
+        run_id: str,
+        argv=(),
+        env: Mapping[str, str] | None = None,
+        inputs: Mapping[str, Any] | None = None,
+        program: str = "run",
+    ) -> dict[str, Any]:
         manifest = closure.as_dict() if hasattr(closure, "as_dict") else dict(closure)
         self.stage(closure)
         metadata = manifest.get("metadata", {})
@@ -193,19 +213,35 @@ class Modal:
             values.update(dict(env))
         values.update({f"NIX_DEPLOY_INPUT_{item['name']}": item["path"] for item in remote_inputs})
         values["NIX_DEPLOY_WORKDIR"] = workdir
-        payload = {"program": executable, "argv": list(metadata.get("argv", [])) + list(argv),
-                   "env": values, "workdir": workdir, "volume": self.volume_name,
-                   "callbacks": checked_callbacks,
-                   "modal": {"gpu": self.config.get("gpu"),
-                             "scaledown_window": self.config.get("scaledown_window", 300),
-                             "min_containers": self.config.get("min_containers", 0),
-                             "enable_memory_snapshot": self.config.get("enable_memory_snapshot", True),
-                             "enable_gpu_snapshot": self.config.get("enable_gpu_snapshot", True)}}
+        payload = {
+            "program": executable,
+            "argv": list(metadata.get("argv", [])) + list(argv),
+            "env": values,
+            "workdir": workdir,
+            "volume": self.volume_name,
+            "callbacks": checked_callbacks,
+            "modal": {
+                "gpu": self.config.get("gpu"),
+                "scaledown_window": self.config.get("scaledown_window", 300),
+                "min_containers": self.config.get("min_containers", 0),
+                "enable_memory_snapshot": self.config.get("enable_memory_snapshot", True),
+                "enable_gpu_snapshot": self.config.get("enable_gpu_snapshot", True),
+            },
+        }
         call = self.function.spawn(payload)
-        handle = {"id": run_id, "call_id": call.object_id, "workdir": workdir,
-                  "volume": self.volume_name, "image": self.image_ref, "program": program,
-                  "inputs": remote_inputs, "closure": manifest}
-        self._run_async(self._upload_one(f"{workdir}/handle.json", json.dumps(handle, sort_keys=True).encode()))
+        handle = {
+            "id": run_id,
+            "call_id": call.object_id,
+            "workdir": workdir,
+            "volume": self.volume_name,
+            "image": self.image_ref,
+            "program": program,
+            "inputs": remote_inputs,
+            "closure": manifest,
+        }
+        self._run_async(
+            self._upload_one(f"{workdir}/handle.json", json.dumps(handle, sort_keys=True).encode())
+        )
         return handle
 
     async def _read(self, path: str) -> bytes:
@@ -232,7 +268,9 @@ class Modal:
     def exists(self, handle: Mapping[str, Any], relpath: str) -> bool:
         path = self._relative(relpath)
         try:
-            entries = self._run_async(self.volume.listdir(f"{handle['workdir']}/{path}", recursive=False))
+            entries = self._run_async(
+                self.volume.listdir(f"{handle['workdir']}/{path}", recursive=False)
+            )
         except FileNotFoundError:
             return False
         return bool(entries)
@@ -282,12 +320,19 @@ class Modal:
             raise ValueError("remote_port must be a TCP port")
         url = handle.get("url") or self.config.get("url")
         if not isinstance(url, str) or not url:
-            raise RuntimeError("Modal function has no declared web endpoint; set config.url for inference")
+            raise RuntimeError(
+                "Modal function has no declared web endpoint; set config.url for inference"
+            )
         return url, lambda: None
 
     @staticmethod
     def _relative(path: str) -> str:
-        if not isinstance(path, str) or not path or path.startswith("/") or ".." in PurePosixPath(path).parts:
+        if (
+            not isinstance(path, str)
+            or not path
+            or path.startswith("/")
+            or ".." in PurePosixPath(path).parts
+        ):
             raise ValueError("path must be relative to the Modal run volume")
         return path
 

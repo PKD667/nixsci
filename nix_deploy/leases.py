@@ -1,9 +1,10 @@
 """Leases that outlive one process: acquire once, use from many commands, release when done.
 
-    nix-deploy lease acquire g5k warm --hosts 4 --walltime 240
-    nix-deploy --lease warm run . serve run1
-    nix-deploy lease release warm
+nix-deploy lease acquire g5k warm --hosts 4 --walltime 240
+nix-deploy --lease warm run . serve run1
+nix-deploy lease release warm
 """
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,11 @@ _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 
 def root() -> Path:
-    return Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "nix-deploy" / "leases"
+    return (
+        Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+        / "nix-deploy"
+        / "leases"
+    )
 
 
 def _path(name: str) -> Path:
@@ -27,15 +32,24 @@ def _path(name: str) -> Path:
     return root() / f"{name}.json"
 
 
-def acquire(name: str, provider: str, resources: Mapping[str, Any] | None = None,
-            opts: Mapping[str, Any] | None = None) -> providers.Lease:
+def acquire(
+    name: str,
+    provider: str,
+    resources: Mapping[str, Any] | None = None,
+    opts: Mapping[str, Any] | None = None,
+) -> providers.Lease:
     path = _path(name)
     if path.exists():
         raise FileExistsError(f"lease {name!r} already exists; release it first")
     lease = providers.acquire(provider, resources, opts)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        record = {"provider": provider, "targets": lease.targets, "hosts": lease.hosts, "state": lease.state}
+        record = {
+            "provider": provider,
+            "targets": lease.targets,
+            "hosts": lease.hosts,
+            "state": lease.state,
+        }
         path.write_text(json.dumps(record, indent=1) + "\n")
         path.chmod(0o600)
     except BaseException:
@@ -50,8 +64,12 @@ def load(name: str) -> providers.Lease:
         raise FileNotFoundError(f"no lease named {name!r}")
     record = json.loads(path.read_text())
     provider, _ = providers.get(record["provider"])
-    return providers.Lease(record["targets"], record["hosts"], record["state"],
-                           lambda: provider.release(record["state"]))
+    return providers.Lease(
+        record["targets"],
+        record["hosts"],
+        record["state"],
+        lambda: provider.release(record["state"]),
+    )
 
 
 def release(name: str) -> None:

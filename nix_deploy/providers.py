@@ -31,6 +31,7 @@ from typing import Any, Callable, Mapping, Protocol
 @dataclass
 class Lease:
     """What `acquire` returns. `targets` are `factory.backend` configs, one per host."""
+
     targets: list[dict[str, Any]]
     hosts: list[str] = field(default_factory=list)
     #: JSON-able facts the provider needs to release this lease from any process.
@@ -44,23 +45,30 @@ class Lease:
 @dataclass(frozen=True)
 class Resources:
     """What every provider understands. Anything else is a provider option."""
+
     hosts: int = 1
     gpus: int = 0
-    walltime: int = 60          # minutes
+    walltime: int = 60  # minutes
     system: str = "x86_64-linux"
 
     @classmethod
     def of(cls, raw: Mapping[str, Any]) -> "Resources":
         unknown = set(raw) - {f for f in cls.__dataclass_fields__} - {"provider", "opts"}
         if unknown:
-            raise ValueError(f"unknown resources {sorted(unknown)}; provider-specific settings go in [resources.opts]")
+            raise ValueError(
+                f"unknown resources {sorted(unknown)}; provider-specific settings go in [resources.opts]"
+            )
         return cls(**{k: v for k, v in raw.items() if k in cls.__dataclass_fields__})
 
 
-def check_opts(name: str, opts: Mapping[str, Any], required: set[str], optional: set[str]) -> dict[str, Any]:
+def check_opts(
+    name: str, opts: Mapping[str, Any], required: set[str], optional: set[str]
+) -> dict[str, Any]:
     missing, unknown = required - set(opts), set(opts) - required - optional
     if missing or unknown:
-        raise ValueError(f"provider {name!r} options: missing {sorted(missing)}, unknown {sorted(unknown)}")
+        raise ValueError(
+            f"provider {name!r} options: missing {sorted(missing)}, unknown {sorted(unknown)}"
+        )
     return dict(opts)
 
 
@@ -70,7 +78,9 @@ class Provider(Protocol):
 
 
 def system() -> str:
-    return {"x86_64": "x86_64-linux", "aarch64": "aarch64-linux"}.get(platform.machine(), "x86_64-linux")
+    return {"x86_64": "x86_64-linux", "aarch64": "aarch64-linux"}.get(
+        platform.machine(), "x86_64-linux"
+    )
 
 
 class Local:
@@ -81,9 +91,23 @@ class Local:
 
     def acquire(self, resources, opts):
         check_opts("local", opts, set(), set())
-        state = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "nix-deploy" / "runs"
-        return Lease([{"backend": "native", "system": system(), "store": "/nix/store",
-                       "run_root": str(state / f"slot{i}"), "rootless": False} for i in range(resources.hosts)])
+        state = (
+            Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+            / "nix-deploy"
+            / "runs"
+        )
+        return Lease(
+            [
+                {
+                    "backend": "native",
+                    "system": system(),
+                    "store": "/nix/store",
+                    "run_root": str(state / f"slot{i}"),
+                    "rootless": False,
+                }
+                for i in range(resources.hosts)
+            ]
+        )
 
 
 class Static:
@@ -98,8 +122,10 @@ class Static:
         table = load_toml(config)["targets"]
         names = list(o["targets"])
         if len(names) < resources.hosts:
-            raise ValueError(f"asked for {resources.hosts} hosts, static provider lists {len(names)}")
-        names = names[:resources.hosts]
+            raise ValueError(
+                f"asked for {resources.hosts} hosts, static provider lists {len(names)}"
+            )
+        names = names[: resources.hosts]
         missing = [n for n in names if n not in table]
         if missing:
             raise KeyError(f"targets not in {config}: {missing}")
@@ -110,7 +136,9 @@ _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 
 def _ssh(argv: list[str], command: str, check: bool = True) -> str:
-    result = subprocess.run([*argv, command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    result = subprocess.run(
+        [*argv, command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+    )
     if check and result.returncode:
         raise RuntimeError(f"ssh failed ({result.returncode}): {command}\n{result.stderr[-1500:]}")
     return result.stdout
@@ -128,19 +156,44 @@ class OAR:
         _ssh(state["frontend"], f"oardel {state['job']}", check=False)
 
     def acquire(self, resources, opts):
-        c = {"access": "access.grid5000.fr", "queue": None, "cluster": None, "besteffort": False,
-             "poll": 2, "timeout": 3600,
-             **check_opts("oar", opts, {"login", "site", "bootstrap", "bootstrap_sha256"},
-                          {"access", "queue", "cluster", "besteffort", "poll", "timeout",
-                           "store", "run_root", "remote_bootstrap", "ssh_options"})}
+        c = {
+            "access": "access.grid5000.fr",
+            "queue": None,
+            "cluster": None,
+            "besteffort": False,
+            "poll": 2,
+            "timeout": 3600,
+            **check_opts(
+                "oar",
+                opts,
+                {"login", "site", "bootstrap", "bootstrap_sha256"},
+                {
+                    "access",
+                    "queue",
+                    "cluster",
+                    "besteffort",
+                    "poll",
+                    "timeout",
+                    "store",
+                    "run_root",
+                    "remote_bootstrap",
+                    "ssh_options",
+                },
+            ),
+        }
         login, site, access = c["login"], c["site"], c["access"]
         for value in (login, site, access, c["cluster"] or "x", c["queue"] or "x"):
             if not _NAME.fullmatch(value):
                 raise ValueError(f"invalid OAR option {value!r}")
         walltime, hosts = resources.walltime, resources.hosts
         # Frontends and nodes are not in a fresh known_hosts; trust a key on first contact only.
-        jump = ["-o", "StrictHostKeyChecking=accept-new", *c.get("ssh_options", []),
-                "-o", f"ProxyJump={login}@{access}"]
+        jump = [
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            *c.get("ssh_options", []),
+            "-o",
+            f"ProxyJump={login}@{access}",
+        ]
         frontend = ["ssh", "-o", "BatchMode=yes", *jump, f"{login}@{site}"]
         cmd = f"oarsub -n nix-deploy -l nodes={hosts},walltime={walltime // 60}:{walltime % 60:02d}:00"
         if c["besteffort"]:
@@ -168,7 +221,10 @@ class OAR:
                 job_state = found_state.group(1) if found_state else ""
                 if job_state == "Running":
                     break
-                if job_state in ("", "Terminated", "Error", "Finishing") or time.monotonic() > deadline:
+                if (
+                    job_state in ("", "Terminated", "Error", "Finishing")
+                    or time.monotonic() > deadline
+                ):
                     raise RuntimeError(f"OAR job {job} did not run: state={job_state or 'unknown'}")
                 time.sleep(float(c["poll"]))
             names = re.search(r"^\s*assigned_hostnames = (.+)$", info, re.M)
@@ -178,12 +234,17 @@ class OAR:
         except BaseException:
             release()
             raise
-        base = {"backend": "ssh", "system": resources.system,
-                "store": c.get("store", f"/tmp/{login}-nix-deploy/store"),
-                "run_root": c.get("run_root", f"/tmp/{login}-nix-deploy/runs"), "rootless": True,
-                "bootstrap": c["bootstrap"], "bootstrap_sha256": c["bootstrap_sha256"],
-                "remote_bootstrap": c.get("remote_bootstrap", f"/tmp/{login}-nix-deploy/bin/nix"),
-                "ssh_options": jump}
+        base = {
+            "backend": "ssh",
+            "system": resources.system,
+            "store": c.get("store", f"/tmp/{login}-nix-deploy/store"),
+            "run_root": c.get("run_root", f"/tmp/{login}-nix-deploy/runs"),
+            "rootless": True,
+            "bootstrap": c["bootstrap"],
+            "bootstrap_sha256": c["bootstrap_sha256"],
+            "remote_bootstrap": c.get("remote_bootstrap", f"/tmp/{login}-nix-deploy/bin/nix"),
+            "ssh_options": jump,
+        }
         return Lease([{**base, "host": f"{login}@{node}"} for node in nodes], nodes, state, release)
 
 
@@ -194,7 +255,9 @@ def load_toml(path: Path) -> dict[str, Any]:
 _BUILTIN: dict[str, Callable[[], Provider]] = {"local": Local, "static": Static, "oar": OAR}
 
 
-def get(name: str, config_path: str | Path = "~/.config/nix-deploy/providers.toml") -> tuple[Provider, dict[str, Any]]:
+def get(
+    name: str, config_path: str | Path = "~/.config/nix-deploy/providers.toml"
+) -> tuple[Provider, dict[str, Any]]:
     """Resolve a logical provider name on this machine -> (provider, its default options)."""
     path = Path(config_path).expanduser()
     options: dict[str, Any] = {}
@@ -210,8 +273,12 @@ def get(name: str, config_path: str | Path = "~/.config/nix-deploy/providers.tom
     raise KeyError(f"provider {use!r} (for {name!r}) not found; available: {available}")
 
 
-def acquire(name: str, resources: Mapping[str, Any] | None = None, opts: Mapping[str, Any] | None = None,
-            **kw: Any) -> Lease:
+def acquire(
+    name: str,
+    resources: Mapping[str, Any] | None = None,
+    opts: Mapping[str, Any] | None = None,
+    **kw: Any,
+) -> Lease:
     """`resources` is generic; `opts` is for the provider alone (machine defaults fill gaps)."""
     provider, defaults = get(name, **kw)
     return provider.acquire(Resources.of(resources or {}), {**defaults, **(opts or {})})

@@ -14,6 +14,8 @@ def load_targets(path):
 
 def _checked(name, kind, config):
     required = {"system", "store", "run_root", "rootless"}
+    if kind == "ssh":
+        required |= {"host", "remote_bootstrap"}
     missing = required - config.keys()
     if config.get("rootless"):
         missing |= {"bootstrap", "bootstrap_sha256"} - config.keys()
@@ -29,12 +31,15 @@ def backend(name, configs):
     kind = config.pop("backend")
     if kind == "native":
         from .native import Native
+
         return Native(**_checked(name, kind, config))
     if kind == "ssh":
         from .ssh import SSH
+
         return SSH(**_checked(name, kind, config))
     if kind == "modal":
         from .modal import Modal
+
         return Modal(config)
     for ep in entry_points(group="nix_deploy.backends"):
         if ep.name == kind:

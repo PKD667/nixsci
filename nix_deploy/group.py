@@ -8,6 +8,7 @@ and learns the rest from its environment:
     NIX_DEPLOY_ENTER      (set by the backend) prefix that runs a command inside the
                           store view of the host it is executed on, for launch agents
 """
+
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
@@ -19,17 +20,31 @@ from .model import Closure
 DEFAULT_RSH = "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
 
 
-def launch(backends: Sequence[Backend], hosts: Sequence[str], closure: Closure, *, run_id: str,
-           argv: tuple[str, ...] = (), env: Mapping[str, str] | None = None, program: str = "run",
-           rsh: str = DEFAULT_RSH) -> dict[str, Any]:
+def launch(
+    backends: Sequence[Backend],
+    hosts: Sequence[str],
+    closure: Closure,
+    *,
+    run_id: str,
+    argv: tuple[str, ...] = (),
+    env: Mapping[str, str] | None = None,
+    program: str = "run",
+    rsh: str = DEFAULT_RSH,
+) -> dict[str, Any]:
     if not backends or len(backends) != len(hosts):
         raise ValueError("need one backend per host name")
     with ThreadPoolExecutor(max_workers=len(backends)) as pool:
         list(pool.map(lambda b: b.stage(closure), backends))
     hostfile = f"{backends[0].run_root}/{run_id}/inputs/hostfile"
     values = {"NIX_DEPLOY_RSH": rsh, "NIX_DEPLOY_HOSTFILE": hostfile, **(env or {})}
-    handle = backends[0].launch(closure, run_id=run_id, argv=argv, env=values, program=program,
-                                inputs={"hostfile": ("\n".join(hosts) + "\n").encode()})
+    handle = backends[0].launch(
+        closure,
+        run_id=run_id,
+        argv=argv,
+        env=values,
+        program=program,
+        inputs={"hostfile": ("\n".join(hosts) + "\n").encode()},
+    )
     handle["hosts"] = list(hosts)
     return handle
 

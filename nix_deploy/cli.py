@@ -1,9 +1,9 @@
 """One execution contract for every compute provider.
 
-    nix-deploy lease acquire <provider> <name> [--hosts N] [--walltime MIN] [--opt KEY=VALUE]...
-    nix-deploy lease ls | show <name> | release <name>
-    nix-deploy (--lease NAME | --config FILE --target T) run <flake> <experiment> <run_id> --handle FILE
-    nix-deploy (--lease NAME | --config FILE --target T) status|stop|fetch ...
+nix-deploy lease acquire <provider> <name> [--hosts N] [--walltime MIN] [--opt KEY=VALUE]...
+nix-deploy lease ls | show <name> | release <name>
+nix-deploy (--lease NAME | --config FILE --target T) run <flake> <experiment> <run_id> --handle FILE
+nix-deploy (--lease NAME | --config FILE --target T) status|stop|fetch ...
 """
 
 import argparse
@@ -20,7 +20,14 @@ def _lease_command(args) -> int:
         resources = {"hosts": args.hosts, "walltime": args.walltime}
         opts = dict(item.split("=", 1) for item in args.opt)
         lease = leases.acquire(args.name, args.provider, resources, opts)
-        print(json.dumps({"name": args.name, "hosts": lease.hosts or [c.get("host", "local") for c in lease.targets]}))
+        print(
+            json.dumps(
+                {
+                    "name": args.name,
+                    "hosts": lease.hosts or [c.get("host", "local") for c in lease.targets],
+                }
+            )
+        )
     elif args.action == "ls":
         print("\n".join(leases.names()))
     elif args.action == "show":
@@ -81,13 +88,19 @@ def main(argv=None):
     transport = backends[0]
     if args.command == "run":
         closure = resolve(args.flake, args.experiment, configs[names[0]]["system"])
-        kwargs = dict(run_id=args.run_id, argv=tuple(args.arg), program=args.program,
-                      env=dict(item.split("=", 1) for item in args.env))
+        kwargs = dict(
+            run_id=args.run_id,
+            argv=tuple(args.arg),
+            program=args.program,
+            env=dict(item.split("=", 1) for item in args.env),
+        )
         if len(backends) > 1:
             handle = group.launch(backends, hosts, closure, **kwargs)
         else:
             transport.stage(closure)
-            handle = transport.launch(closure, inputs=dict(item.split("=", 1) for item in args.input), **kwargs)
+            handle = transport.launch(
+                closure, inputs=dict(item.split("=", 1) for item in args.input), **kwargs
+            )
         write(args.handle, {"target": names[0], **handle})
         print(json.dumps(handle, sort_keys=True))
         return 0
