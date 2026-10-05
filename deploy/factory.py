@@ -2,13 +2,13 @@
 
 from importlib.metadata import entry_points
 from pathlib import Path
-import tomllib
+import json
 
 
 def load_targets(path):
-    targets = tomllib.loads(Path(path).expanduser().read_text())["targets"]
+    targets = json.loads(Path(path).expanduser().read_text())["targets"]
     if not isinstance(targets, dict):
-        raise ValueError("deployment configuration must contain a [targets] table")
+        raise ValueError("deployment configuration must contain a `targets` object")
     return targets
 
 

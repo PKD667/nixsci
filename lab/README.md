@@ -34,7 +34,7 @@ let lab = nixsci.lib.lab { inherit pkgs; project = self; }; in {
 }
 ```
 
-`closures` maps each system you deploy to a built experiment; `systems` (default: this machine's) names which of them to build. `resources.provider` is a name from `~/.config/nix-deploy/providers.toml`, and provider-specific settings go only under `resources.opts`. Unknown fields and a malformed name are evaluation errors.
+`closures` maps each system you deploy to a built experiment; `systems` (default: this machine's) names which of them to build. `resources.provider` is a name from `~/.config/nixsci/providers.json`, and provider-specific settings go only under `resources.opts`. Unknown fields and a malformed name are evaluation errors.
 
 `nix run .#demo` resolves nothing at run time: Nix already built the closures. The executor leases hosts, spreads the jobs over them, waits, fetches each run's `lab/` directory, writes its `manifest.json` (state `ok`, `failed` or `incomplete`, seed, parameters, target, times, the flake's source identity and the closure path), adds the run directory to the Nix store and lists it in `lab.lock`. Flakes only see git-tracked files, so `git add lab.lock`.
 

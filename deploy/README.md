@@ -77,19 +77,20 @@ foreground in its own process group; `stop` sends SIGTERM to that group.
 ## Machine configuration
 
 What a provider *name* means is configured per machine, in
-`~/.config/nix-deploy/providers.toml`. Callers say `provider = "lab"` and never
+`~/.config/nixsci/providers.json`, a file Nix builds with `builtins.toJSON`. Callers say `provider = "lab"` and never
 care how:
 
-```toml
-[providers.lab]
-use = "static"                 # hosts you reserved yourself, reached over ssh
-user = "me"
-jump = "me@gateway"            # ProxyJump chain, optional
-# workdir defaults to /tmp/<user>-nix-deploy: rootless store, runs and shipped nix live there
-# bootstrap defaults to "nixpkgs#nixStatic" (see below): no binary path, no hash to maintain
-ssh_options = ["-o", "StrictHostKeyChecking=accept-new"]
-ready_timeout = 180            # hosts that just booted may refuse ssh for a while
-# ssh_command = ["oarsh"]      # a site's own ssh wrapper; scp_command, rsh likewise
+```nix
+pkgs.writeText "providers.json" (builtins.toJSON { providers.lab = {
+  use = "static";                  # hosts you reserved yourself, reached over ssh
+  user = "me";
+  jump = "me@gateway";             # ProxyJump chain, optional
+  # workdir defaults to /tmp/<user>-nix-deploy: rootless store, runs and shipped nix live there
+  # bootstrap defaults to "nixpkgs#nixStatic" (see below): no binary path, no hash to maintain
+  ssh_options = [ "-o" "StrictHostKeyChecking=accept-new" ];
+  ready_timeout = 180;             # hosts that just booted may refuse ssh for a while
+  # ssh_command = [ "oarsh" ];     # a site's own ssh wrapper; scp_command, rsh likewise
+}; })
 ```
 
 The hosts themselves come with each lease (`--opt hosts=a,b` or `hosts = [...]` in
@@ -97,7 +98,7 @@ the spec's `[resources.opts]`), so one entry serves every reservation. On a serv
 with a shared-credential broker, the same name can instead say
 `use = "<installed plugin>"`. Code above the provider layer does not change.
 
-A machine-wide file, `/etc/nix-deploy/providers.toml`, has the same format and
+A machine-wide file, `/etc/nixsci/providers.json`, has the same format and
 fills in names the user's own file does not set; the user's file wins.
 
 **The shipped Nix is a flake reference.** Hosts that have no Nix get a static `nix` binary.
@@ -137,22 +138,23 @@ nixsci deploy lease release warm
 A lease outlives the process that acquired it (state is under
 `~/.local/state/nix-deploy/leases/`), so a warm allocation can be used by many
 later commands. `--config FILE --target NAME` addresses one static target from
-a TOML file instead of a lease.
+a JSON file instead of a lease.
 
-A target in that file looks like:
+The file is `builtins.toJSON` of a value like this one:
 
-```toml
-[targets.box]
-backend = "ssh"
-host = "user@host"
-system = "x86_64-linux"
-store = "/tmp/user/store"        # rootless store on the host
-run_root = "/tmp/user/runs"
-rootless = true
-bootstrap = "/local/path/to/nix-static"
-bootstrap_sha256 = "..."
-remote_bootstrap = "/tmp/user/bin/nix"
-ssh_options = ["-o", "ProxyJump=user@jump"]
+```nix
+{ targets.box = {
+  backend = "ssh";
+  host = "user@host";
+  system = "x86_64-linux";
+  store = "/tmp/user/store";         # rootless store on the host
+  run_root = "/tmp/user/runs";
+  rootless = true;
+  bootstrap = "/local/path/to/nix-static";
+  bootstrap_sha256 = "...";
+  remote_bootstrap = "/tmp/user/bin/nix";
+  ssh_options = [ "-o" "ProxyJump=user@jump" ];
+}; }
 ```
 
 `backend = "native"` runs on the controller's own store (`rootless = false`,

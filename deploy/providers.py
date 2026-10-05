@@ -4,21 +4,20 @@ A provider never runs experiments; it only acquires and releases machines. What
 a provider name means is decided per machine, so callers (nerve, nixsci.lab) only
 ever say `provider = "g5k"`:
 
-    # ~/.config/nix-deploy/providers.toml
-    [providers.lab]
-    use = "static"         # hosts you reserved yourself, reached over ssh
-    jump = "me@gateway"
-    user = "me"
+    # ~/.config/nixsci/providers.json, built by Nix (`builtins.toJSON`)
+    { "providers": { "lab": {
+        "use": "static",       # hosts you reserved yourself, reached over ssh
+        "jump": "me@gateway", "user": "me" } } }
     # or, on a server with a shared-credential helper:
-    # use = "site-helper"  # any provider installed under `nixsci.deploy.providers`
+    #   "use": "site-helper"   any provider installed under `nixsci.deploy.providers`
 """
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import time
-import tomllib
 from dataclasses import dataclass, field
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -112,7 +111,7 @@ class Local:
 class Static:
     """Hosts you already have. Reservations and boots are somebody else's job.
 
-    Either name targets from a targets file:      targets = ["box1", "box2"], config = "path.toml"
+    Either name targets from a targets file:      targets = ["box1", "box2"], config = "path.json"
     or list ssh hosts sharing one template:       hosts = ["a", "b"] (or "a,b"), and optionally user,
         workdir, jump, ssh_command, scp_command, ssh_options, rsh, ready_timeout, bootstrap.
         `workdir` (default /tmp/<user>-nix-deploy) is an absolute path on the hosts that holds the
@@ -128,8 +127,8 @@ class Static:
         if "hosts" in opts:
             return self._hosts(resources, opts)
         o = check_opts("static", opts, {"targets"}, {"config"})
-        config = Path(o.get("config", "~/.config/nix-deploy/targets.toml")).expanduser()
-        table = load_toml(config)["targets"]
+        config = Path(o.get("config", "~/.config/nixsci/targets.json")).expanduser()
+        table = load_json(config)["targets"]
         names = list(o["targets"])
         if len(names) < resources.hosts:
             raise ValueError(
@@ -196,15 +195,15 @@ class Static:
         return Lease([{**base, "host": f"{user}{h}"} for h in hosts], hosts, expires=expires)
 
 
-def load_toml(path: Path) -> dict[str, Any]:
-    return tomllib.loads(path.read_text())
+def load_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text())
 
 
 _BUILTIN: dict[str, Callable[[], Provider]] = {"local": Local, "static": Static}
 
 
 #: Per-user settings win; machine-wide ones (/etc) fill in for names the user does not set.
-CONFIG_FILES = ("~/.config/nix-deploy/providers.toml", "/etc/nix-deploy/providers.toml")
+CONFIG_FILES = ("~/.config/nixsci/providers.json", "/etc/nixsci/providers.json")
 
 
 def get(name: str, config_path: str | Path | None = None) -> tuple[Provider, dict[str, Any]]:
@@ -213,7 +212,7 @@ def get(name: str, config_path: str | Path | None = None) -> tuple[Provider, dic
     for candidate in [config_path] if config_path else CONFIG_FILES:
         path = Path(candidate).expanduser()
         if path.exists():
-            entry = load_toml(path).get("providers", {}).get(name)
+            entry = load_json(path).get("providers", {}).get(name)
             if entry is not None:
                 options = dict(entry)
                 break
