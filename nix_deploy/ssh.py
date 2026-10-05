@@ -98,7 +98,7 @@ class SSH(Backend):
         if relpath and (relpath.startswith("/") or ".." in Path(relpath).parts):
             raise ValueError("path escapes the remote workdir")
         return workdir.rstrip("/") + ("/" + relpath if relpath else "")
-    def _stage_inputs(self, workdir: str, records: list[tuple[str, Any, str]]) -> tuple[dict[str, str], list[dict[str, str]]]:
+    def _stage_inputs(self, workdir: str, records: list[tuple[str, Any, str]], existing: bool = False) -> tuple[dict[str, str], list[dict[str, str]]]:
         self._remote(f"mkdir -m 700 -p {shlex.quote(self._workdir_path(workdir, 'inputs'))}")
         env, manifest = {}, []
         for name, source, digest in records:

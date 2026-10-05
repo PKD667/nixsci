@@ -108,7 +108,12 @@ class Backend:
         self._write_json(workdir, "inputs.json", input_json)
         handle = self._spawn(closure, workdir, run_id, self._program(closure, program), args, values)
         handle.update({"id": run_id, "workdir": workdir, "closure": closure.as_dict(), "inputs": input_json, "program": program}); self._write_json(workdir, "handle.json", handle); return handle
-    def _stage_inputs(self, workdir: str, records): raise NotImplementedError
+    def put(self, handle, name: str, source) -> str:
+        """Copy bytes or a path into a running job's workdir (hash-verified); returns its target path."""
+        ((n, data, digest),) = _input_records({name: source})
+        _, manifest = self._stage_inputs(str(handle["workdir"]), [(n, data, digest)], existing=True)
+        return manifest[0]["path"]
+    def _stage_inputs(self, workdir: str, records, existing: bool = False): raise NotImplementedError
     def _spawn(self, closure, workdir, run_id, executable, argv, env): raise NotImplementedError
     def _write_json(self, workdir, name, value): raise NotImplementedError
     def read_events(self, handle, offset): return self._read_bytes(handle, "events.jsonl", offset, True)

@@ -16,12 +16,12 @@ class Native(Backend):
         root, path = Path(self.run_root).resolve(), (Path(workdir) / relpath).resolve()
         if path != root and root not in path.parents: raise ValueError("handle path escapes the declared run root")
         return path
-    def _stage_inputs(self, workdir, records):
-        root = self._path(workdir); root.mkdir(mode=0o700, parents=False, exist_ok=False); input_root = root / "inputs"; input_root.mkdir(mode=0o700); env, result = {}, []
+    def _stage_inputs(self, workdir, records, existing=False):
+        root = self._path(workdir); root.mkdir(mode=0o700, parents=False, exist_ok=existing); input_root = root / "inputs"; input_root.mkdir(mode=0o700, exist_ok=existing); env, result = {}, []
         for name, source, digest in records:
             target = input_root / name
             if isinstance(source, bytes): target.write_bytes(source)
-            elif source.is_dir(): shutil.copytree(source, target, symlinks=True)
+            elif source.is_dir(): shutil.copytree(source, target, symlinks=True, dirs_exist_ok=existing)
             else: shutil.copy2(source, target)
             env[f"NIX_DEPLOY_INPUT_{name}"] = str(target); result.append({"name": name, "path": str(target), "sha256": digest})
         return env, result
