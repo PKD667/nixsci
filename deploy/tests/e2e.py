@@ -2,7 +2,7 @@
 
     python tests/e2e.py <provider> [hosts] [--flake REF] [--opt KEY=VALUE]...
 
-`provider` is a name from ~/.config/nix-deploy/providers.toml, or a builtin (local, static).
+`provider` is a name from ~/.config/nixsci/providers.json, or a builtin (local, static).
 Reserve machines yourself first and pass them: --opt hosts=a,b (static provider).
 The lease is released even when something fails.
 """
