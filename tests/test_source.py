@@ -24,5 +24,31 @@ class SourceIdentity(unittest.TestCase):
         self.assertTrue(snapshot.startswith("/nix/store/"))
 
 
+class DirtyGuard(unittest.TestCase):
+    def repo(self):
+        root = Path(tempfile.mkdtemp())
+        (root / "flake.nix").write_text("{ outputs = { self }: { x = 1; }; }\n")
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(root)]
+        subprocess.run([*git[:5], "init", "-q", str(root)], check=True)
+        subprocess.run([*git, "add", "flake.nix"], check=True)
+        subprocess.run([*git, "commit", "-q", "-m", "x"], check=True)
+        return root
+
+    def test_dirty_files_are_refused_unless_explicitly_ignored(self):
+        root = self.repo()
+        (root / "demo.lab.lock").write_text("x\n")
+        with self.assertRaises(RuntimeError):
+            nix.capture_source("nix", str(root))
+        source, _ = nix.capture_source("nix", str(root), ignore=("*.lab.lock",))
+        self.assertEqual(source["origin"]["type"], "git")
+
+    def test_ignoring_one_pattern_does_not_excuse_other_dirt(self):
+        root = self.repo()
+        (root / "demo.lab.lock").write_text("x\n")
+        (root / "flake.nix").write_text("{ outputs = { self }: { x = 2; }; }\n")
+        with self.assertRaises(RuntimeError):
+            nix.capture_source("nix", str(root), ignore=("*.lab.lock",))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -63,7 +63,24 @@ def verify(nix, store, root):
     return path_hashes(nix, store, root)
 
 
-def capture_source(nix, flake):
+def _dirty_paths(porcelain: bytes) -> list[str]:
+    """Paths from `git status --porcelain` output (renames count as their new path)."""
+    paths = []
+    for line in porcelain.decode(errors="replace").splitlines():
+        if len(line) > 3:
+            paths.append(line[3:].split(" -> ")[-1].strip().strip('"'))
+    return paths
+
+
+def capture_source(nix, flake, ignore=()):
+    """Archive the flake into the store and return its identity.
+
+    A local flake must be a clean git checkout: the source is the committed state. `ignore` lists
+    glob patterns (matched against the path or its basename) for files whose changes do not count
+    as dirty, for output files of a tool that live in the repository (a lock file, say).
+    """
+    import fnmatch
+
     local_ref = flake[5:] if isinstance(flake, str) and flake.startswith("path:") else flake
     path = (
         Path(local_ref).expanduser()
@@ -92,7 +109,12 @@ def capture_source(nix, flake):
             raise RuntimeError(
                 f"cannot inspect Git state for local flake {path}: {status.stderr.decode(errors='replace').strip()}"
             )
-        if status.stdout:
+        dirty = [
+            p
+            for p in _dirty_paths(status.stdout)
+            if not any(fnmatch.fnmatch(p, g) or fnmatch.fnmatch(Path(p).name, g) for g in ignore)
+        ]
+        if dirty:
             raise RuntimeError(
                 f"local flake {path} is dirty or has untracked files; commit a clean tracked snapshot before resolve (source was not copied)"
             )
