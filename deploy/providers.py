@@ -1,7 +1,7 @@
 """Providers turn "I need N hosts" into backends, and give them back afterwards.
 
 A provider never runs experiments; it only acquires and releases machines. What
-a provider name means is decided per machine, so callers (nerve, nix-lab) only
+a provider name means is decided per machine, so callers (nerve, nixsci.lab) only
 ever say `provider = "g5k"`:
 
     # ~/.config/nix-deploy/providers.toml

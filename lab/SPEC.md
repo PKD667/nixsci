@@ -1,6 +1,6 @@
 # Record format v1
 
-The contract between an experiment (any language) and `nix-lab`. It is a
+The contract between an experiment (any language) and `nixsci.lab`. It is a
 directory of files, so a program on a node with no network and no database can
 write it and the runner can `fetch` it later.
 

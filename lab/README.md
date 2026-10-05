@@ -1,4 +1,4 @@
-# nix-lab
+# lab
 
 Experiment records and run specs. An experiment, in any language, records what
 it measured in one line. Runs are described in TOML, expanded into seeds and
@@ -6,8 +6,7 @@ parameter sweeps, executed on any host, and their records come back next to a
 manifest saying exactly which code produced them.
 
 The record side has no dependencies. Running experiments remotely uses
-[nix-deploy](https://github.com/PKD667/nix-deploy), which is an optional extra
-(`nix-lab[deploy]`); nix-lab never reimplements deployment.
+[`nixsci.deploy`](../deploy/README.md); `nixsci.lab` never reimplements deployment.
 
 ## Recording (inside an experiment)
 
@@ -95,7 +94,7 @@ row with the same key is refused at record time, and `compact` re-checks the who
 restarted process would not remember). Key columns must be declared and not nullable.
 
 Types are `int`, `float`, `str`, `bool`. A row must carry exactly the declared
-columns (`run`, `seed` and `time` are reserved: nix-lab adds them). Once a spec
+columns (`run`, `seed` and `time` are reserved: nixsci.lab adds them). Once a spec
 declares datasets, JSON values must be rows of a declared dataset; arrays, bytes
 and files still record freely as artifacts. The schema travels to the run in
 `NIX_LAB_SCHEMA` (keys in `NIX_LAB_KEYS`) and is copied into each run's `manifest.json`.
@@ -176,14 +175,14 @@ noisy = { seconds = 0.25 }   # seconds may differ by up to 25% between replicate
   compares the datasets. Exact columns must match; `noisy` columns must agree within their
   tolerance. It exits 0 only if they do.
 
-nix-lab does not promise identical bytes: a measurement with an uncontrolled component (MPI timing,
+nixsci.lab does not promise identical bytes: a measurement with an uncontrolled component (MPI timing,
 a shared cluster) is a random variable. What it guarantees is exact *provenance* and honest
 *re-measurement*. See `DESIGN.md` for the reasoning and the literature behind it.
 
 ## Compaction and analysis
 
 ```sh
-nixsci lab compact runs --out data             # needs pyarrow (the nix-lab package has it)
+nixsci lab compact runs --out data             # needs pyarrow (the nixsci.lab package has it)
 nixsci lab analyze experiments/demo-analysis.toml --runs runs --data data --out analysis
 ```
 
@@ -247,7 +246,7 @@ let epsilon = lab::params()["epsilon"].as_f64();   // lab::seed() -> Option<i64>
 ```
 
 It enforces the same declared columns and keys as the Python module. The crate lives in
-`rust/lab`: use it as a path dependency (`lab = { path = "../nix-lab/rust/lab" }`) or vendor it.
+`rust/lab`: use it as a path dependency (`lab = { path = "../nixsci/lab/rust/lab" }`) or vendor it.
 `tests/test_rust.py` builds
 nothing itself: point `NIX_LAB_RUST_EMIT` at `cargo build --example emit` and Python checks that
 it can read and validate what Rust wrote. A recorder in another language only has to follow
@@ -259,7 +258,7 @@ it can read and validate what Rust wrote. A recorder in another language only ha
 SIGTERM, and always writes `status.json`:
 
 ```nix
-experiments.${system}.blocks = nix-lab.lib.mkExperiment pkgs {
+experiments.${system}.blocks = nixsci.lib.mkExperiment pkgs {
   name = "blocks";
   program = "${python}/bin/python ${./blocks.py}";
   runtime = [ pkgs.clang ];           # extra tools on PATH
@@ -269,7 +268,7 @@ experiments.${system}.blocks = nix-lab.lib.mkExperiment pkgs {
 
 `packages.<system>.lab-py` is the `lab` module alone, with no dependencies, ready
 to put in any Python environment.
-You can also produce `experiment.json` yourself (see nix-deploy's README); the
+You can also produce `experiment.json` yourself (see nixsci.deploy's README); the
 wrapper is a convenience, not a requirement.
 
 ## Environment of a run

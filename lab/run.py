@@ -109,7 +109,7 @@ class Run:
         if not self.app:
             raise ValueError("give app=..., or a spec with an [experiment] name")
         self.name, self.seed, self.params = name, seed, dict(params or {})
-        # root=None: the nix-lab store (see lab.home), so no directory has to be named
+        # root=None: the nixsci.lab store (see lab.home), so no directory has to be named
         self.directory = (Path(root) if root is not None else home.runs_dir()) / self.app / name
         self.started = _utc()
         self._saved: dict[str, str | None] | None = None

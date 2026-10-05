@@ -1,4 +1,4 @@
-"""lab.record(...): write experimental data where nix-lab will collect it.
+"""lab.record(...): write experimental data where nixsci.lab will collect it.
 
 from nixsci import lab
 lab.record("loss", 0.25, epoch=3)

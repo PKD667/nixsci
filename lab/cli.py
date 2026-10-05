@@ -31,7 +31,7 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("plan", help="print the jobs a spec expands to")
     p.add_argument("spec")
-    r = sub.add_parser("run", help="run what is missing (needs nix-lab[deploy])")
+    r = sub.add_parser("run", help="run what is missing")
     r.add_argument("spec")
     r.add_argument("--out", help="runs directory (default: the store)")
     r.add_argument("--again", action="store_true", help="add one more replicate per input")

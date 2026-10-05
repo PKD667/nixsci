@@ -1,4 +1,4 @@
-//! Record experiment data in the nix-lab format (see `SPEC.md`), from Rust.
+//! Record experiment data in the nixsci.lab format (see `SPEC.md`), from Rust.
 //!
 //! ```no_run
 //! lab::record("loss", &serde_json::json!({"epoch": 3, "value": 0.25}))?;

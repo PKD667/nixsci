@@ -1,6 +1,6 @@
-# nix-lab design notes
+# lab design notes
 
-Why nix-lab is shaped the way it is, what the literature and existing tools say, and what was
+Why nixsci.lab is shaped the way it is, what the literature and existing tools say, and what was
 deliberately not done. Written before the storage and verification layers were built, so a
 later rework can start from the reasons instead of rediscovering them.
 
@@ -18,7 +18,7 @@ later rework can start from the reasons instead of rediscovering them.
 ## Terms (ACM artifact review and badging)
 
 *Repeatability*: same team, same setup. *Reproducibility*: different team, same setup (the
-authors' own artifacts). *Replicability*: different team, different setup. nix-lab can promise
+authors' own artifacts). *Replicability*: different team, different setup. nixsci.lab can promise
 the first two for a published result: the code and environment are pinned (Nix), the inputs are
 recorded, and `verify` re-measures. Replicability is the scientific claim itself and is outside
 any tool. [ACM policy](https://www.acm.org/publications/policies/artifact-review-and-badging-current);
@@ -37,7 +37,7 @@ HPC-focused survey: [arXiv:2402.07530](https://arxiv.org/pdf/2402.07530).
 | **Workflow Run RO-Crate** ([arXiv:2312.07852](https://arxiv.org/abs/2312.07852)) | machine-actionable, PROV-aligned record of a run, including re-execution | **Planned**: export a run as a crate. The manifest stays minimal and maps onto it; we do not replace it. |
 | **Popper / Aver** ([convention](http://alumni.soe.ucsc.edu/~msevilla/papers/jimenez-ipdpsw17.pdf), [validation](https://dl.acm.org/doi/10.1145/3184407.3184422)) | experiment as a DevOps project; declarative assertions that a *claim* holds on every re-execution | **Taken** as the answer for noisy results: verify claims, not rows (see below). |
 | **Hoefler & Belli** ([SC15](https://dl.acm.org/doi/10.1145/2807591.2807644)) | report whether data is deterministic; confidence intervals for non-deterministic data; document the setup | **Taken**: `noisy` columns, `replicates`, the machine record. |
-| **Hunold & Carpen-Amarie** ([MPI benchmarking](https://arxiv.org/pdf/1505.07734)) | MPI timings need careful experimental design and enough measurements | Informs `replicates`; the measurement design itself belongs to the experiment, not to nix-lab. |
+| **Hunold & Carpen-Amarie** ([MPI benchmarking](https://arxiv.org/pdf/1505.07734)) | MPI timings need careful experimental design and enough measurements | Informs `replicates`; the measurement design itself belongs to the experiment, not to nixsci.lab. |
 
 ## Decisions
 

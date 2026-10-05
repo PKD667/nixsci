@@ -1,7 +1,6 @@
 """Resolve once, fan jobs out over leased hosts, collect records.
 
-Needs the optional `nix-deploy` package (`pip install nix-lab[deploy]`); the
-record side of nix-lab (`from nixsci import lab`, loading and querying runs) does not.
+The record side of nixsci.lab (`from nixsci import lab`, loading and querying runs) imports none of this.
 """
 
 from __future__ import annotations
@@ -26,10 +25,8 @@ def _utc() -> str:
 
 
 def _deploy():
-    try:
-        from nixsci.deploy import factory, providers, resolver
-    except ImportError as error:
-        raise SystemExit("running experiments needs nix-deploy: install nix-lab[deploy]") from error
+    from nixsci.deploy import factory, providers, resolver
+
     return factory, providers, resolver
 
 

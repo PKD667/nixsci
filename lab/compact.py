@@ -3,7 +3,7 @@
     <out>/<app>/<dataset>/<run id>.parquet
 
 Columns are the dataset's declared columns plus `run`, `seed` and `time`.
-Needs pyarrow (`nix-lab[arrow]`).
+Needs pyarrow (`nixsci[arrow]`).
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ def compact(runs_root: str | Path, out: str | Path, *, force: bool = False) -> l
         import pyarrow as pa
         import pyarrow.parquet as pq
     except ImportError as error:
-        raise SystemExit("compaction needs pyarrow: install nix-lab[arrow]") from error
+        raise SystemExit("compaction needs pyarrow: install nixsci[arrow]") from error
     runs_root, out = Path(runs_root), Path(out)
     written = []
     for directory, manifest in _manifests(runs_root):

@@ -1,4 +1,4 @@
-# nix-deploy
+# deploy
 
 Run an immutable Nix experiment on any machine, with one contract everywhere.
 
@@ -7,9 +7,9 @@ You give it a flake reference and an experiment name. It builds
 to a target, runs it there, and gives you a handle to watch it, read its files,
 tunnel to its ports and stop it. Where the machines come from (your laptop, ssh
 hosts you already have, a site-specific broker) is a separate, pluggable question:
-a *provider*. nix-deploy contains **no scheduler code**: reserving machines
+a *provider*. nixsci.deploy contains **no scheduler code**: reserving machines
 (OAR, Slurm, a cloud API...) is somebody else's job, done by hand, by a project's
-own script, or by a provider plugin. nix-deploy starts at "here are hosts I can ssh to".
+own script, or by a provider plugin. nixsci.deploy starts at "here are hosts I can ssh to".
 
 It is meant to be the only way experiments are deployed. If a project has its
 own artifact builder, ssh launcher or reservation script, the goal is to delete
@@ -46,7 +46,7 @@ A flake exposes `experiments.<system>.<name>`, a derivation whose root holds
   "env": { "KEY": "value" },
   "resources": { "driver": null, "profile": null },
   "inputs": {},
-  "metadata": { "anything": "opaque to nix-deploy" }
+  "metadata": { "anything": "opaque to nixsci.deploy" }
 }
 ```
 
@@ -60,7 +60,7 @@ remote ref). A dirty tree is refused rather than copied.
 ## What a job sees
 
 Only the environment you declare, plus `PATH` set to the host's standard tool
-directories (the closure should bring everything else). nix-deploy adds:
+directories (the closure should bring everything else). nixsci.deploy adds:
 
 | variable | meaning |
 |---|---|
@@ -101,7 +101,7 @@ A machine-wide file, `/etc/nix-deploy/providers.toml`, has the same format and
 fills in names the user's own file does not set; the user's file wins.
 
 **The shipped Nix is a flake reference.** Hosts that have no Nix get a static `nix` binary.
-`bootstrap` is a flake reference (default `nixpkgs#nixStatic`): nix-deploy builds it on the
+`bootstrap` is a flake reference (default `nixpkgs#nixStatic`): nixsci.deploy builds it on the
 controller, hashes it itself, and the flake lock is what pins it. A plain file path still
 works, but then it must come with its `bootstrap_sha256`.
 
@@ -191,7 +191,7 @@ store view.
 ## Writing a provider or backend
 
 Both are plain classes found through Python entry points, so site-specific code
-lives in its own package and nix-deploy never names it:
+lives in its own package and nixsci.deploy never names it:
 
 ```toml
 [project.entry-points."nixsci.deploy.providers"]
@@ -248,4 +248,4 @@ Limits to know: the ssh backend needs unprivileged user namespaces on the target
 (`nix --store` with a local root; present on Grid'5000 nodes); a bare static Nix has no
 config, so every invocation passes `--extra-experimental-features nix-command` itself;
 `x86_64-linux` and `aarch64-linux` only; GPU toolchains are the experiment's business,
-not nix-deploy's.
+not nixsci.deploy's.

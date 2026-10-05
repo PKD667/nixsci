@@ -1,4 +1,4 @@
-"""Where nix-lab keeps data: one store per machine, never inside a project.
+"""Where nixsci.lab keeps data: one store per machine, never inside a project.
 
     $NIX_LAB_STORE, else $XDG_DATA_HOME/nix-lab, else ~/.local/share/nix-lab
         runs/<app>/<run>/        immutable, sealed runs (what `lab.Run` and `nixsci lab run` write)

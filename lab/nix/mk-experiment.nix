@@ -1,4 +1,4 @@
-# Produces a derivation shaped for nix-deploy: experiment.json at the root, a
+# Produces a derivation shaped for nixsci.deploy: experiment.json at the root, a
 # `bin/run` wrapper that provisions $NIX_LAB_DIR, runs the program, forwards
 # SIGTERM, and records status.json however the program was written.
 { pkgs }:
