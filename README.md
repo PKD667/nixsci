@@ -89,6 +89,9 @@ bootstrap_sha256 = "<sha256 of that file>"
 On a server with a shared-credential broker, the same name can instead say
 `use = "<installed plugin>"`. Code above the provider layer does not change.
 
+A machine-wide file, `/etc/nix-deploy/providers.toml`, has the same format and
+fills in names the user's own file does not set; the user's file wins.
+
 Generic resources are the same for every provider: `hosts`, `gpus`, `walltime`
 (minutes), `system`. **Everything provider-specific goes in `opts`**, and each
 provider rejects options it does not know. Putting `site` among the generic
