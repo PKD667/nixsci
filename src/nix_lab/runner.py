@@ -51,7 +51,18 @@ def run(
         def one(job: Job) -> dict[str, Any]:
             name = names[job.index % len(names)]
             return _run_job(
-                spec, job, name, configs, closures, factory, out_root, stamp, poll, timeout, log
+                spec,
+                job,
+                name,
+                configs,
+                closures,
+                factory,
+                out_root,
+                stamp,
+                poll,
+                timeout,
+                log,
+                lease.expires,
             )
 
         with ThreadPoolExecutor(max_workers=len(names)) as pool:
@@ -60,7 +71,9 @@ def run(
         lease.release()
 
 
-def _run_job(spec, job, name, configs, closures, factory, out_root, stamp, poll, timeout, log):
+def _run_job(
+    spec, job, name, configs, closures, factory, out_root, stamp, poll, timeout, log, deadline=None
+):
     seedpart = f"-s{job.seed}" if job.seed is not None else ""
     run_id = f"{spec.name}-{stamp}-{job.index:03d}{seedpart}"
     be = factory.backend(name, configs)
@@ -74,6 +87,9 @@ def _run_job(spec, job, name, configs, closures, factory, out_root, stamp, poll,
         env["NIX_LAB_KEYS"] = json.dumps(spec.keys, sort_keys=True)
     started = _utc()
     be.stage(closure)
+    if deadline:
+        env["NIX_DEPLOY_DEADLINE"] = str(int(deadline))
+        timeout = min(timeout, max(0.0, deadline - time.time()))
     handle = be.launch(closure, run_id=run_id, env=env)
     log(f"[{run_id}] launched on {name}")
     deadline = time.monotonic() + timeout
