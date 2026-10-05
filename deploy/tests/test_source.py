@@ -36,18 +36,18 @@ class DirtyGuard(unittest.TestCase):
 
     def test_dirty_files_are_refused_unless_explicitly_ignored(self):
         root = self.repo()
-        (root / "demo.lab.lock").write_text("x\n")
+        (root / "demo.out").write_text("x\n")
         with self.assertRaises(RuntimeError):
             nix.capture_source("nix", str(root))
-        source, _ = nix.capture_source("nix", str(root), ignore=("*.lab.lock",))
+        source, _ = nix.capture_source("nix", str(root), ignore=("*.out",))
         self.assertEqual(source["origin"]["type"], "git")
 
     def test_ignoring_one_pattern_does_not_excuse_other_dirt(self):
         root = self.repo()
-        (root / "demo.lab.lock").write_text("x\n")
+        (root / "demo.out").write_text("x\n")
         (root / "flake.nix").write_text("{ outputs = { self }: { x = 2; }; }\n")
         with self.assertRaises(RuntimeError):
-            nix.capture_source("nix", str(root), ignore=("*.lab.lock",))
+            nix.capture_source("nix", str(root), ignore=("*.out",))
 
 
 if __name__ == "__main__":

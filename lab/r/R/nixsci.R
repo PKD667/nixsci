@@ -1,14 +1,14 @@
 view_root <- function() {
   view <- Sys.getenv("NIX_LAB_VIEW")
   if (!nzchar(view)) {
-    stop("not inside `nixsci lab analyze`: NIX_LAB_VIEW is not set", call. = FALSE)
+    stop("not inside a nixsci analysis: NIX_LAB_VIEW is not set", call. = FALSE)
   }
   view
 }
 
 dirs_in <- function(path) list.dirs(path, recursive = FALSE, full.names = FALSE)
 
-#' Open one alias declared under [use] in the analysis spec.
+#' Open one alias declared under `use` in the analysis.
 #'
 #' The only way to reach data: an alias that the spec did not declare is an error, so a script
 #' reads nothing its spec does not name. `alias$dataset` is a lazy Arrow dataset over exactly the
@@ -76,6 +76,6 @@ params <- function(x) {
 #' A path inside this pipeline's output directory.
 out <- function(...) {
   root <- Sys.getenv("NIX_LAB_OUT")
-  if (!nzchar(root)) stop("not inside `nixsci lab analyze`: NIX_LAB_OUT is not set", call. = FALSE)
+  if (!nzchar(root)) stop("not inside a nixsci analysis: NIX_LAB_OUT is not set", call. = FALSE)
   file.path(root, ...)
 }

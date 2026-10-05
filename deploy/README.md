@@ -114,7 +114,7 @@ different values.
 
 **Walltime.** `walltime` (minutes) is a generic resource. When given, the lease
 records when it ends: `nixsci deploy run` refuses an expired lease, jobs get
-`NIX_DEPLOY_DEADLINE`, and `nixsci lab run` stops waiting for jobs at the deadline.
+`NIX_DEPLOY_DEADLINE`, and the lab executor stops waiting for jobs at the deadline.
 
 Generic resources are the same for every provider: `hosts`, `gpus`, `walltime`
 (minutes), `system`. **Everything provider-specific goes in `opts`**, and each

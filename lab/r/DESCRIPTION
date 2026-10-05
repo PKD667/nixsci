@@ -1,7 +1,7 @@
 Package: nixsci
 Title: Read the data an nixsci analysis declared with use
 Version: 0.1.0
-Description: An analysis script sees only the data its spec lists under [use]. use() opens one alias; its datasets are Arrow datasets over exactly the locked runs.
+Description: An analysis script sees only the data its spec lists under `use`. use() opens one alias; its datasets are Arrow datasets over exactly the locked runs.
 License: MIT
 Encoding: UTF-8
 Imports: arrow, jsonlite

@@ -1,12 +1,42 @@
 # lab
 
-Experiment records and run specs. An experiment, in any language, records what
-it measured in one line. Runs are described in TOML, expanded into seeds and
-parameter sweeps, executed on any host, and their records come back next to a
-manifest saying exactly which code produced them.
+Experiments and analyses as Nix values. An experiment, in any language, records what it measured in one line. Nix describes the experiment (seeds, sweeps, declared data) and builds everything pure: the compaction of records into Parquet and the R analyses are derivations over the finished runs, built in the sandbox. Python only executes: it runs the jobs on hosts and adds each finished run to the Nix store.
 
-The record side has no dependencies. Running experiments remotely uses
-[`nixsci.deploy`](../deploy/README.md); `nixsci.lab` never reimplements deployment.
+The record side has no dependencies. Running on hosts uses [`nixsci.deploy`](../deploy/README.md); `nixsci.lab` never reimplements deployment.
+
+## The pipeline
+
+```
+nix run .#demo            impure, Python: run the jobs, seal each run, add it to the Nix store,
+                          list it in lab.lock.json                      (commit that file)
+nix build .#demo-curves   pure, Nix: compact each run to Parquet, build a view of the runs the
+                          lock names, run the R pipelines in the sandbox
+```
+
+Everything pure is cached by Nix. A new run compacts once, and only the analyses that use it rebuild. The derivation graph of a result is its provenance: `nix-store -qR $(nix path-info --derivation .#demo-curves)` lists the runs it was built from.
+
+## Describing an experiment
+
+In the project's flake:
+
+```nix
+let lab = nixsci.lib.lab { inherit pkgs; project = self; }; in {
+  lab.${system}.experiments.demo = lab.experiment {
+    name = "demo";
+    closures.${system} = self.experiments.${system}.demo;   # what to run, built by Nix
+    seeds = [ 0 1 ];                                        # one job per seed
+    sweep.epsilon = [ 0.1 0.3 ];                            # every combination is a job
+    params.size = 32;                                       # fixed, visible to lab.params()
+    resources = { provider = "g5k"; hosts = 2; walltime = 120; opts.queue = "besteffort"; };
+    data.loss.columns = { epoch = "int"; value = "float"; split = "str?"; };   # ? = may be null
+  };
+  apps.${system}.demo = self.lab.${system}.experiments.demo.run;
+}
+```
+
+`closures` maps each system you deploy to a built experiment; `systems` (default: this machine's) names which of them to build. `resources.provider` is a name from `~/.config/nix-deploy/providers.toml`, and provider-specific settings go only under `resources.opts`. Unknown fields and a malformed name are evaluation errors.
+
+`nix run .#demo` resolves nothing at run time: Nix already built the closures. The executor leases hosts, spreads the jobs over them, waits, fetches each run's `lab/` directory, writes its `manifest.json` (state `ok`, `failed` or `incomplete`, seed, parameters, target, times, the flake's source identity and the closure path), adds the run directory to the Nix store and lists it in `lab.lock.json`. Flakes only see git-tracked files, so `git add lab.lock.json`.
 
 ## Recording (inside an experiment)
 
@@ -19,69 +49,17 @@ lab.params()                              # this run's parameters (dict)
 lab.seed()                                # this run's seed (int or None)
 ```
 
-Values are JSON only. There is no pickle: anything else is stored as an artifact
-with a media type, so any language can read it back. Records are appended to
-`$NIX_LAB_DIR/records.jsonl`; large payloads go to `$NIX_LAB_DIR/artifacts/<sha256>`.
-The exact on-disk format is [SPEC.md](SPEC.md). It is the contract: a writer in
-another language (Rust, R, OCaml...) only has to produce that format, and nothing
-else in the system changes.
-
-Reading back:
+Values are JSON only. There is no pickle: anything else is stored as an artifact with a media type, so any language can read it back. Records are appended to `$NIX_LAB_DIR/records.jsonl`; large payloads go to `$NIX_LAB_DIR/artifacts/<sha256>`. The exact format is [SPEC.md](SPEC.md). It is the contract: a writer in another language only has to produce that format.
 
 ```python
-from nixsci import lab
-rows = lab.load("runs/blocks/blocks-20261005T...-000-s0")      # records of one run
-lab.artifact(run_dir, rows[3])                                 # bytes of an artifact record
-lab.runs("runs", app="blocks", seed=1, params__epsilon=0.3)    # find run directories by manifest fields
+rows = lab.load("path/to/a/run")                                # records of one run
+lab.artifact(run_dir, rows[3])                                  # bytes of an artifact record
+lab.runs(".nixsci/runs", app="demo", seed=1, params__epsilon=0.3)   # find run directories by manifest fields
 ```
-
-## Describing runs
-
-`experiments/blocks.toml`:
-
-```toml
-[experiment]
-name  = "blocks"           # also the default flake attribute
-flake = "."                # flake with experiments.<system>.<attr>
-attr  = "blocks"
-seeds = [0, 1]             # one run per seed
-
-[params]                   # fixed parameters, visible via lab.params()
-size = 32
-
-[sweep]                    # every combination becomes a run
-epsilon = [0.1, 0.3]
-
-[resources]                # generic; same meaning for every provider
-provider = "g5k"           # a name from ~/.config/nix-deploy/providers.toml
-hosts = 2
-walltime = 120             # minutes
-
-[resources.opts]           # provider-specific settings, and only here
-queue = "besteffort"
-```
-
-```sh
-nixsci lab plan experiments/blocks.toml          # list the jobs this expands to
-nixsci lab run  experiments/blocks.toml --out runs
-```
-
-`run` resolves the flake once, leases hosts from the provider, spreads the jobs
-over them, waits, fetches each run's `lab/` directory and writes
-`runs/<name>/<run>/manifest.json` (state `ok` / `failed` / `incomplete`, seed,
-params, target, start/end times, flake source identity and closure path).
-Unknown tables in the TOML, and provider settings placed outside `[resources.opts]`,
-are errors.
 
 ## Typed datasets
 
-Declare a dataset's columns in the spec and `lab.record` checks every row against
-them, at record time, in the run itself:
-
-```toml
-[data.loss]
-columns = { epoch = "int", value = "float", split = "str?" }   # ? = may be null
-```
+`data.<name>.columns` declares a dataset, and `lab.record` checks every row against it, at record time, in the run itself:
 
 ```python
 lab.record("loss", {"epoch": 3, "value": 0.25, "split": None})   # ok
@@ -89,104 +67,71 @@ lab.record("loss", {"epoch": 3.5, "value": 0.25, "split": "a"})  # TypeError, no
 lab.record("lossy", {...})                                       # ValueError: not declared
 ```
 
-Add `key = ["epoch", "split"]` to a dataset and each key may appear once per run: a second
-row with the same key is refused at record time, and `compact` re-checks the whole run (a
-restarted process would not remember). Key columns must be declared and not nullable.
-
-Types are `int`, `float`, `str`, `bool`. A row must carry exactly the declared
-columns (`run`, `seed` and `time` are reserved: nixsci.lab adds them). Once a spec
-declares datasets, JSON values must be rows of a declared dataset; arrays, bytes
-and files still record freely as artifacts. The schema travels to the run in
-`NIX_LAB_SCHEMA` (keys in `NIX_LAB_KEYS`) and is copied into each run's `manifest.json`.
+Add `key = [ "epoch" "split" ];` to a dataset and each key may appear once per run: a second row with the same key is refused at record time, and compaction re-checks the whole run. Key columns must be declared and not nullable. Types are `int`, `float`, `str`, `bool`. A row carries exactly the declared columns (`run`, `seed` and `time` are reserved: nixsci.lab adds them). The schema travels to the run in `NIX_LAB_SCHEMA` (keys in `NIX_LAB_KEYS`) and is copied into the run's `manifest.json`.
 
 ## Recording a run by hand
 
-A script that is not launched by `nixsci lab run` (a measurement you start yourself, a long
-service) records through `lab.Run`. It creates `<root>/<app>/<name>/`, applies the spec's
-declared datasets and keys to `lab.record`, and writes `manifest.json` when the block ends
-(`ok`, or `failed` if it raised), so `compact` and `analyze` treat it like any other run:
+A script that the executor does not launch (a measurement you start yourself, a long service) records through `lab.Run`. Point it at the spec file Nix wrote: `nix build .#lab.<system>.experiments.demo.specFile`. It creates `<root>/<app>/<name>/`, applies the declared datasets and keys, and writes `manifest.json` when the block ends (`ok`, or `failed` if it raised):
 
 ```python
-from nixsci import lab
-
-with lab.Run("runs", lab.run_name("meas", seed=3), spec="measure.toml", seed=3,
+with lab.Run(None, lab.run_name("meas", seed=3), spec="result/demo-spec.json", seed=3,
              params={"workers": 62}) as run:
-    run.record("size", {"n": 1000, "seconds": 1.5})     # same as lab.record inside the block
+    run.record("size", {"n": 1000, "seconds": 1.5})
 ```
 
-`app` defaults to the spec's `[experiment] name` (or pass `app=`). The environment variables
-`lab.record` reads are set for the block and restored afterwards. The manifest layout is in
-`SPEC.md`; nothing else needs to be written by hand.
+`root=None` means `<project>/.nixsci/runs`. Then `nixsci lab add <run directory>` adds the run to the Nix store and `lab.lock.json`, which makes it visible to analyses like any other run.
 
-## Where the data lives
+## Where files live
 
-Outputs belong to the project and are not shared. A project is the nearest directory with a `.git`,
-searched from the spec or the working directory upwards, or else the directory of the spec. Its
-outputs live in `<project>/.nixsci/`, which ignores itself in git: `runs/` (immutable, sealed),
-`data/` (Parquet, rebuildable) and `analysis/` (pipeline outputs, rebuildable). `$NIXSCI_STORE` or
-`--store` puts them somewhere else. Nothing needs a directory argument: `lab.Run(None, name,
-spec=...)`, `nixsci lab run`, `compact` and `analyze` all default to it, and `nixsci lab ls` shows
-what is in it. Inputs are the exception: see [Inputs](#inputs-datasets-and-models).
+Runs are staged in `<project>/.nixsci/runs/<app>/<run>/`. A project is the nearest directory with a `.git`; the directory ignores itself in git, and `$NIXSCI_STORE` moves it. The runs that count are in the Nix store, named by `lab.lock.json`. Move them between machines with Nix:
 
 ```sh
-nixsci lab build experiments/demo.toml            # experiment: run what is missing -> compact -> lock
-nixsci lab build experiments/demo-analysis.toml   # analysis: run its pipelines over the locked data -> lock
+nixsci lab push ssh-ng://host      # nix copy the locked runs to a store
+nixsci lab pull ssh-ng://host      # fetch the locked runs from a store
 ```
 
-`build` is incremental: finished inputs are skipped, compacted runs are not rewritten, unchanged
-pipelines are not rerun. It writes `<spec>.lab.lock` beside the spec. **Commit that file.** An
-experiment's lock lists its finished runs (manifest and records hashes, closure, source, machine).
-An analysis' lock pins the experiment locks it uses by hash, lists their runs, and holds each
-pipeline's output hashes -- a few KB of hashes, no data. These locks are the project's
-reproducibility claim.
-
-```sh
-nixsci lab check experiments/demo.toml                 # does this machine's store match the lock?
-nixsci lab push  me@host:/srv/lab experiments/demo.toml   # send the locked runs and outputs
-nixsci lab pull  me@host:/srv/lab experiments/demo.toml   # fetch what is missing, verify by hash
-```
-
-A *remote* is any directory with the store layout, local or over ssh; there is no server. Runs
-are immutable, so they are copied once; everything is checked against the lock afterwards. On a
-fresh machine: clone the project, `nixsci lab pull <remote> <spec>`, then `nixsci lab check`.
+Evaluating an analysis on a machine that lacks a locked run fails with that path's name: pull it first. Nix checks every path against the hash in the lock.
 
 ## Replicates, identity and reproducing a run
 
-A run is identified by its **inputs**: the experiment closure (so the code and every dependency),
-the parameters, the seed and the declared schema. Runs with the same inputs are *replicates*.
+A run is identified by its **inputs**: the experiment closure (the code and every dependency), the parameters, the seed and the declared schema. Runs with the same inputs are *replicates*. `replicates = 3;` asks for at least three finished runs per input, and a dataset's `noisy.seconds = 0.25;` lets that column differ by up to 25% between replicates; other columns must match.
 
-```toml
-[experiment]
-replicates = 3          # at least 3 finished runs per input (default 1)
+- `nix run .#demo` is **idempotent and resumable**: inputs that already have enough finished replicates are skipped, so a preempted sweep continues where it stopped, and changed code (a new closure) is a new input. `nix run .#demo -- --again` adds one more replicate.
+- Every run is **sealed**: its manifest holds the SHA-256 of `records.jsonl` and of the spec (a copy is stored as `spec.json`), the source identity Nix reports, the closure, and the machine (hostname, kernel, CPU, cores, memory). Compaction refuses a run whose records changed afterwards, and so does the Nix hash in the lock.
+- `nixsci lab repro <run>` prints everything needed to run that measurement again.
+- `nixsci lab verify <run>` runs one new replicate from the closure the run used and compares the datasets. Exact columns must match; `noisy` columns must agree within their tolerance. It exits 0 only if they do.
 
-[data.size]
-columns = { n = "int", seconds = "float" }
-key = ["n"]
-noisy = { seconds = 0.25 }   # seconds may differ by up to 25% between replicates; others must match
+nixsci.lab does not promise identical bytes: a measurement with an uncontrolled component (MPI timing, a shared cluster) is a random variable. What it guarantees is exact *provenance* and honest *re-measurement*. [DESIGN.md](DESIGN.md) gives the reasoning and the literature.
+
+## Analyses
+
+An analysis is a derivation. It never measures and an experiment never aggregates:
+
+```nix
+lab.${system}.analyses.demo-curves = lab.analysis {
+  name = "demo-curves";
+  use.demo = experiments.demo;                 # alias = an experiment; its locked runs are the input
+  pipelines.curve.script = ./demo.R;           # a path: the script is hashed with the build
+};
+packages.${system}.demo-curves = self.lab.${system}.analyses.demo-curves;
 ```
 
-- `nixsci lab run` is **idempotent and resumable**: inputs that already have enough finished
-  replicates are skipped, so a preempted sweep continues where it stopped, and changed code (a new
-  closure) is a new input. `nixsci lab run --again` adds one more replicate.
-- Every run is **sealed**: its manifest holds the SHA-256 of `records.jsonl`, of the spec (a copy is
-  stored as `spec.toml`), the source as locked (git rev, narHash), the closure, and the machine
-  (hostname, kernel, CPU, cores, memory). `compact` refuses a run whose records changed afterwards.
-- `nixsci lab repro <run>` prints everything needed to run that measurement again (the flake as a
-  locked reference, parameters, seed, expected hash, machine).
-- `nixsci lab verify <run>` rebuilds the code from the locked source, runs one new replicate and
-  compares the datasets. Exact columns must match; `noisy` columns must agree within their
-  tolerance. It exits 0 only if they do.
+`nix build .#demo-curves` compacts each locked run to typed Parquet (`<dataset>/<run id>.parquet` with the declared columns plus `run`, `seed` and `time`), links exactly those files into a view, and runs each script with `Rscript` in the sandbox with `NIX_LAB_VIEW` (the view) and `NIX_LAB_OUT` (the pipeline's output directory, which becomes the result). The sandbox has no network and no other runs: a script cannot read what it did not `use`, and it cannot fetch anything. Constitute outside data into a dataset first, then use it by hash.
 
-nixsci.lab does not promise identical bytes: a measurement with an uncontrolled component (MPI timing,
-a shared cluster) is a random variable. What it guarantees is exact *provenance* and honest
-*re-measurement*. See `DESIGN.md` for the reasoning and the literature behind it.
+The `nixsci` R package reads the view and has no function that reads anything else:
+
+```r
+library(dplyr); library(nixsci)
+demo <- use("demo")             # an alias declared under `use`; any other name is an error
+loss <- demo$loss |> collect()  # lazy Arrow dataset over the locked runs only
+runs(demo)                      # one row per locked run; `params` is a list column
+params(demo)                    # run plus one column per parameter
+write.csv(summary, out("final.csv"))
+```
 
 ## Inputs: datasets and models
 
-Reference. Inputs are the data an experiment reads and the models it loads. They live in an input
-store, which is meant to be shared: the default is `~/.nixsci`, `$NIXSCI_INPUTS` or `--inputs`
-moves it, and a grid whose nodes share storage points it there, so the data is stored once for the
-whole grid and read in place.
+Reference. Inputs are the data an experiment reads and the models it loads. They live in an input store, which is meant to be shared: the default is `~/.nixsci`, `$NIXSCI_INPUTS` or `--inputs` moves it, and a grid whose nodes share storage points it there, so the data is stored once for the whole grid and read in place.
 
 ```sh
 nixsci lab data import dataset shd shd.parquet --unit time=s --source https://example.org/shd
@@ -203,70 +148,7 @@ nixsci lab data path shd            # where the files are
 | `dataset` | One Parquet table. | The file: columns, types, row count. You add units and sources. |
 | `model` | One file. | You add its inputs and outputs. |
 
-What an import could not learn is listed as `gaps` and never guessed.
-
-Each revision records the hash of its parent, and its number is its depth in that chain. No
-allocator hands out numbers, so several machines can write to one store without locks. A bare name
-means the tip. If two revisions extend the same parent, they carry the same number, and a reference
-that cannot tell them apart fails and lists them; pin one with `name#<hash>`. Importing what the tip
-already holds changes nothing. Layout, all written once and named by hash: `blobs/<sha256>`,
-`manifests/<sha256>.json`, `names/<name>/<sha256>`.
-
-## Compaction and analysis
-
-```sh
-nixsci lab compact runs --out data             # needs pyarrow (the nixsci.lab package has it)
-nixsci lab analyze experiments/demo-analysis.toml --runs runs --data data --out analysis
-```
-
-`compact` writes each finished run's declared datasets as typed Parquet,
-`data/<app>/<dataset>/<run id>.parquet`, with the declared columns plus `run`,
-`seed` and `time`. Runs that did not end `ok` are skipped.
-
-Analysis is R, and it is a spec of its own: an analysis never measures and an experiment never
-aggregates. An analysis names under `[use]` the experiments it reads, and holds the pipelines:
-
-```toml
-# experiments/demo-analysis.toml
-[analysis]
-name = "demo-curves"
-
-[use]
-demo = "demo.toml"           # alias = the experiment spec whose locked runs this reads
-
-[pipeline.curve]
-script = "demo.R"            # path relative to the spec
-deps = ["helpers.R"]         # other files the script uses (hashed with it)
-```
-
-An alias resolves through the experiment's `demo.lab.lock`: the analysis sees exactly the locked
-runs, never a replicate or a half-finished sweep that arrived later. `analyze` stops, before R
-starts, if the store does not hold what the lock names (`nixsci lab pull`, or `build` the
-experiment). It then builds a *view*, a directory of symlinks to only those runs' Parquet files, and
-runs the script with `NIX_LAB_VIEW` (the view) and `NIX_LAB_OUT` (`<out>/<pipeline>/`). No variable
-names the store. The `nixsci` R package reads the view and has no function that reads anything else:
-
-```r
-library(dplyr); library(nixsci)
-demo <- use("demo")             # an alias declared under [use]; any other name is an error
-loss <- demo$loss |> collect()  # lazy Arrow dataset over the locked runs only
-runs(demo)                      # one row per locked run; `params` is a list column
-params(demo)                    # run plus one column per parameter
-write.csv(summary, out("final.csv"))
-```
-
-A pipeline whose last run succeeded is skipped (`up to date`) while its script, its `deps` files
-and its locked input runs (with their manifest hashes) are unchanged; `--force` reruns.
-
-After each pipeline a `provenance.json` is written beside its outputs: the script and its hash,
-every input run with the hash of its manifest, the experiment locks they came through, the R
-version, the exit code. A figure or table can therefore say exactly which runs and which code
-produced it. For pinned R packages run inside the flake's R environment (`nix build .#r-env`, then
-`NIX_LAB_RSCRIPT=<out>/bin/Rscript`, or put it on `PATH`). `examples/demo.{toml,py,R}` and
-`examples/demo-analysis.toml` are a complete worked example.
-
-"Declared" holds by construction, not by sandbox: a script that guesses an absolute path into the
-store can still read it.
+What an import could not learn is listed as `gaps` and never guessed. Each revision records the hash of its parent, and its number is its depth in that chain. A bare name means the tip. If two revisions extend the same parent, a reference that cannot tell them apart fails and lists them; pin one with `name#<hash>`. This store is being replaced by datasets and models as Nix store objects, so that analyses can `use` them like runs.
 
 ## Recording from Rust
 
@@ -278,17 +160,11 @@ lab::record_bytes("weights", &bytes, "application/octet-stream")?;
 let epsilon = lab::params()["epsilon"].as_f64();   // lab::seed() -> Option<i64>
 ```
 
-It enforces the same declared columns and keys as the Python module. The crate lives in
-`rust/lab`: use it as a path dependency (`lab = { path = "../nixsci/lab/rust/lab" }`) or vendor it.
-`tests/test_rust.py` builds
-nothing itself: point `NIX_LAB_RUST_EMIT` at `cargo build --example emit` and Python checks that
-it can read and validate what Rust wrote. A recorder in another language only has to follow
-`SPEC.md`.
+It enforces the same declared columns and keys as the Python module. Use it as a path dependency (`lab = { path = "../nixsci/lab/rust/lab" }`) or vendor it. `tests/test_rust.py` builds nothing itself: point `NIX_LAB_RUST_EMIT` at `cargo build --example emit` and Python checks that it can read what Rust wrote. A recorder in another language only has to follow `SPEC.md`.
 
 ## Making a flake experiment
 
-`lib.mkExperiment` wraps a program so it gets a record directory, forwards
-SIGTERM, and always writes `status.json`:
+`lib.mkExperiment` wraps a program so it gets a record directory, forwards SIGTERM, and always writes `status.json`:
 
 ```nix
 experiments.${system}.blocks = nixsci.lib.mkExperiment pkgs {
@@ -299,27 +175,14 @@ experiments.${system}.blocks = nixsci.lib.mkExperiment pkgs {
 };
 ```
 
-`packages.<system>.lab-py` is the `lab` module alone, with no dependencies, ready
-to put in any Python environment.
-You can also produce `experiment.json` yourself (see nixsci.deploy's README); the
-wrapper is a convenience, not a requirement.
+`packages.<system>.lab-py` is the `lab` module alone, with no dependencies, ready to put in any Python environment.
 
 ## Environment of a run
 
-`NIX_LAB_DIR` (record directory), `NIX_LAB_RUN` (run id), `NIX_LAB_SEED`,
-`NIX_LAB_PARAMS` (JSON). They are set for you by `nixsci lab run`.
+`NIX_LAB_DIR` (record directory), `NIX_LAB_RUN` (run id), `NIX_LAB_SEED`, `NIX_LAB_PARAMS` (JSON). The executor sets them.
 
 ## Status
 
-Verified on camarade with the demo experiment: `nixsci lab build` (experiment: run -> compact -> lock; analysis: pipelines -> lock)
-from an empty store, a second `build` that does nothing, `repro` and `verify` (rebuild from the
-locked git revision, run a replicate, compare 5 rows against 5), `push` to a directory and `pull`
-into an empty store ending in `store matches the lock`. 35 unit tests cover identity and
-replicates, sealing and tamper detection, noisy-column comparison, the lock, and push/pull.
+Verified on camarade with the demo: `nix run .#demo` runs four jobs and adds four runs to the Nix store and the lock; `nix build .#demo-curves` compacts them and runs R in the sandbox; a second build builds nothing; a pipeline that lists `/nix/store` sees no raw run and no network.
 
-Not built yet: claim checks in `verify` (an analysis pipeline that fails when a claim fails is
-already one; `verify --claims` would run them on the replicates), export of a run as a Workflow
-Run RO-Crate, confidence-interval helpers in the `nixsci` R package for replicates, garbage collection of the
-store, comparison of artifact (array) records, and recorders for R (not wanted). Migrating nerve's
-`data/` into runs is nerve's own task. The reasoning behind the design, with the literature, is in
-`DESIGN.md`.
+Not built yet: datasets and models as Nix store objects that analyses `use`, runs that `use` other runs' artifacts, claim checks in `verify`, export of a run as a Workflow Run RO-Crate, confidence-interval helpers in the `nixsci` R package, comparison of artifact (array) records, and grid-wide materialization of inputs.

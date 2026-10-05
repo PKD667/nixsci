@@ -45,7 +45,7 @@ HPC-focused survey: [arXiv:2402.07530](https://arxiv.org/pdf/2402.07530).
    seed, declared schema and keys). The closure path already pins code and every dependency.
    Same `input_id` = same measurement; a changed line of code is a new input.
 2. **Replicates, not duplicates.** Runs sharing an `input_id` are samples of one measurement.
-   `[experiment] replicates = N` asks for at least N finished runs per input. `run` is therefore
+   `replicates = N` asks for at least N finished runs per input. The executor is therefore
    idempotent and resumable (a preempted sweep continues where it stopped).
 3. **Runs are immutable.** A run directory is written once and sealed with the SHA-256 of its
    `records.jsonl`; `compact` refuses data that no longer matches. No shared mutable state.
@@ -61,14 +61,13 @@ HPC-focused survey: [arXiv:2402.07530](https://arxiv.org/pdf/2402.07530).
    - a **per-project store**, `<project>/.nixsci/` (override with `NIXSCI_STORE`); outputs are not
      shareable data, so they stay with their project; runs are write-once and addressed by `input_id`.
      Inputs (datasets and models) are the shared part and live in a separate store, per grid;
-   - a small **`<spec>.lab.lock`** next to each spec, committed to git. An experiment's lock lists
-     its finished runs and their `records_sha256`; an analysis' lock pins the experiment locks it
-     `use`s by hash and lists each pipeline's `fingerprint` and output hashes. The lock is the
-     reproducibility claim; the bytes are not in the repository;
-   - **remotes** are plain ssh directories (`nixsci lab push|pull <host:dir>`), moved with rsync.
-     Any machine can fetch what the lock names and verify it by hash.
-7. **No workflow language.** Experiments are Nix flake outputs, analysis is a script, the spec
-   is TOML. Ordinary LaTeX consumes the outputs.
+   - **`lab.lock.json`** next to the flake, committed to git: the finished runs of each experiment, as
+     Nix store paths with their hashes. Analyses are derivations over exactly those paths, so a
+     result's provenance is its derivation graph, and the bytes are not in the repository;
+   - **remotes** are Nix stores (`nixsci lab push|pull ssh-ng://host`, `nix copy`). Any machine can
+     fetch what the lock names, and Nix verifies it by hash.
+7. **No workflow language beyond Nix.** Experiments are Nix flake outputs, analysis is a script, the spec
+   is a Nix value. Ordinary LaTeX consumes the outputs.
 
 ## Open questions
 

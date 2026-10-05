@@ -64,7 +64,7 @@
             src = ./lab/r;
             propagatedBuildInputs = with pkgs.rPackages; [ arrow jsonlite ];
           };
-          # The pinned R used by `nixsci lab analyze`: Rscript plus the analysis packages.
+          # The pinned R that analyses run with: Rscript plus the analysis packages.
           r-env = pkgs.rWrapper.override {
             packages = with pkgs.rPackages; [ arrow dplyr ggplot2 jsonlite nixsci-r ];
           };
@@ -96,7 +96,7 @@
             mkdir $out
             echo '{"program": "${run}/bin/hello"}' > $out/experiment.json
           '';
-        # Typed loss rows, one curve per run (see lab/examples/demo.toml).
+        # Typed loss rows, one curve per run (see `lab.<system>.experiments.demo` below).
         demo = (import ./lab/nix/mk-experiment.nix { inherit pkgs; }) {
           name = "demo";
           program = "${pkgs.python3}/bin/python";
