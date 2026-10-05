@@ -17,8 +17,6 @@ def _checked(name, kind, config):
     if kind == "ssh":
         required |= {"host", "remote_bootstrap"}
     missing = required - config.keys()
-    if config.get("rootless"):
-        missing |= {"bootstrap", "bootstrap_sha256"} - config.keys()
     if missing:
         raise ValueError(f"target {name!r} is missing {', '.join(sorted(missing))}")
     return config

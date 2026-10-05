@@ -85,9 +85,8 @@ care how:
 use = "static"                 # hosts you reserved yourself, reached over ssh
 user = "me"
 jump = "me@gateway"            # ProxyJump chain, optional
-workdir = "/tmp/me-nix-deploy" # absolute path on the hosts: rootless store, runs, shipped nix
-bootstrap = "/path/to/nix-static"          # a static nix binary, shipped to the hosts
-bootstrap_sha256 = "<sha256 of that file>"
+# workdir defaults to /tmp/<user>-nix-deploy: rootless store, runs and shipped nix live there
+# bootstrap defaults to "nixpkgs#nixStatic" (see below): no binary path, no hash to maintain
 ssh_options = ["-o", "StrictHostKeyChecking=accept-new"]
 ready_timeout = 180            # hosts that just booted may refuse ssh for a while
 # ssh_command = ["oarsh"]      # a site's own ssh wrapper; scp_command, rsh likewise
@@ -100,6 +99,11 @@ with a shared-credential broker, the same name can instead say
 
 A machine-wide file, `/etc/nix-deploy/providers.toml`, has the same format and
 fills in names the user's own file does not set; the user's file wins.
+
+**The shipped Nix is a flake reference.** Hosts that have no Nix get a static `nix` binary.
+`bootstrap` is a flake reference (default `nixpkgs#nixStatic`): nix-deploy builds it on the
+controller, hashes it itself, and the flake lock is what pins it. A plain file path still
+works, but then it must come with its `bootstrap_sha256`.
 
 **The ssh layer is configuration, not code.** Per target (or per provider default):
 `ssh_command` and `scp_command` (default `ssh` and `scp -q`), `ssh_options` (extra

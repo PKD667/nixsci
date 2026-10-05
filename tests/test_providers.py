@@ -3,6 +3,7 @@ import os
 import stat
 import tempfile
 import unittest
+import unittest.mock
 
 from nix_deploy import group, providers
 from nix_deploy.ssh import SSH
@@ -100,6 +101,53 @@ class SshLayer(unittest.TestCase):
     def test_hosts_reach_each_other_the_way_the_target_says(self):
         b = self.backend(rsh="oarsh")
         self.assertEqual(b.rsh, "oarsh")
+
+
+class BootstrapIsAFlakeReference(unittest.TestCase):
+    def fake_nix(self):
+        path, digest = bootstrap()
+        calls = []
+
+        def resolve(ref, nix="nix"):
+            calls.append(ref)
+            return path
+
+        return path, digest, calls, resolve
+
+    def test_a_rootless_target_needs_no_binary_or_hash_in_its_config(self):
+        path, digest, calls, resolve = self.fake_nix()
+        with unittest.mock.patch("nix_deploy.backend.resolve_bootstrap", resolve):
+            b = SSH(
+                host="me@a",
+                system="x86_64-linux",
+                store="/s",
+                run_root="/r",
+                remote_bootstrap="/b/nix",
+            )
+        self.assertEqual(calls, ["nixpkgs#nixStatic"])
+        self.assertEqual((b.nix, b.bootstrap_sha256), (path, digest))
+
+    def test_a_wrong_pinned_hash_for_a_reference_is_refused(self):
+        _, _, _, resolve = self.fake_nix()
+        with unittest.mock.patch("nix_deploy.backend.resolve_bootstrap", resolve):
+            with self.assertRaises(ValueError):
+                SSH(
+                    host="me@a",
+                    system="x86_64-linux",
+                    store="/s",
+                    run_root="/r",
+                    remote_bootstrap="/b/nix",
+                    bootstrap="nixpkgs#nixStatic",
+                    bootstrap_sha256="0" * 64,
+                )
+
+    def test_static_hosts_need_only_hosts_and_a_user(self):
+        lease = providers.Static().acquire(providers.Resources(), {"hosts": "a", "user": "me"})
+        t = lease.targets[0]
+        self.assertEqual((t["host"], t["store"]), ("me@a", "/tmp/me-nix-deploy/store"))
+        self.assertNotIn("bootstrap", t)
+        with self.assertRaises(ValueError):
+            providers.Static().acquire(providers.Resources(), {"hosts": "a"})
 
 
 if __name__ == "__main__":

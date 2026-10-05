@@ -113,10 +113,12 @@ class Static:
     """Hosts you already have. Reservations and boots are somebody else's job.
 
     Either name targets from a targets file:      targets = ["box1", "box2"], config = "path.toml"
-    or list ssh hosts sharing one template:       hosts = ["a", "b"] (or "a,b"), workdir, bootstrap,
-        bootstrap_sha256, and optionally user, jump, ssh_command, scp_command, ssh_options, rsh,
-        ready_timeout.  `workdir` is an absolute path on the hosts that holds the rootless store,
-        the run directories and the shipped Nix; every listed host is used.
+    or list ssh hosts sharing one template:       hosts = ["a", "b"] (or "a,b"), and optionally user,
+        workdir, jump, ssh_command, scp_command, ssh_options, rsh, ready_timeout, bootstrap.
+        `workdir` (default /tmp/<user>-nix-deploy) is an absolute path on the hosts that holds the
+        rootless store, the run directories and the shipped Nix; every listed host is used. The
+        shipped static Nix is `nixpkgs#nixStatic` unless `bootstrap` names another flake reference
+        (or a file, then with its `bootstrap_sha256`).
     """
 
     def release(self, state):
@@ -143,14 +145,30 @@ class Static:
         o = check_opts(
             "static",
             opts,
-            {"hosts", "workdir", "bootstrap", "bootstrap_sha256"},
-            {"user", "jump", "ssh_command", "scp_command", "ssh_options", "rsh", "ready_timeout"},
+            {"hosts"},
+            {
+                "workdir",
+                "bootstrap",
+                "bootstrap_sha256",
+                "user",
+                "jump",
+                "ssh_command",
+                "scp_command",
+                "ssh_options",
+                "rsh",
+                "ready_timeout",
+            },
         )
         hosts = o["hosts"].split(",") if isinstance(o["hosts"], str) else list(o["hosts"])
         hosts = [h.strip() for h in hosts if h.strip()]
         if len(hosts) < resources.hosts:
             raise ValueError(f"asked for {resources.hosts} hosts, {len(hosts)} listed")
-        workdir = o["workdir"].rstrip("/")
+        workdir = o.get("workdir") or (f"/tmp/{o['user']}-nix-deploy" if "user" in o else None)
+        if not workdir:
+            raise ValueError(
+                "static hosts need `workdir` (or `user`, giving /tmp/<user>-nix-deploy)"
+            )
+        workdir = workdir.rstrip("/")
         if not workdir.startswith("/"):
             raise ValueError("workdir must be an absolute path on the hosts")
         base = {
@@ -159,11 +177,18 @@ class Static:
             "store": f"{workdir}/store",
             "run_root": f"{workdir}/runs",
             "rootless": True,
-            "bootstrap": o["bootstrap"],
-            "bootstrap_sha256": o["bootstrap_sha256"],
             "remote_bootstrap": f"{workdir}/bin/nix",
         }
-        for key in ("jump", "ssh_command", "scp_command", "ssh_options", "rsh", "ready_timeout"):
+        for key in (
+            "bootstrap",
+            "bootstrap_sha256",
+            "jump",
+            "ssh_command",
+            "scp_command",
+            "ssh_options",
+            "rsh",
+            "ready_timeout",
+        ):
             if key in o:
                 base[key] = o[key]
         user = f"{o['user']}@" if "user" in o else ""

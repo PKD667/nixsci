@@ -133,6 +133,23 @@ def _relative(path: str) -> str:
     return path
 
 
+#: The static Nix shipped to hosts that have none: built here from this flake reference, so the
+#: flake lock (not a hand-copied file and hash) pins it.
+DEFAULT_BOOTSTRAP = "nixpkgs#nixStatic"
+_BOOTSTRAPS: dict[str, str] = {}
+
+
+def resolve_bootstrap(ref: str, nix: str = "nix") -> str:
+    """`<flake>#<attr>` -> path of its `bin/nix`, building it on this machine once."""
+    if ref not in _BOOTSTRAPS:
+        from . import nix as nixmod
+
+        built = json.loads(nixmod.run(nix, None, "build", "--no-link", "--json", ref).stdout)
+        out = built[0]["outputs"]["out"]
+        _BOOTSTRAPS[ref] = (out["path"] if isinstance(out, dict) else out) + "/bin/nix"
+    return _BOOTSTRAPS[ref]
+
+
 class Backend:
     backend_name = "backend"
 
@@ -151,8 +168,8 @@ class Backend:
     ):
         if not store.startswith("/") or not run_root.startswith("/"):
             raise ValueError("store and run_root must be absolute target paths")
-        if rootless and (not bootstrap or not bootstrap_sha256):
-            raise ValueError("rootless targets require a pinned static Nix bootstrap and SHA-256")
+        if rootless and not bootstrap:
+            bootstrap = DEFAULT_BOOTSTRAP
         if not rootless and store != "/nix/store":
             raise ValueError("existing-store targets must declare /nix/store")
         self.system, self.store, self.run_root, self.nix, self.rootless = (
@@ -175,6 +192,12 @@ class Backend:
             if expected is not None:
                 raise ValueError("bootstrap_sha256 requires bootstrap")
             return
+        if "#" in path:  # a flake reference: build it here; the lock pins it
+            path = resolve_bootstrap(path, self.nix)
+            computed = _hash_path(Path(path))
+            if expected is not None and expected != computed:
+                raise ValueError(f"Nix bootstrap {path} does not match bootstrap_sha256")
+            expected = computed
         file = Path(path)
         if not file.is_file() or not os.access(file, os.X_OK):
             raise ValueError(f"Nix bootstrap is not executable: {path}")
@@ -185,6 +208,7 @@ class Backend:
         ):
             raise ValueError(f"Nix bootstrap hash mismatch: {path}")
         self.nix = str(file)
+        self.bootstrap_sha256 = expected
 
     def _target_store(self) -> str | None:
         return self.store if self.rootless else None
