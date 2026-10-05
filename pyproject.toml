@@ -24,7 +24,6 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = ["nixsci.cli", "nixsci.deploy", "nixsci.lab"]
 
+# The repository directory is the `nixsci` namespace: nixsci/deploy is deploy/, and so on.
 [tool.setuptools.package-dir]
-"nixsci.cli" = "cli/src"
-"nixsci.deploy" = "deploy/src"
-"nixsci.lab" = "lab/src"
+nixsci = "."

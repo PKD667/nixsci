@@ -41,7 +41,8 @@
           lab-py = pkgs.runCommand "nixsci-lab-py" { } ''
             site=$out/${pkgs.python3.sitePackages}/nixsci
             mkdir -p $site
-            cp -r ${./lab/src} $site/lab
+            mkdir $site/lab
+            cp ${./lab}/*.py $site/lab/
           '';
           # R package for analysis scripts: use("alias"), runs(), params(), out().
           nixsci-r = pkgs.rPackages.buildRPackage {
@@ -95,17 +96,12 @@
         default = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nixsci"; };
       });
 
+      # Tests import `nixsci.*` from the checkout: the directory is the namespace, so its parent
+      # goes on the path.
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.python3 pkgs.python3Packages.pytest pkgs.python3Packages.pyarrow pkgs.git ];
-          # The sources live in deploy/src and lab/src; the namespace is assembled in .dev/.
-          shellHook = ''
-            mkdir -p .dev/nixsci
-            ln -sfn "$PWD/cli/src" .dev/nixsci/cli
-            ln -sfn "$PWD/deploy/src" .dev/nixsci/deploy
-            ln -sfn "$PWD/lab/src" .dev/nixsci/lab
-            export PYTHONPATH="$PWD/.dev:$PYTHONPATH"
-          '';
+          packages = [ pkgs.python3 pkgs.python3Packages.pytest pkgs.python3Packages.hypothesis pkgs.python3Packages.pyarrow pkgs.git ];
+          shellHook = ''export PYTHONPATH="$(dirname "$PWD"):$PYTHONPATH"'';
         };
       });
     };
