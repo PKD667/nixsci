@@ -74,12 +74,7 @@ def load(path: str | Path) -> Spec:
     flake = str(exp.get("flake", "."))
     if flake.startswith((".", "/")):
         flake = str((path.parent / flake).resolve())
-    data, keys = {}, {}
-    for dataset, body in raw.get("data", {}).items():
-        parsed = schema.parse(dataset, body.get("columns", {}))
-        data[dataset] = {c: str(t) for c, t in body["columns"].items()}
-        if "key" in body:
-            keys[dataset] = list(schema.parse_key(dataset, parsed, body["key"]))
+    data, keys = schema.declared(raw.get("data", {}))
     pipelines = {}
     for pname, body in raw.get("pipeline", {}).items():
         if not _NAME.fullmatch(pname) or not isinstance(body.get("script"), str):

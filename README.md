@@ -100,6 +100,25 @@ declares datasets, JSON values must be rows of a declared dataset; arrays, bytes
 and files still record freely as artifacts. The schema travels to the run in
 `NIX_LAB_SCHEMA` (keys in `NIX_LAB_KEYS`) and is copied into each run's `manifest.json`.
 
+## Recording a run by hand
+
+A script that is not launched by `nix-lab run` (a measurement you start yourself, a long
+service) records through `lab.Run`. It creates `<root>/<app>/<name>/`, applies the spec's
+declared datasets and keys to `lab.record`, and writes `manifest.json` when the block ends
+(`ok`, or `failed` if it raised), so `compact` and `analyze` treat it like any other run:
+
+```python
+import lab
+
+with lab.Run("runs", lab.run_name("meas", seed=3), spec="measure.toml", seed=3,
+             params={"workers": 62}) as run:
+    run.record("size", {"n": 1000, "seconds": 1.5})     # same as lab.record inside the block
+```
+
+`app` defaults to the spec's `[experiment] name` (or pass `app=`). The environment variables
+`lab.record` reads are set for the block and restored afterwards. The manifest layout is in
+`SPEC.md`; nothing else needs to be written by hand.
+
 ## Compaction and analysis
 
 ```sh

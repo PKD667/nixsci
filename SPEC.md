@@ -46,6 +46,24 @@ status.json            written by the wrapper when the program exits
 `{"exit_code": 0, "started": "...Z", "ended": "...Z"}`. A run with no
 `status.json` did not exit normally (killed, node lost) and is `incomplete`.
 
+## `manifest.json`
+
+One per run directory, `<runs root>/<app>/<run>/manifest.json`. `nix-lab run` and `lab.Run`
+write it; `compact`, `analyze` and `lab.runs` read it. Readers MUST ignore unknown fields.
+
+```json
+{"v": 1, "app": "demo", "run": "demo-20261005T061418Z-000-s0", "state": "ok",
+ "seed": 0, "params": {"epsilon": 0.1},
+ "schema": {"loss": {"epoch": "int", "value": "float"}}, "keys": {"loss": ["epoch"]},
+ "started": "2026-10-05T06:14:18Z", "ended": "2026-10-05T06:14:20Z"}
+```
+
+`state` is `ok`, `failed` or `incomplete` (no `status.json`, no manifest end); only `ok` runs
+are compacted. `schema` and `keys` are the declared datasets the run was recorded under.
+`nix-lab run` adds `status`, `target`, `source`, `closure`, `spec`. Records live in `lab/`
+under the run directory when fetched from a remote host, or directly in it for `lab.Run`
+(`compact` looks in both).
+
 ## Adding a language
 
 Implement `record(name, value, **tags)` and artifact storage as above, then

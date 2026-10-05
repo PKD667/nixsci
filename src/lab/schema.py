@@ -51,6 +51,20 @@ def key_of(key: tuple[str, ...], row: Mapping[str, Any]) -> tuple[Any, ...]:
     return tuple(row[column] for column in key)
 
 
+def declared(tables: Mapping[str, Any]) -> tuple[dict[str, dict[str, str]], dict[str, list[str]]]:
+    """The `[data.<name>]` tables of a spec -> ({dataset: {column: type}}, {dataset: [key]})."""
+    columns: dict[str, dict[str, str]] = {}
+    keys: dict[str, list[str]] = {}
+    for dataset, body in tables.items():
+        if not isinstance(body, Mapping):
+            raise ValueError(f"[data.{dataset}] must be a table")
+        parsed = parse(dataset, body.get("columns", {}))
+        columns[dataset] = {c: str(t) for c, t in body["columns"].items()}
+        if "key" in body:
+            keys[dataset] = list(parse_key(dataset, parsed, body["key"]))
+    return columns, keys
+
+
 def _fits(kind: str, value: Any) -> bool:
     if isinstance(value, bool):
         return kind == "bool"
