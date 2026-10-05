@@ -13,11 +13,11 @@ dirs_in <- function(path) list.dirs(path, recursive = FALSE, full.names = FALSE)
 #' The only way to reach data: an alias that the spec did not declare is an error, so a script
 #' reads nothing its spec does not name. `alias$dataset` is a lazy Arrow dataset over exactly the
 #' locked runs.
-#' @param alias name on the left of an entry in [use]
+#' @param alias name on the left of an entry in `use`
 use <- function(alias) {
   declared <- dirs_in(view_root())
   if (!alias %in% declared) {
-    stop(sprintf("'%s' is not declared in [use]; declared: %s", alias,
+    stop(sprintf("'%s' is not declared in `use`; declared: %s", alias,
                  paste(declared, collapse = ", ")), call. = FALSE)
   }
   structure(list(alias = alias, root = file.path(view_root(), alias)), class = "nixsci_use")
