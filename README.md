@@ -74,6 +74,65 @@ params, target, start/end times, flake source identity and closure path).
 Unknown tables in the TOML, and provider settings placed outside `[resources.opts]`,
 are errors.
 
+## Typed datasets
+
+Declare a dataset's columns in the spec and `lab.record` checks every row against
+them, at record time, in the run itself:
+
+```toml
+[data.loss]
+columns = { epoch = "int", value = "float", split = "str?" }   # ? = may be null
+```
+
+```python
+lab.record("loss", {"epoch": 3, "value": 0.25, "split": None})   # ok
+lab.record("loss", {"epoch": 3.5, "value": 0.25, "split": "a"})  # TypeError, nothing written
+lab.record("lossy", {...})                                       # ValueError: not declared
+```
+
+Types are `int`, `float`, `str`, `bool`. A row must carry exactly the declared
+columns (`run`, `seed` and `time` are reserved: nix-lab adds them). Once a spec
+declares datasets, JSON values must be rows of a declared dataset; arrays, bytes
+and files still record freely as artifacts. The schema travels to the run in
+`NIX_LAB_SCHEMA` and is copied into each run's `manifest.json`.
+
+## Compaction and analysis
+
+```sh
+nix-lab compact runs --out data             # needs pyarrow (the nix-lab package has it)
+nix-lab analyze experiments/demo.toml --runs runs --data data --out analysis
+```
+
+`compact` writes each finished run's declared datasets as typed Parquet,
+`data/<app>/<dataset>/<run id>.parquet`, with the declared columns plus `run`,
+`seed` and `time`. Runs that did not end `ok` are skipped.
+
+Analysis is R. Declare pipelines next to the data:
+
+```toml
+[pipeline.curve]
+script = "demo.R"            # path relative to the spec
+inputs = ["demo"]            # apps it reads (default: this experiment)
+```
+
+`analyze` runs the script with `Rscript` and these variables: `NIX_LAB_DATA`
+(the Parquet root), `NIX_LAB_RUNS` (raw runs), `NIX_LAB_OUT` (`<out>/<pipeline>/`).
+The `labr` R package reads them:
+
+```r
+library(dplyr); library(labr)
+loss <- lab_data("demo", "loss") |> collect()    # lazy Arrow dataset over all runs
+runs <- lab_manifests("demo")                    # one row per run, params as param.<name>
+write.csv(summary, lab_out("final.csv"))
+```
+
+After each pipeline a `provenance.json` is written beside its outputs: the script
+and its hash, every input run with the hash of its manifest, the R version, the
+exit code. A figure or table can therefore say exactly which runs and which code
+produced it. For pinned R packages run inside the flake's R environment
+(`nix build .#r-env`, then `NIX_LAB_RSCRIPT=<out>/bin/Rscript`, or put it on
+`PATH`). `examples/demo.{toml,py,R}` is a complete worked example.
+
 ## Making a flake experiment
 
 `lib.mkExperiment` wraps a program so it gets a record directory, forwards
@@ -100,14 +159,11 @@ wrapper is a convenience, not a requirement.
 
 ## Status
 
-Working: the record format and Python module; spec loading with seeds, sweeps and
-strict validation; the runner over nix-deploy providers; `mkExperiment`.
-Checked by import and plan expansion, and by recording/reading round trips. The
-runner itself has not been run end to end on the current nix-deploy.
+Verified (on camarade): typed record validation, spec loading with `[data]` and
+`[pipeline]`, the runner over nix-deploy's local provider with two hosts (4 jobs,
+all `ok`), compaction to Parquet, and the R pipeline with provenance, using the
+pinned `r-env` and `labr`. Unit tests: `tests/test_lab.py`.
 
-Not built yet (planned, in this order): declared dataset schemas validated at
-record time; compaction of collected runs into typed Parquet (Arrow) partitions;
-R analysis pipelines (an R package reading runs as data frames, pipelines as
-pinned Nix derivations that write their outputs and provenance back);
-recording libraries for Rust and R; replacing project-local data directories
-(for example nerve's `data/`) with lab runs.
+Not built yet: recording libraries for Rust and R; a `key` constraint on datasets
+(uniqueness); incremental pipelines (every `analyze` reruns its scripts); migrating
+nerve's `data/` into runs (nerve's own task, using this as its record format).
