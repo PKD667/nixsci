@@ -17,6 +17,7 @@ import hashlib
 from nixsci.lab.run import seal
 
 from . import store
+from .publish import publish
 from .spec import Spec
 
 
@@ -25,15 +26,17 @@ def _utc() -> str:
 
 
 def _deploy():
-    from nixsci.deploy import factory, providers, resolver
+    from nixsci.deploy import factory, providers
 
-    return factory, providers, resolver
+    return factory, providers
 
 
 def run(
     spec: Spec,
+    closures: dict[str, Any],
     out_root: Path,
     *,
+    project: Path | None = None,
     poll: float = 1.0,
     timeout: float = 24 * 3600,
     again: bool = False,
@@ -44,18 +47,14 @@ def run(
     A run is identified by its inputs (store.input_id); inputs that already have
     `spec.replicates` finished runs are skipped, `again=True` adds one more replicate.
     """
-    factory, providers, resolver = _deploy()
+    factory, providers = _deploy()
     lease = providers.acquire(spec.provider, spec.resources, spec.resources.get("opts", {}))
     try:
         configs = {f"t{i}": c for i, c in enumerate(lease.targets)}
         names = list(configs)
-        closures: dict[str, Any] = {}
-        for system in {c["system"] for c in configs.values() if "system" in c}:
-            log(f"resolving {spec.flake}#{spec.attr} for {system}")
-            # a *.lab.lock in the repository is this tool's output, not part of the code
-            closures[system] = resolver.resolve(
-                spec.flake, spec.attr, system, ignore=("*.lab.lock",)
-            )
+        missing = {c["system"] for c in configs.values() if "system" in c} - set(closures)
+        if missing:
+            raise SystemExit(f"no closure for {sorted(missing)}: list them in the experiment's `systems`")
 
         def assign(job):
             name = names[job.index % len(names)]
@@ -80,6 +79,7 @@ def run(
                 configs,
                 factory,
                 out_root,
+                project,
                 poll,
                 timeout,
                 log,
@@ -102,6 +102,7 @@ def _run_job(
     configs,
     factory,
     out_root,
+    project,
     poll,
     timeout,
     log,
@@ -149,13 +150,12 @@ def _run_job(
         "ended": _utc(),
         "source": closure.source,
         "closure": closure.path,
-        "spec": spec.path.name,
         "input_id": ident,
         "replicate": replicate,
         "tolerance": spec.tolerance,
     }
-    spec_bytes = spec.path.read_bytes()
-    (dest / "spec.toml").write_bytes(spec_bytes)
+    spec_bytes = spec.json_bytes()
+    (dest / "spec.json").write_bytes(spec_bytes)
     manifest["spec_sha256"] = hashlib.sha256(spec_bytes).hexdigest()
     seal(dest, manifest, local=False)
     (dest / "manifest.json").write_text(
@@ -163,5 +163,8 @@ def _run_job(
     )
     if state == "ok":
         be.remove(handle)
+        if project is not None:
+            entry = publish(dest, project)
+            log(f"[{run_id}] in the store: {entry['path']}")
     log(f"[{run_id}] {state} -> {dest}")
     return manifest

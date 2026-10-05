@@ -2,7 +2,7 @@
 
 Nothing here assumes bit-for-bit determinism. A re-run is a *replicate*: identical inputs,
 a new sample. Dataset columns are compared exactly unless the spec declares them noisy
-(`[data.x] noisy = { seconds = 0.25 }`, a relative tolerance), which is the honest model for
+(`data.x.noisy = { seconds = 0.25; }`, a relative tolerance), which is the honest model for
 measurements with uncontrolled components such as MPI delays.
 """
 
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -31,40 +30,13 @@ def find_run(run: str | Path, runs_root: str | Path = "runs") -> Path:
     return hits[0]
 
 
-def locked_ref(locked: dict[str, Any]) -> str:
-    """The flake reference string for a locked source (`rev` and `narHash` included)."""
-    wire = json.dumps(json.dumps(locked, sort_keys=True))
-    if "${" in wire:
-        raise ValueError("locked source contains an interpolation")
-    expr = f"builtins.flakeRefToString (builtins.fromJSON {wire})"
-    result = subprocess.run(
-        ["nix", "--extra-experimental-features", "nix-command", "eval", "--raw", "--expr", expr],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode:
-        raise RuntimeError(f"cannot render the locked source: {result.stderr.strip()[-300:]}")
-    return result.stdout
-
-
-def _source_ref(source: dict[str, Any]) -> str | None:
-    """Where to rebuild the code from: the flake as locked (rev), else the store snapshot."""
-    locked = source.get("origin") or source.get("locked")
-    return locked_ref(locked) if locked else None
-
-
 def bundle(run_dir: str | Path) -> dict[str, Any]:
     """Everything needed to run this measurement again, as plain data."""
     run_dir = Path(run_dir)
     manifest = json.loads((run_dir / "manifest.json").read_text())
-    spec_file = run_dir / "spec.toml"
-    attr = spec_mod.load(spec_file).attr if spec_file.is_file() else manifest["app"]
-    source = manifest.get("source") or {}
     return {
         "run": manifest["run"],
         "input_id": manifest.get("input_id"),
-        "flake": _source_ref(source),
-        "attr": attr,
         "closure": manifest.get("closure"),
         "params": manifest.get("params"),
         "seed": manifest.get("seed"),
@@ -130,27 +102,26 @@ def compare(
 
 
 def verify(run_dir: str | Path, *, log=print) -> dict[str, Any]:
-    """Run one new replicate of `run_dir` from its locked source and compare the datasets."""
+    """Run one new replicate of `run_dir` from the closure it ran and compare the datasets."""
+    from nixsci.deploy import providers, resolver
+
     from . import runner
 
     run_dir = Path(run_dir)
     manifest = json.loads((run_dir / "manifest.json").read_text())
     if manifest.get("state") != "ok":
         raise SystemExit(f"{manifest['run']}: only finished (ok) runs can be verified")
-    info = bundle(run_dir)
-    if not info["flake"]:
-        raise SystemExit(f"{manifest['run']}: the manifest has no locked source to rebuild from")
-    spec = spec_mod.load(run_dir / "spec.toml")
+    spec = spec_mod.read(run_dir / "spec.json")
+    system = providers.system()
+    closure = resolver.from_path(manifest["closure"], system, manifest.get("source") or {})
     one = dataclasses.replace(
         spec,
-        flake=info["flake"],
-        attr=info["attr"],
         seeds=() if manifest.get("seed") is None else (manifest["seed"],),
         params=dict(manifest.get("params") or {}),
         sweep={},
     )
-    log(f"re-running {manifest['run']} from {info['flake']}")
-    new = runner.run(one, run_dir.parent.parent, again=True, log=log)
+    log(f"re-running {manifest['run']} from {manifest['closure']}")
+    new = runner.run(one, {system: closure}, run_dir.parent.parent, again=True, log=log)
     if not new:
         raise SystemExit("nothing ran")
     replicate = run_dir.parent / new[0]["run"]

@@ -1,6 +1,5 @@
 import json
 import tempfile
-import textwrap
 import unittest
 from pathlib import Path
 
@@ -8,22 +7,18 @@ from nixsci import lab
 from nixsci.lab import spec as spec_mod
 from nixsci.lab import store, verify
 
-SPEC = textwrap.dedent("""
-    [experiment]
-    name = "meas"
-    seeds = [0, 1]
-    replicates = 2
-    [data.size]
-    columns = { n = "int", seconds = "float", note = "str" }
-    key = ["n"]
-    noisy = { seconds = 0.25 }
-    """)
+SPEC = json.dumps(
+    {
+        "kind": "experiment", "name": "meas", "seeds": [0, 1], "replicates": 2,
+        "data": {"size": {"columns": {"n": "int", "seconds": "float", "note": "str"}, "key": ["n"], "noisy": {"seconds": 0.25}}},
+    }
+)
 
 
 class Fixture(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
-        self.spec_path = self.root / "meas.toml"
+        self.spec_path = self.root / "meas.spec.json"
         self.spec_path.write_text(SPEC)
         self.runs = self.root / "runs"
         lab._seen.clear()
@@ -37,7 +32,7 @@ class Fixture(unittest.TestCase):
 
 class Identity(Fixture):
     def test_plan_skips_satisfied_inputs_and_numbers_replicates_after_failures(self):
-        spec = spec_mod.load(self.spec_path)
+        spec = spec_mod.read(self.spec_path)
         assign = lambda job: ("t0", "/nix/store/a-x")  # noqa: E731
         todo, satisfied = store.plan(spec, self.runs, assign)
         self.assertEqual((len(todo), satisfied), (4, 0))  # 2 seeds x 2 replicates
@@ -63,14 +58,14 @@ class Sealing(Fixture):
             import pyarrow  # noqa: F401
         except ImportError:
             self.skipTest("pyarrow not installed")
-        from nixsci.lab.compact import compact
+        from nixsci.lab.compact import compact_run
 
         d = self.make_run("r", [{"n": 1, "seconds": 1.0, "note": "a"}])
-        compact(self.runs, self.root / "data")
+        compact_run(d, self.root / "data")
         with (d / "records.jsonl").open("a") as f:
             f.write("\n")
         with self.assertRaises(ValueError):
-            compact(self.runs, self.root / "data", force=True)
+            compact_run(d, self.root / "data2")
 
 
 

@@ -1,7 +1,6 @@
 import json
 import os
 import tempfile
-import textwrap
 import unittest
 from pathlib import Path
 
@@ -38,31 +37,20 @@ class Schema(unittest.TestCase):
 
 
 
-class SpecKinds(unittest.TestCase):
-    def load(self, text):
-        path = Path(tempfile.mkdtemp()) / "s.toml"
-        path.write_text(textwrap.dedent(text))
-        return spec_mod.load(path)
-
-    def test_pipelines_belong_to_an_analysis_not_an_experiment(self):
-        with self.assertRaises(ValueError) as error:
-            self.load("""
-                [experiment]
-                name = "e"
-                [pipeline.p]
-                script = "p.R"
-            """)
-        self.assertIn("analysis", str(error.exception))
-
-    def test_an_analysis_reads_only_what_it_uses(self):
-        for text in (
-            '[analysis]\nname = "a"\n[pipeline.p]\nscript = "p.R"\n',
-            '[analysis]\nname = "a"\n[use]\nx = "e.toml"\n[pipeline.p]\nscript = "p.R"\ninputs = ["x"]\n',
-            '[analysis]\nname = "a"\n[use]\n"bad-alias" = "e.toml"\n',
-            '[analysis]\nname = "a"\n[experiment]\nname = "e"\n',
+class Specs(unittest.TestCase):
+    def test_a_spec_is_an_experiment_with_known_fields_and_well_formed_values(self):
+        ok = {"kind": "experiment", "name": "e", "seeds": [0, 1], "sweep": {"x": [1, 2]}}
+        self.assertEqual(len(spec_mod.from_json(ok).jobs()), 4)
+        for bad in (
+            {**ok, "kind": "analysis"},
+            {**ok, "name": "1bad"},
+            {**ok, "pipelines": {}},
+            {**ok, "seeds": ["0"]},
+            {**ok, "sweep": {"x": []}},
+            {**ok, "replicates": 0},
         ):
-            with self.assertRaises(ValueError, msg=text):
-                self.load(text)
+            with self.assertRaises(ValueError, msg=str(bad)):
+                spec_mod.from_json(bad)
 
 
 class Compact(unittest.TestCase):
@@ -71,7 +59,7 @@ class Compact(unittest.TestCase):
             import pyarrow.parquet as pq
         except ImportError:
             self.skipTest("pyarrow not installed")
-        from nixsci.lab.compact import compact
+        from nixsci.lab.compact import compact_run
 
         root = Path(tempfile.mkdtemp())
         for i, seed in enumerate((0, 1)):
@@ -87,11 +75,11 @@ class Compact(unittest.TestCase):
             )
         for k in ("NIX_LAB_DIR", "NIX_LAB_SCHEMA"):
             os.environ.pop(k)
-        files = compact(root / "runs", root / "data")
-        self.assertEqual(len(files), 2)
-        table = pq.ParquetFile(files[1]).read()
+        (file,) = compact_run(root / "runs" / "e" / "e-1", root / "out")
+        table = pq.ParquetFile(file).read()
         self.assertEqual(table.column_names, ["run", "seed", "time", "epoch", "value", "split"])
         self.assertEqual(table.to_pylist()[0]["value"], 1.5)
+        self.assertEqual(json.loads((root / "out" / "row.json").read_text())["seed"], 1)
 
 
 if __name__ == "__main__":

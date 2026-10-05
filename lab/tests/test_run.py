@@ -1,24 +1,19 @@
 import json
 import tempfile
-import textwrap
 import unittest
 from pathlib import Path
 
 from nixsci import lab
 
-SPEC = textwrap.dedent("""
-    [experiment]
-    name = "meas"
-    [data.size]
-    columns = { n = "int", seconds = "float" }
-    key = ["n"]
-    """)
+SPEC = json.dumps(
+    {"kind": "experiment", "name": "meas", "data": {"size": {"columns": {"n": "int", "seconds": "float"}, "key": ["n"]}}}
+)
 
 
 class ManualRun(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
-        self.spec = self.root / "meas.toml"
+        self.spec = self.root / "meas.spec.json"
         self.spec.write_text(SPEC)
         lab._seen.clear()
 
@@ -40,11 +35,11 @@ class ManualRun(unittest.TestCase):
             import pyarrow.parquet as pq
         except ImportError:
             self.skipTest("pyarrow not installed")
-        from nixsci.lab.compact import compact
+        from nixsci.lab.compact import compact_run
 
         with lab.Run(self.root / "runs", "r", spec=self.spec, seed=5) as run:
             run.record("size", {"n": 1, "seconds": 2.5})
-        (file,) = compact(self.root / "runs", self.root / "data")
+        (file,) = compact_run(self.root / "runs" / "meas" / "r", self.root / "data")
         row = pq.ParquetFile(file).read().to_pylist()[0]
         self.assertEqual((row["run"], row["seed"], row["n"], row["seconds"]), ("r", 5, 1, 2.5))
 

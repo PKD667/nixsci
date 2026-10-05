@@ -1,6 +1,6 @@
 """A run recorded by hand, outside `nixsci lab run`.
 
-    with lab.Run("runs", "night-20261005", spec="measure.toml", seed=3) as run:
+    with lab.Run("runs", "night-20261005", spec="measure.spec.json", seed=3) as run:
         run.record("size", {"n": 1000, "seconds": 1.5})
 
 This creates `<root>/<app>/<name>/`, points `lab.record` at it with the spec's declared
@@ -15,7 +15,6 @@ import hashlib
 import json
 import os
 import platform
-import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -102,12 +101,12 @@ class Run:
         if not name or "/" in name or name in (".", ".."):
             raise ValueError(f"invalid run name {name!r}")
         self.spec_bytes = Path(spec).read_bytes() if spec is not None else None
-        raw = tomllib.loads(self.spec_bytes.decode()) if self.spec_bytes is not None else {}
+        raw = json.loads(self.spec_bytes) if self.spec_bytes is not None else {}
         self.columns, self.keys = schema.declared(raw.get("data", {}))
         self.tolerance = schema.tolerances(raw.get("data", {}))
-        self.app = app or raw.get("experiment", {}).get("name")
+        self.app = app or raw.get("name")
         if not self.app:
-            raise ValueError("give app=..., or a spec with an [experiment] name")
+            raise ValueError("give app=..., or a spec file with a name")
         self.name, self.seed, self.params = name, seed, dict(params or {})
         # root=None: the nixsci.lab store (see lab.home), so no directory has to be named
         self.directory = (Path(root) if root is not None else home.runs_dir(spec)) / self.app / name
@@ -173,7 +172,7 @@ class Run:
         }
         self.directory.mkdir(parents=True, exist_ok=True)
         if self.spec_bytes is not None:
-            (self.directory / "spec.toml").write_bytes(self.spec_bytes)
+            (self.directory / "spec.json").write_bytes(self.spec_bytes)
             manifest["spec_sha256"] = hashlib.sha256(self.spec_bytes).hexdigest()
         seal(self.directory, manifest, local=True)
         path = self.directory / "manifest.json"

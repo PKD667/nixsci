@@ -32,11 +32,24 @@
       # Wrap a program so it becomes a nixsci experiment closure.
       #   mkExperiment pkgs { name = "x"; program = "${drv}/bin/x"; metadata = {...}; }
       lib.mkExperiment = pkgs: import ./lab/nix/mk-experiment.nix { inherit pkgs; };
+      # Experiments and analyses as Nix values. `project` is the calling flake's `self`.
+      #   lab = nixsci.lib.lab { inherit pkgs; project = self; };
+      lib.lab = { pkgs, project }:
+        import ./lab/nix/lab.nix {
+          inherit pkgs project;
+          nixsci = self.packages.${pkgs.stdenv.hostPlatform.system}.nixsci;
+          python = self.packages.${pkgs.stdenv.hostPlatform.system}.python;
+          rEnv = self.packages.${pkgs.stdenv.hostPlatform.system}.r-env;
+        };
 
       packages = forAll (pkgs:
         let pp = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).pkgs; in rec {
           default = nixsci;
           nixsci = pp.nixsci;
+          # The interpreter that has nixsci, for derivations that run its modules.
+          python = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).withPackages (p: [ p.nixsci ]);
+          # An analysis is a derivation: `nix build .#demo-curves`.
+          demo-curves = self.lab.${pkgs.stdenv.hostPlatform.system}.analyses.demo-curves;
           # `from nixsci import lab` with no dependencies: safe to put in any experiment closure.
           lab-py = pkgs.runCommand "nixsci-lab-py" { } ''
             site=$out/${pkgs.python3.sitePackages}/nixsci
@@ -92,12 +105,31 @@
         };
       });
 
+      # The demo, written as Nix values: `nix run .#demo`, then `nix build .#demo-curves`.
+      lab = forAll (pkgs:
+        let
+          l = self.lib.lab { inherit pkgs; project = self; };
+          system = pkgs.stdenv.hostPlatform.system;
+        in rec {
+          experiments.demo = l.experiment {
+            name = "demo";
+            closures.${system} = self.experiments.${system}.demo;
+            seeds = [ 0 1 ];
+            sweep.epsilon = [ 0.1 0.3 ];
+            resources = { provider = "local"; hosts = 2; };
+            data.loss.columns = { epoch = "int"; value = "float"; split = "str"; };
+          };
+          analyses.demo-curves = l.analysis {
+            name = "demo-curves";
+            use.demo = experiments.demo;
+            pipelines.curve.script = ./lab/examples/demo.R;
+          };
+        });
+
       apps = forAll (pkgs: {
         default = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nixsci"; };
+        demo = self.lab.${pkgs.system}.experiments.demo.run;
       });
-
-      # Tests import `nixsci.*` from the checkout: the directory is the namespace, so its parent
-      # goes on the path.
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
           packages = [ pkgs.python3 pkgs.python3Packages.pytest pkgs.python3Packages.hypothesis pkgs.python3Packages.pyarrow pkgs.git ];

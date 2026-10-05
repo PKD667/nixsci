@@ -27,4 +27,13 @@ def resolve(flake: str, experiment: str, system: str, ignore: tuple[str, ...] = 
     return Closure(root, metadata["program"], metadata, hashes, source, system)
 
 
-__all__ = ["resolve"]
+def from_path(root: str, system: str, source: dict) -> Closure:
+    """A closure from a store path Nix has already built (`source` is the flake's identity)."""
+    if system not in _SYSTEMS:
+        raise ValueError(f"unsupported target system {system!r}")
+    hashes = nix.verify("nix", None, root)
+    metadata = normalize_manifest(nix.manifest("nix", root), hashes)
+    return Closure(root, metadata["program"], metadata, hashes, source, system)
+
+
+__all__ = ["resolve", "from_path"]

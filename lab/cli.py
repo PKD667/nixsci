@@ -1,18 +1,52 @@
+"""`nixsci lab`: the executor and the tools around it.
+
+Nix owns the spec, the closures and every pure step (compaction, analyses). This command runs the
+one impure step, `exec` (started by `nix run .#<experiment>`), and handles the files it leaves.
+"""
+
 from __future__ import annotations
 
 import argparse
 import json
-import os
+import subprocess
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 from nixsci.lab import home
 
-from . import inputs, spec as spec_mod
+from . import inputs, publish, spec as spec_mod
 
 
 def _err(message: str) -> None:
     print(message, file=sys.stderr)
+
+
+def _listing(project: Path | None, app: str | None) -> None:
+    root = home.runs_dir(project)
+    if not root.is_dir():
+        print(f"(no runs in {root})")
+        return
+    for app_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        if app and app_dir.name != app:
+            continue
+        found: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        for manifest in app_dir.glob("*/manifest.json"):
+            m = json.loads(manifest.read_text())
+            found[m.get("input_id") or m["run"]][m.get("state", "?")] += 1
+        print(f"{app_dir.name}: {len(found)} input(s), {sum(sum(s.values()) for s in found.values())} run(s)")
+        if app:
+            for ident, states in sorted(found.items()):
+                print(f"  {ident[:12]}  " + ", ".join(f"{n} {s}" for s, n in sorted(states.items())))
+
+
+def _copy(direction: str, remote: str, project: Path) -> int:
+    paths = [e["path"] for entries in publish.read_lock(project).values() for e in entries]
+    if not paths:
+        _err(f"{project / 'lab.lock.json'} lists no runs")
+        return 1
+    cmd = ["nix", "--extra-experimental-features", "nix-command", "copy", "--no-check-sigs", f"--{direction}", remote, *paths]
+    return subprocess.run(cmd).returncode
 
 
 def _data(args) -> int:
@@ -59,53 +93,24 @@ def _data(args) -> int:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="nixsci lab")
-    ap.add_argument(
-        "--store", help="outputs store (default: <project>/.nixsci, or $NIXSCI_STORE)"
-    )
+    ap.add_argument("--project", help="project directory (default: the nearest directory with a .git)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    b = sub.add_parser(
-        "build", help="experiment: run what is missing, compact, lock; analysis: run its pipelines, lock"
-    )
-    b.add_argument("spec")
-    b.add_argument("--again", action="store_true", help="add one more replicate per input")
-    sub.add_parser("ls", help="what the store holds").add_argument("app", nargs="?")
-
+    e = sub.add_parser("exec", help="run an experiment's missing jobs (started by `nix run .#<experiment>`)")
+    e.add_argument("--spec", required=True, help="the spec JSON Nix wrote")
+    e.add_argument("--closure", action="append", default=[], metavar="SYSTEM=PATH", help="the built closure for a system")
+    e.add_argument("--source", default="{}", help="the flake's source identity, as JSON")
+    e.add_argument("--again", action="store_true", help="add one more replicate per input")
     p = sub.add_parser("plan", help="print the jobs a spec expands to")
-    p.add_argument("spec")
-    r = sub.add_parser("run", help="run what is missing")
-    r.add_argument("spec")
-    r.add_argument("--out", help="runs directory (default: the store)")
-    r.add_argument("--again", action="store_true", help="add one more replicate per input")
-    c = sub.add_parser("compact", help="write finished runs' declared datasets as Parquet")
-    c.add_argument("runs", nargs="?", help="runs directory (default: the store)")
-    c.add_argument("--out", help="Parquet directory (default: the store)")
-    c.add_argument("--force", action="store_true", help="rewrite files that look up to date")
-    a = sub.add_parser("analyze", help="run an analysis spec's R pipelines over the locked data it [use]s")
-    a.add_argument("spec")
-    a.add_argument("--runs")
-    a.add_argument("--data")
-    a.add_argument("--out", help="analysis directory (default: the store)")
-    a.add_argument("--only")
-    a.add_argument("--force", action="store_true", help="rerun even if nothing changed")
-
-    sub.add_parser("lock", help="write <spec>.lab.lock (an experiment's runs, or an analysis' uses and outputs)").add_argument(
-        "spec"
-    )
-    sub.add_parser("check", help="verify the store against <spec>.lab.lock").add_argument("spec")
-    for name, text in (
-        ("pull", "fetch what the lock names from REMOTE"),
-        ("push", "send it to REMOTE"),
-    ):
-        s = sub.add_parser(name, help=f"{text} (host:/dir or a path)")
-        s.add_argument("remote")
-        s.add_argument("spec")
+    p.add_argument("--spec", required=True)
+    sub.add_parser("ls", help="what the runs directory holds").add_argument("app", nargs="?")
+    sub.add_parser("add", help="add a finished run directory to the Nix store and lab.lock.json").add_argument("run")
+    for name, text in (("push", "copy the locked runs to REMOTE"), ("pull", "copy the locked runs from REMOTE")):
+        sub.add_parser(name, help=f"{text} (a Nix store URL, e.g. ssh-ng://host)").add_argument("remote")
     rp = sub.add_parser("repro", help="print everything needed to run a run's measurement again")
     rp.add_argument("run")
-    rp.add_argument("--runs")
-    v = sub.add_parser("verify", help="re-run a finished run from its locked source and compare")
+    v = sub.add_parser("verify", help="run one more replicate of a finished run and compare")
     v.add_argument("run")
-    v.add_argument("--runs")
 
     d = sub.add_parser("data", help="datasets and models in the input store")
     d.add_argument("--inputs", help="input store (default: $NIXSCI_INPUTS or ~/.nixsci)")
@@ -130,32 +135,23 @@ def main(argv=None) -> int:
     df.add_argument("b")
 
     args = ap.parse_args(argv)
-    if args.store:
-        os.environ["NIXSCI_STORE"] = args.store
-    near = getattr(args, "spec", None)
-    runs_root = (
-        Path(getattr(args, "runs", None) or home.runs_dir(near)) if args.cmd != "compact" else None
-    )
+    project = home.project_root(args.project)
 
     if args.cmd == "data":
         return _data(args)
     if args.cmd == "ls":
-        from .build import listing
-
-        listing(args.app)
+        _listing(project, args.app)
         return 0
-    if args.cmd == "compact":
-        from .compact import compact
-
-        for path in compact(
-            args.runs or home.runs_dir(near), args.out or home.data_dir(near), force=args.force
-        ):
-            print(path)
+    if args.cmd == "add":
+        entry = publish.publish(Path(args.run), project)
+        print(f"{entry['name']}  {entry['path']}")
         return 0
+    if args.cmd in ("push", "pull"):
+        return _copy("to" if args.cmd == "push" else "from", args.remote, project)
     if args.cmd in ("repro", "verify"):
         from . import verify as verify_mod
 
-        run_dir = verify_mod.find_run(args.run, runs_root)
+        run_dir = verify_mod.find_run(args.run, home.runs_dir(project))
         if args.cmd == "repro":
             print(json.dumps(verify_mod.bundle(run_dir), indent=1, sort_keys=True))
             return 0
@@ -163,64 +159,29 @@ def main(argv=None) -> int:
         print(json.dumps(report, indent=1, sort_keys=True))
         return 0 if report["ok"] else 1
 
-    spec = spec_mod.load(args.spec)
+    spec = spec_mod.read(args.spec)
     if args.cmd == "plan":
-        if spec.kind != "experiment":
-            _err(f"{spec.path.name} is an analysis; only an experiment has jobs")
-            return 2
         for job in spec.jobs():
             print(f"{job.index:03d} seed={job.seed} params={job.params}")
         return 0
-    if args.cmd == "build":
-        from .build import build
 
-        return build(spec, again=args.again)
-    if args.cmd == "analyze":
-        from .analysis import analyze
+    from nixsci.deploy import resolver
 
-        results = analyze(
-            spec,
-            Path(args.runs or home.runs_dir(near)),
-            Path(args.data or home.data_dir(near)),
-            Path(args.out or home.analysis_dir(near) / spec.name),
-            args.only,
-            args.force,
-        )
-        for name, (code, skipped) in results.items():
-            print(f"{name}: " + ("up to date" if skipped else f"exit {code}"))
-        return 1 if any(code for code, _ in results.values()) else 0
-    if args.cmd == "lock":
-        from . import lock
-
-        written = lock.write(
-            spec.path, lock.collect(spec, home.runs_dir(near), home.analysis_dir(near) / spec.name)
-        )
-        print(written)
-        return 0
-    if args.cmd in ("check", "pull", "push"):
-        from . import lock, sync
-
-        data = lock.read(spec.path)
-        if args.cmd == "push":
-            failed = sync.push(args.remote, data, home.store_root(near))
-            return 1 if failed else 0
-        if args.cmd == "pull":
-            problems = sync.pull(args.remote, data, home.store_root(near))
-        else:
-            problems = lock.check(data, home.runs_dir(near), home.analysis_dir(near) / data["app"])
-        for kind, what, detail in problems:
-            print(f"{kind}: {what}: {detail}")
-        print("store matches the lock" if not problems else f"{len(problems)} problem(s)")
-        return 1 if problems else 0
+    source = json.loads(args.source)
+    closures = {}
+    for item in args.closure:
+        system, _, path = item.partition("=")
+        closures[system] = resolver.from_path(path, system, source)
+    if not closures:
+        _err("give at least one --closure SYSTEM=PATH")
+        return 2
     from .runner import run
 
-    runs = run(spec, Path(args.out or home.runs_dir(near)), again=args.again)
+    runs = run(spec, closures, home.runs_dir(project), project=project, again=args.again)
     bad = [m for m in runs if m["state"] != "ok"]
-    print(
-        f"{len(runs) - len(bad)}/{len(runs)} new run(s) ok"
-        if runs
-        else "nothing to run: up to date"
-    )
+    print(f"{len(runs) - len(bad)}/{len(runs)} new run(s) ok" if runs else "nothing to run: up to date")
+    if runs:
+        print(f"commit {project / 'lab.lock.json'} to keep these runs")
     return 1 if bad else 0
 
 

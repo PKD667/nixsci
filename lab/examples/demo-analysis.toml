@@ -1,8 +1,0 @@
-[analysis]
-name = "demo-curves"
-
-[use]
-demo = "demo.toml"           # alias = the experiment whose locked runs this analysis reads
-
-[pipeline.curve]
-script = "demo.R"
