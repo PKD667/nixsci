@@ -8,7 +8,6 @@ dependencies = []
 [project.optional-dependencies]
 arrow = ["pyarrow"]
 numpy = ["numpy"]
-modal = ["modal"]
 
 [project.scripts]
 nixsci = "nixsci.cli:main"

@@ -35,10 +35,6 @@ def backend(name, configs):
         from .ssh import SSH
 
         return SSH(**_checked(name, kind, config))
-    if kind == "modal":
-        from .modal import Modal
-
-        return Modal(config)
     for ep in entry_points(group="nixsci.deploy.backends"):
         if ep.name == kind:
             return ep.load()(config)
