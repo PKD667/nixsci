@@ -8,11 +8,53 @@ from pathlib import Path
 
 from nixsci.lab import home
 
-from . import spec as spec_mod
+from . import inputs, spec as spec_mod
 
 
 def _err(message: str) -> None:
     print(message, file=sys.stderr)
+
+
+def _data(args) -> int:
+    store = inputs.Store(args.inputs or home.inputs_root())
+    try:
+        if args.action == "import":
+            if args.kind == "dataset":
+                units = dict(item.split("=", 1) for item in args.unit)
+                sha, new = store.import_dataset(args.name, args.file, units=units, source=args.source, parent=args.parent)
+            else:
+                io = json.loads(args.io) if args.io else None
+                sha, new = store.import_model(args.name, args.file, io=io, source=args.source, parent=args.parent)
+            body = store.manifest(sha)
+            print(f"{args.name}@{body['number']}  {sha[:12]}  {'new' if new else 'unchanged'}")
+            for gap in body["gaps"]:
+                print(f"  gap: {gap}")
+        elif args.action == "ls":
+            for name in store.names():
+                tips = store.tips(name)
+                body = next(iter(tips.values()))
+                number = f"@{body['number']}" if len(tips) == 1 else f"fork of {len(tips)}"
+                rows = body["details"].get("rows")
+                print(f"{name}  {body['kind']}  {number}" + (f"  {rows} rows" if rows is not None else ""))
+        elif args.action == "diff":
+            print(json.dumps(store.diff(store.resolve(args.a), store.resolve(args.b)), indent=1, sort_keys=True))
+        else:
+            sha = store.resolve(args.ref)
+            if args.action == "show":
+                print(json.dumps(store.manifest(sha), indent=1, sort_keys=True))
+            elif args.action == "path":
+                for blob in store.manifest(sha)["blobs"]:
+                    print(store.blob_path(blob["sha256"]))
+            else:
+                problems = store.verify(sha)
+                for name, what in problems:
+                    print(f"{what}: {name}")
+                print("files match their hashes" if not problems else f"{len(problems)} problem(s)")
+                return 1 if problems else 0
+    except (inputs.Missing, inputs.Ambiguous, ValueError) as error:
+        _err(f"nixsci lab data: {error}")
+        return 2
+    return 0
 
 
 def main(argv=None) -> int:
@@ -65,6 +107,28 @@ def main(argv=None) -> int:
     v.add_argument("run")
     v.add_argument("--runs")
 
+    d = sub.add_parser("data", help="datasets and models in the input store")
+    d.add_argument("--inputs", help="input store (default: $NIXSCI_INPUTS or ~/.nixsci)")
+    actions = d.add_subparsers(dest="action", required=True)
+    i = actions.add_parser("import", help="add a dataset (a Parquet file) or a model (any file) as a revision")
+    i.add_argument("kind", choices=inputs.KINDS)
+    i.add_argument("name")
+    i.add_argument("file")
+    i.add_argument("--unit", action="append", default=[], metavar="COLUMN=UNIT", help="a dataset column's unit")
+    i.add_argument("--io", help="a model's inputs and outputs, as JSON")
+    i.add_argument("--source", action="append", default=[], help="where the bytes can be fetched again")
+    i.add_argument("--parent", help="hash of the revision to extend (default: the tip)")
+    actions.add_parser("ls", help="every name with its tip")
+    for action, text in (
+        ("show", "print a revision's manifest"),
+        ("verify", "re-hash a revision's files"),
+        ("path", "print where a revision's files are"),
+    ):
+        actions.add_parser(action, help=text).add_argument("ref", help="name, name@3 or name#<hash>")
+    df = actions.add_parser("diff", help="columns, rows and bytes that changed between two revisions")
+    df.add_argument("a")
+    df.add_argument("b")
+
     args = ap.parse_args(argv)
     if args.store:
         os.environ["NIX_LAB_STORE"] = args.store
@@ -72,6 +136,8 @@ def main(argv=None) -> int:
         Path(getattr(args, "runs", None) or home.runs_dir()) if args.cmd != "compact" else None
     )
 
+    if args.cmd == "data":
+        return _data(args)
     if args.cmd == "ls":
         from .build import listing
 

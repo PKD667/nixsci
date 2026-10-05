@@ -179,6 +179,37 @@ nixsci.lab does not promise identical bytes: a measurement with an uncontrolled 
 a shared cluster) is a random variable. What it guarantees is exact *provenance* and honest
 *re-measurement*. See `DESIGN.md` for the reasoning and the literature behind it.
 
+## Inputs: datasets and models
+
+Reference. Inputs are the data an experiment reads and the models it loads. They live in an input
+store, which is meant to be shared: the default is `~/.nixsci`, `$NIXSCI_INPUTS` or `--inputs`
+moves it, and a grid whose nodes share storage points it there, so the data is stored once for the
+whole grid and read in place.
+
+```sh
+nixsci lab data import dataset shd shd.parquet --unit time=s --source https://example.org/shd
+nixsci lab data import model nir-shd net.nir --io '{"input": {"shape": [700]}, "output": {"shape": [20]}}'
+nixsci lab data ls
+nixsci lab data show shd@2          # name, name@3 or name#<hash prefix>
+nixsci lab data diff shd@1 shd@2    # columns, rows and bytes that changed
+nixsci lab data verify shd          # re-hash the files
+nixsci lab data path shd            # where the files are
+```
+
+| Kind | Holds | Learned from |
+|---|---|---|
+| `dataset` | One Parquet table. | The file: columns, types, row count. You add units and sources. |
+| `model` | One file. | You add its inputs and outputs. |
+
+What an import could not learn is listed as `gaps` and never guessed.
+
+Each revision records the hash of its parent, and its number is its depth in that chain. No
+allocator hands out numbers, so several machines can write to one store without locks. A bare name
+means the tip. If two revisions extend the same parent, they carry the same number, and a reference
+that cannot tell them apart fails and lists them; pin one with `name#<hash>`. Importing what the tip
+already holds changes nothing. Layout, all written once and named by hash: `blobs/<sha256>`,
+`manifests/<sha256>.json`, `names/<name>/<sha256>`.
+
 ## Compaction and analysis
 
 ```sh

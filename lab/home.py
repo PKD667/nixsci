@@ -23,6 +23,16 @@ def store_root() -> Path:
     return Path(base) / "nix-lab"
 
 
+def inputs_root() -> Path:
+    """The input store (datasets and models): `$NIXSCI_INPUTS`, else `~/.nixsci`.
+
+    It is meant to be shared, so a grid whose storage is shared by its nodes sets it to a
+    directory there.
+    """
+    explicit = os.environ.get("NIXSCI_INPUTS")
+    return Path(explicit).expanduser() if explicit else Path.home() / ".nixsci"
+
+
 def runs_dir() -> Path:
     return store_root() / "runs"
 
