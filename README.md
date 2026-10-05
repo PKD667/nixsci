@@ -151,9 +151,9 @@ lab::record_bytes("weights", &bytes, "application/octet-stream")?;
 let epsilon = lab::params()["epsilon"].as_f64();   // lab::seed() -> Option<i64>
 ```
 
-It enforces the same declared columns and keys as the Python module. Add it as a path or git
-dependency (`lab = { git = "https://github.com/PKD667/nix-lab", package = "lab" }` does not
-apply: the crate lives in `rust/lab`, so use a path or vendor it). `tests/test_rust.py` builds
+It enforces the same declared columns and keys as the Python module. The crate lives in
+`rust/lab`: use it as a path dependency (`lab = { path = "../nix-lab/rust/lab" }`) or vendor it.
+`tests/test_rust.py` builds
 nothing itself: point `NIX_LAB_RUST_EMIT` at `cargo build --example emit` and Python checks that
 it can read and validate what Rust wrote. A recorder in another language only has to follow
 `SPEC.md`.
