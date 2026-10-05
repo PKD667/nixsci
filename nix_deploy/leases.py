@@ -49,6 +49,7 @@ def acquire(
             "targets": lease.targets,
             "hosts": lease.hosts,
             "state": lease.state,
+            "expires": lease.expires,
         }
         path.write_text(json.dumps(record, indent=1) + "\n")
         path.chmod(0o600)
@@ -69,6 +70,7 @@ def load(name: str) -> providers.Lease:
         record["hosts"],
         record["state"],
         lambda: provider.release(record["state"]),
+        record.get("expires"),
     )
 
 

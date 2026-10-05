@@ -32,13 +32,14 @@ def launch(
     env: Mapping[str, str] | None = None,
     program: str = "run",
     inputs: Mapping[str, Any] | None = None,
-    rsh: str = DEFAULT_RSH,
+    rsh: str | None = None,
 ) -> dict[str, Any]:
     if not backends or len(backends) != len(hosts):
         raise ValueError("need one backend per host name")
     with ThreadPoolExecutor(max_workers=len(backends)) as pool:
         list(pool.map(lambda b: b.stage(closure), backends))
     hostfile = f"{backends[0].run_root}/{run_id}/inputs/hostfile"
+    rsh = rsh or getattr(backends[0], "rsh", None) or DEFAULT_RSH
     values = {"NIX_DEPLOY_RSH": rsh, "NIX_DEPLOY_HOSTFILE": hostfile, **(env or {})}
     handle = backends[0].launch(
         closure,

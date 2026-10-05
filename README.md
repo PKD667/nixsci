@@ -5,9 +5,11 @@ Run an immutable Nix experiment on any machine, with one contract everywhere.
 You give it a flake reference and an experiment name. It builds
 `experiments.<system>.<name>`, verifies the whole closure by NAR hash, copies it
 to a target, runs it there, and gives you a handle to watch it, read its files,
-tunnel to its ports and stop it. Where the machines come from (your laptop, an
-ssh box, a Grid'5000 reservation, a site-specific broker) is a separate,
-pluggable question: a *provider*.
+tunnel to its ports and stop it. Where the machines come from (your laptop, ssh
+hosts you already have, a site-specific broker) is a separate, pluggable question:
+a *provider*. nix-deploy contains **no scheduler code**: reserving machines
+(OAR, Slurm, a cloud API...) is somebody else's job, done by hand, by a project's
+own script, or by a provider plugin. nix-deploy starts at "here are hosts I can ssh to".
 
 It is meant to be the only way experiments are deployed. If a project has its
 own artifact builder, ssh launcher or reservation script, the goal is to delete
@@ -23,7 +25,7 @@ controller and, for non-Nix hosts, an ssh client.
 | **experiment** | a store directory built from the flake, containing `experiment.json` |
 | **closure** | the experiment plus everything it needs, identified by path to NAR hash |
 | **backend** | something that can stage and run a closure: `native` (this machine), `ssh` (a remote host) |
-| **provider** | gives you hosts and takes them back: `local`, `static`, `oar`, or a plugin |
+| **provider** | gives you hosts and takes them back: `local`, `static`, or a plugin |
 | **lease** | the hosts a provider gave you, plus what is needed to release them |
 | **handle** | JSON describing one running job (id, workdir, pid, closure, inputs) |
 
@@ -67,6 +69,7 @@ directories (the closure should bring everything else). nix-deploy adds:
 | `NIX_DEPLOY_HOSTFILE` | multi-host only: file listing hosts, one per line, first is this host |
 | `NIX_DEPLOY_RSH` | multi-host only: command that opens a shell on another host (default `ssh`) |
 | `NIX_DEPLOY_ENTER` | prefix that runs a command inside the same store view on whichever host it runs on |
+| `NIX_DEPLOY_DEADLINE` | epoch seconds when the lease ends, when it has a walltime: checkpoint and exit before |
 
 stdout and stderr go to `process.log` in the workdir. The program stays
 foreground in its own process group; `stop` sends SIGTERM to that group.
@@ -74,23 +77,40 @@ foreground in its own process group; `stop` sends SIGTERM to that group.
 ## Machine configuration
 
 What a provider *name* means is configured per machine, in
-`~/.config/nix-deploy/providers.toml`. Callers say `provider = "g5k"` and never
+`~/.config/nix-deploy/providers.toml`. Callers say `provider = "lab"` and never
 care how:
 
 ```toml
-[providers.g5k]
-use = "oar"                    # direct: your own ssh keys to the OAR frontend
-login = "me"
-site = "lille"
-bootstrap = "/path/to/nix-static"          # a static nix binary, shipped to nodes
+[providers.lab]
+use = "static"                 # hosts you reserved yourself, reached over ssh
+user = "me"
+jump = "me@gateway"            # ProxyJump chain, optional
+workdir = "/tmp/me-nix-deploy" # absolute path on the hosts: rootless store, runs, shipped nix
+bootstrap = "/path/to/nix-static"          # a static nix binary, shipped to the hosts
 bootstrap_sha256 = "<sha256 of that file>"
+ssh_options = ["-o", "StrictHostKeyChecking=accept-new"]
+ready_timeout = 180            # hosts that just booted may refuse ssh for a while
+# ssh_command = ["oarsh"]      # a site's own ssh wrapper; scp_command, rsh likewise
 ```
 
-On a server with a shared-credential broker, the same name can instead say
+The hosts themselves come with each lease (`--opt hosts=a,b` or `hosts = [...]` in
+the spec's `[resources.opts]`), so one entry serves every reservation. On a server
+with a shared-credential broker, the same name can instead say
 `use = "<installed plugin>"`. Code above the provider layer does not change.
 
 A machine-wide file, `/etc/nix-deploy/providers.toml`, has the same format and
 fills in names the user's own file does not set; the user's file wins.
+
+**The ssh layer is configuration, not code.** Per target (or per provider default):
+`ssh_command` and `scp_command` (default `ssh` and `scp -q`), `ssh_options` (extra
+`-o ...`), `jump` (ProxyJump chain), `rsh` (what jobs use to reach their peers,
+becomes `NIX_DEPLOY_RSH`) and `ready_timeout`. That is how Grid'5000 (a gateway
+plus `oarsh` or plain ssh), a cloud VM or a laptop on the LAN are all just
+different values.
+
+**Walltime.** `walltime` (minutes) is a generic resource. When given, the lease
+records when it ends: `nix-deploy run` refuses an expired lease, jobs get
+`NIX_DEPLOY_DEADLINE`, and `nix-lab run` stops waiting for jobs at the deadline.
 
 Generic resources are the same for every provider: `hosts`, `gpus`, `walltime`
 (minutes), `system`. **Everything provider-specific goes in `opts`**, and each
@@ -100,7 +120,7 @@ resources is an error.
 ## Command line
 
 ```sh
-nix-deploy lease acquire g5k warm --hosts 4 --walltime 240 [--opt queue=besteffort]
+nix-deploy lease acquire lab warm --walltime 240 --opt hosts=n1,n2,n3,n4   # hosts you reserved
 nix-deploy lease ls
 nix-deploy lease show warm
 nix-deploy --lease warm run . my-experiment run1 --handle run1.json --arg 8 --env SEED=3
@@ -139,7 +159,7 @@ ssh_options = ["-o", "ProxyJump=user@jump"]
 ```python
 from nix_deploy import providers, factory, resolver, group, leases
 
-lease = providers.acquire("g5k", {"hosts": 2, "walltime": 240})      # or leases.load("warm")
+lease = providers.acquire("lab", {"walltime": 240}, {"hosts": "n1,n2"})   # or leases.load("warm")
 configs = {f"t{i}": c for i, c in enumerate(lease.targets)}
 backends = [factory.backend(name, configs) for name in configs]
 
@@ -181,13 +201,13 @@ A provider has `acquire(resources, opts) -> Lease` and `release(state)`; the
 reachable from inside the allocation) and a JSON-able `state` that `release`
 needs, so a lease can be released from another process. A backend takes its
 config dict and implements the methods above. See `nix_deploy/providers.py`
-(`Local`, `Static`, `OAR`) and `nix_deploy/ssh.py`.
+(`Local`, `Static`) and `nix_deploy/ssh.py`.
 
 ## Testing
 
 ```sh
 PYTHONPATH=. python3 tests/e2e.py local 1       # resolve, stage, run, read the log
-PYTHONPATH=. python3 tests/e2e.py g5k 2         # same on a real reservation
+PYTHONPATH=. python3 tests/e2e.py lab --opt hosts=n1,n2   # same on hosts you reserved yourself
 ```
 
 The flake's `experiments.<system>.hello` prints where it ran, which hosts it
@@ -198,30 +218,26 @@ saw, and its `NIX_DEPLOY_ENTER`. The tree must be committed first.
 Verified end to end:
 
 - `local` provider and `native` backend, on a laptop and on a server.
-- The `oar` provider and `ssh` backend on real Grid'5000 (one node at Lille, with
-  `queue=besteffort`): reserve, wait for `Running`, ship a static Nix, ship and verify
-  the closure by NAR hash under a rootless store, run it inside that store view,
-  read its log, release the job.
-- Persistent leases through the CLI (`lease acquire`, `--lease NAME run/status/fetch`,
-  `lease release`), provider option validation, `put` on the native backend.
+- The `ssh` backend on real Grid'5000 nodes (1 and 2 Lille nodes, reserved by hand, reached
+  through the site gateway): ship a static Nix, ship and verify the closure by NAR hash
+  under a rootless store, run it inside that store view, read its log, fetch results.
+- Multi-host: `group.launch` stages the closure on both nodes and starts the program on
+  the first; from there the program reached the second node with `$NIX_DEPLOY_RSH` and ran
+  a command inside that node's store view with `$NIX_DEPLOY_ENTER`. The hostfile reached
+  the job through the ssh backend's `put` path.
+- Persistent leases through the CLI, option validation, walltime expiry, `put`.
 
-Also verified on two real Lille nodes: `group.launch` stages the closure on both and
-starts the program on the first; from there the program reached the second node with
-`$NIX_DEPLOY_RSH` and ran a command inside that node's store view with
-`$NIX_DEPLOY_ENTER`. The hostfile reached the job through the ssh backend's `put` path.
+Not verified on real machines: `tunnel(handle, port, host=NODE)` to a second host (it is
+a plain `ssh -L`), and the ssh-layer settings `ssh_command`/`scp_command`/`jump` against a
+real site wrapper (unit-tested for command assembly).
 
-Not verified on real machines: `tunnel(handle, port, host=NODE)` to a second host
-(it is a plain `ssh -L`).
-
-Two things learned on real nodes: OAR reports `Running` before every node accepts the
-user's key, so the `oar` provider waits until each node accepts ssh before returning
-the lease (`ready_timeout`, default 180 s); and inside a rootless store the program runs
-in a user namespace where root-owned `/etc` files look owned by `nobody`, so ssh refuses
-the system config, which is why the default `NIX_DEPLOY_RSH` is `ssh -F /dev/null ...`.
+Learned on real nodes: a scheduler may report a job `Running` before every node accepts
+the user's key, hence `ready_timeout`; and inside a rootless store the program runs in a
+user namespace where root-owned `/etc` files look owned by `nobody`, so ssh refuses the
+system config, which is why the default `NIX_DEPLOY_RSH` is `ssh -F /dev/null ...`.
 
 Limits to know: the ssh backend needs unprivileged user namespaces on the target
-(`nix --store` with a local root; present on Grid'5000 nodes); a bare static Nix
-has no config, so every invocation passes `--extra-experimental-features nix-command`
-itself; Grid'5000 accounts may be restricted to `queue=besteffort`, where jobs can
-be preempted; `x86_64-linux` and `aarch64-linux` only; GPU toolchains are the
-experiment's business, not nix-deploy's.
+(`nix --store` with a local root; present on Grid'5000 nodes); a bare static Nix has no
+config, so every invocation passes `--extra-experimental-features nix-command` itself;
+`x86_64-linux` and `aarch64-linux` only; GPU toolchains are the experiment's business,
+not nix-deploy's.

@@ -27,6 +27,11 @@ class SSH(Backend):
         nix_executable: str = "nix",
         rootless: bool = True,
         ssh_options: tuple[str, ...] = (),
+        ssh_command: tuple[str, ...] = ("ssh",),
+        scp_command: tuple[str, ...] = ("scp", "-q"),
+        jump: str | None = None,
+        rsh: str | None = None,
+        ready_timeout: float = 0,
         driver: str | None = None,
         profiles: tuple[str, ...] = (),
     ):
@@ -44,10 +49,36 @@ class SSH(Backend):
             profiles=profiles,
         )
         self.host, self.remote_bootstrap = host, remote_bootstrap
-        self.ssh_options = tuple(ssh_options)
-        self._ssh = ("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", *self.ssh_options)
-        self._scp = ("scp", "-q", *self.ssh_options)
+        if jump is not None and not re.fullmatch(r"[A-Za-z0-9_.@,:-]+", jump):
+            raise ValueError("jump must be host or user@host entries joined by commas")
+        # ssh_command / scp_command let a site use its own wrapper (oarsh, mosh-less proxies...).
+        self.ssh_options = (*(() if jump is None else ("-o", f"ProxyJump={jump}")), *ssh_options)
+        self._ssh = (
+            *ssh_command,
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=15",
+            *self.ssh_options,
+        )
+        self._scp = (*scp_command, *self.ssh_options)
+        self.rsh, self.ready_timeout, self._ready = rsh, float(ready_timeout), False
         self._bootstrap_shipped = False
+
+    def _wait_ready(self) -> None:
+        """Hosts that were just allocated or booted may refuse ssh for a while: wait, once."""
+        if self._ready or not self.ready_timeout:
+            return
+        deadline = time.monotonic() + self.ready_timeout
+        while subprocess.run(
+            [*self._ssh, self.host, "true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        ).returncode:
+            if time.monotonic() > deadline:
+                raise RuntimeError(
+                    f"{self.host} did not accept ssh within {self.ready_timeout:.0f}s"
+                )
+            time.sleep(2)
+        self._ready = True
 
     def _remote(
         self, command: str, *, data: bytes | None = None, check: bool = True
@@ -133,6 +164,7 @@ class SSH(Backend):
 
     def stage(self, closure: Closure) -> dict[str, Any]:
         self._admit(closure)
+        self._wait_ready()
         self._ship_bootstrap()
         token = closure.path.rsplit("/", 1)[-1].split("-", 1)[0]
         with tempfile.TemporaryDirectory(prefix="nix-deploy-cache-") as temp:

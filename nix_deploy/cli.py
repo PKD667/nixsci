@@ -8,6 +8,7 @@ nix-deploy (--lease NAME | --config FILE --target T) status|stop|fetch ...
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 from . import factory, group, leases
@@ -24,6 +25,7 @@ def _lease_command(args) -> int:
             json.dumps(
                 {
                     "name": args.name,
+                    "expires": lease.expires,
                     "hosts": lease.hosts or [c.get("host", "local") for c in lease.targets],
                 }
             )
@@ -48,7 +50,7 @@ def main(argv=None):
     lease.add_argument("provider", nargs="?")
     lease.add_argument("name", nargs="?")
     lease.add_argument("--hosts", type=int, default=1)
-    lease.add_argument("--walltime", type=int, default=60, help="minutes")
+    lease.add_argument("--walltime", type=int, default=None, help="minutes the hosts are ours")
     lease.add_argument("--opt", action="append", default=[], help="provider option KEY=VALUE")
     run = commands.add_parser("run")
     run.add_argument("flake")
@@ -78,9 +80,11 @@ def main(argv=None):
         held = leases.load(args.lease)
         configs = {f"t{i}": c for i, c in enumerate(held.targets)}
         hosts = held.hosts or list(configs)
+        expires = held.expires
     elif args.config and args.target:
         configs = {args.target: factory.load_targets(args.config)[args.target]}
         hosts = [args.target]
+        expires = None
     else:
         parser.error("give --lease NAME, or --config FILE with --target T")
     names = list(configs)
@@ -88,11 +92,16 @@ def main(argv=None):
     transport = backends[0]
     if args.command == "run":
         closure = resolve(args.flake, args.experiment, configs[names[0]]["system"])
+        env = dict(item.split("=", 1) for item in args.env)
+        if expires:
+            if time.time() >= expires:
+                raise SystemExit(f"lease {args.lease!r} has expired; acquire the hosts again")
+            env["NIX_DEPLOY_DEADLINE"] = str(int(expires))
         kwargs = dict(
             run_id=args.run_id,
             argv=tuple(args.arg),
             program=args.program,
-            env=dict(item.split("=", 1) for item in args.env),
+            env=env,
             inputs=dict(item.split("=", 1) for item in args.input),
         )
         if len(backends) > 1:

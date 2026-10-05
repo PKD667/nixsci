@@ -5,10 +5,10 @@ a provider name means is decided per machine, so callers (nerve, nix-lab) only
 ever say `provider = "g5k"`:
 
     # ~/.config/nix-deploy/providers.toml
-    [providers.g5k]
-    use = "oar"            # direct: your own ssh keys to the OAR frontend
-    login = "me"
-    site = "lille"
+    [providers.lab]
+    use = "static"         # hosts you reserved yourself, reached over ssh
+    jump = "me@gateway"
+    user = "me"
     # or, on a server with a shared-credential helper:
     # use = "site-helper"  # any provider installed under `nix_deploy.providers`
 """
@@ -17,9 +17,6 @@ from __future__ import annotations
 
 import os
 import platform
-import re
-import shlex
-import subprocess
 import time
 import tomllib
 from dataclasses import dataclass, field
@@ -37,6 +34,8 @@ class Lease:
     #: JSON-able facts the provider needs to release this lease from any process.
     state: dict[str, Any] = field(default_factory=dict)
     _release: Callable[[], None] = lambda: None
+    #: Epoch seconds after which the hosts are not ours any more (None = unknown).
+    expires: float | None = None
 
     def release(self) -> None:
         self._release()
@@ -48,7 +47,7 @@ class Resources:
 
     hosts: int = 1
     gpus: int = 0
-    walltime: int = 60  # minutes
+    walltime: int | None = None  # minutes; None = no limit known
     system: str = "x86_64-linux"
 
     @classmethod
@@ -111,12 +110,21 @@ class Local:
 
 
 class Static:
-    """Named targets from a targets file (CBP servers, any ssh host)."""
+    """Hosts you already have. Reservations and boots are somebody else's job.
+
+    Either name targets from a targets file:      targets = ["box1", "box2"], config = "path.toml"
+    or list ssh hosts sharing one template:       hosts = ["a", "b"] (or "a,b"), workdir, bootstrap,
+        bootstrap_sha256, and optionally user, jump, ssh_command, scp_command, ssh_options, rsh,
+        ready_timeout.  `workdir` is an absolute path on the hosts that holds the rootless store,
+        the run directories and the shipped Nix; every listed host is used.
+    """
 
     def release(self, state):
         pass
 
     def acquire(self, resources, opts):
+        if "hosts" in opts:
+            return self._hosts(resources, opts)
         o = check_opts("static", opts, {"targets"}, {"config"})
         config = Path(o.get("config", "~/.config/nix-deploy/targets.toml")).expanduser()
         table = load_toml(config)["targets"]
@@ -131,157 +139,50 @@ class Static:
             raise KeyError(f"targets not in {config}: {missing}")
         return Lease([dict(table[n]) for n in names], list(names))
 
-
-_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
-
-
-def _ssh(argv: list[str], command: str, check: bool = True) -> str:
-    result = subprocess.run(
-        [*argv, command], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-    )
-    if check and result.returncode:
-        raise RuntimeError(f"ssh failed ({result.returncode}): {command}\n{result.stderr[-1500:]}")
-    return result.stdout
-
-
-def _wait_reachable(argv: list[str], within: float, poll: float) -> None:
-    """OAR reports `Running` before every node accepts the user's key; wait for ssh itself."""
-    deadline = time.monotonic() + within
-    while True:
-        result = subprocess.run([*argv, "true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if result.returncode == 0:
-            return
-        if time.monotonic() > deadline:
-            raise RuntimeError(f"{argv[-1]} did not accept ssh within {within:.0f}s")
-        time.sleep(poll)
-
-
-class OAR:
-    """Reserve nodes on an OAR cluster (Grid'5000) over plain ssh and your own keys.
-
-    Reaches the frontend as `login@site` through `access` (ProxyJump) and each
-    node the same way, so nothing but ssh keys is needed on the calling side.
-    Nodes are plain `ssh` backends with a pinned static Nix bootstrap.
-    """
-
-    def release(self, state):
-        _ssh(state["frontend"], f"oardel {state['job']}", check=False)
-
-    def acquire(self, resources, opts):
-        c = {
-            "access": "access.grid5000.fr",
-            "queue": None,
-            "cluster": None,
-            "besteffort": False,
-            "poll": 2,
-            "timeout": 3600,
-            "ready_timeout": 180,
-            **check_opts(
-                "oar",
-                opts,
-                {"login", "site", "bootstrap", "bootstrap_sha256"},
-                {
-                    "access",
-                    "queue",
-                    "cluster",
-                    "besteffort",
-                    "poll",
-                    "timeout",
-                    "store",
-                    "run_root",
-                    "remote_bootstrap",
-                    "ssh_options",
-                    "ready_timeout",
-                },
-            ),
-        }
-        login, site, access = c["login"], c["site"], c["access"]
-        for value in (login, site, access, c["cluster"] or "x", c["queue"] or "x"):
-            if not _NAME.fullmatch(value):
-                raise ValueError(f"invalid OAR option {value!r}")
-        walltime, hosts = resources.walltime, resources.hosts
-        # Frontends and nodes are not in a fresh known_hosts; trust a key on first contact only.
-        jump = [
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-            *c.get("ssh_options", []),
-            "-o",
-            f"ProxyJump={login}@{access}",
-        ]
-        frontend = ["ssh", "-o", "BatchMode=yes", *jump, f"{login}@{site}"]
-        cmd = f"oarsub -n nix-deploy -l nodes={hosts},walltime={walltime // 60}:{walltime % 60:02d}:00"
-        if c["besteffort"]:
-            cmd += " -t besteffort"
-        if c["queue"]:
-            cmd += f" -q {c['queue']}"
-        if c["cluster"]:
-            cmd += f" -p \"cluster='{c['cluster']}'\""
-        out = _ssh(frontend, f"{cmd} 'sleep 2147483647'")
-        found = re.search(r"^OAR_JOB_ID=(\d+)", out, re.M)
-        if not found:
-            raise RuntimeError(f"no OAR job id in: {out!r}")
-        job = found.group(1)
-
-        state = {"job": job, "frontend": frontend}
-
-        def release() -> None:
-            self.release(state)
-
-        try:
-            deadline = time.monotonic() + float(c["timeout"])
-            while True:
-                info = _ssh(frontend, f"oarstat -fj {job}")
-                found_state = re.search(r"^\s*state = (\w+)", info, re.M)
-                job_state = found_state.group(1) if found_state else ""
-                if job_state == "Running":
-                    break
-                if (
-                    job_state in ("", "Terminated", "Error", "Finishing")
-                    or time.monotonic() > deadline
-                ):
-                    raise RuntimeError(f"OAR job {job} did not run: state={job_state or 'unknown'}")
-                time.sleep(float(c["poll"]))
-            names = re.search(r"^\s*assigned_hostnames = (.+)$", info, re.M)
-            nodes = sorted(set(names.group(1).strip().split("+"))) if names else []
-            if not nodes or not all(_NAME.fullmatch(n) for n in nodes):
-                raise RuntimeError(f"OAR job {job} has no usable assigned hosts: {nodes!r}")
-            for node in nodes:
-                _wait_reachable(
-                    ["ssh", "-o", "BatchMode=yes", *jump, f"{login}@{node}"],
-                    float(c["ready_timeout"]),
-                    float(c["poll"]),
-                )
-        except BaseException:
-            release()
-            raise
+    def _hosts(self, resources, opts):
+        o = check_opts(
+            "static",
+            opts,
+            {"hosts", "workdir", "bootstrap", "bootstrap_sha256"},
+            {"user", "jump", "ssh_command", "scp_command", "ssh_options", "rsh", "ready_timeout"},
+        )
+        hosts = o["hosts"].split(",") if isinstance(o["hosts"], str) else list(o["hosts"])
+        hosts = [h.strip() for h in hosts if h.strip()]
+        if len(hosts) < resources.hosts:
+            raise ValueError(f"asked for {resources.hosts} hosts, {len(hosts)} listed")
+        workdir = o["workdir"].rstrip("/")
+        if not workdir.startswith("/"):
+            raise ValueError("workdir must be an absolute path on the hosts")
         base = {
             "backend": "ssh",
             "system": resources.system,
-            "store": c.get("store", f"/tmp/{login}-nix-deploy/store"),
-            "run_root": c.get("run_root", f"/tmp/{login}-nix-deploy/runs"),
+            "store": f"{workdir}/store",
+            "run_root": f"{workdir}/runs",
             "rootless": True,
-            "bootstrap": c["bootstrap"],
-            "bootstrap_sha256": c["bootstrap_sha256"],
-            "remote_bootstrap": c.get("remote_bootstrap", f"/tmp/{login}-nix-deploy/bin/nix"),
-            "ssh_options": jump,
+            "bootstrap": o["bootstrap"],
+            "bootstrap_sha256": o["bootstrap_sha256"],
+            "remote_bootstrap": f"{workdir}/bin/nix",
         }
-        return Lease([{**base, "host": f"{login}@{node}"} for node in nodes], nodes, state, release)
+        for key in ("jump", "ssh_command", "scp_command", "ssh_options", "rsh", "ready_timeout"):
+            if key in o:
+                base[key] = o[key]
+        user = f"{o['user']}@" if "user" in o else ""
+        expires = time.time() + resources.walltime * 60 if resources.walltime else None
+        return Lease([{**base, "host": f"{user}{h}"} for h in hosts], hosts, expires=expires)
 
 
 def load_toml(path: Path) -> dict[str, Any]:
     return tomllib.loads(path.read_text())
 
 
-_BUILTIN: dict[str, Callable[[], Provider]] = {"local": Local, "static": Static, "oar": OAR}
+_BUILTIN: dict[str, Callable[[], Provider]] = {"local": Local, "static": Static}
 
 
 #: Per-user settings win; machine-wide ones (/etc) fill in for names the user does not set.
 CONFIG_FILES = ("~/.config/nix-deploy/providers.toml", "/etc/nix-deploy/providers.toml")
 
 
-def get(
-    name: str, config_path: str | Path | None = None
-) -> tuple[Provider, dict[str, Any]]:
+def get(name: str, config_path: str | Path | None = None) -> tuple[Provider, dict[str, Any]]:
     """Resolve a logical provider name on this machine -> (provider, its default options)."""
     options: dict[str, Any] = {}
     for candidate in [config_path] if config_path else CONFIG_FILES:
@@ -312,4 +213,4 @@ def acquire(
     return provider.acquire(Resources.of(resources or {}), {**defaults, **(opts or {})})
 
 
-__all__ = ["Lease", "Provider", "Resources", "acquire", "get", "Local", "Static", "OAR"]
+__all__ = ["Lease", "Provider", "Resources", "acquire", "get", "Local", "Static"]
