@@ -9,8 +9,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from lab import schema
+
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
-_KNOWN = {"experiment", "params", "sweep", "resources", "outputs"}
+_KNOWN = {"experiment", "params", "sweep", "resources", "outputs", "data", "pipeline"}
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,8 @@ class Spec:
     resources: dict[str, Any]
     outputs: dict[str, Any]
     path: Path
+    data: dict[str, dict[str, str]] = field(default_factory=dict)
+    pipelines: dict[str, dict[str, Any]] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -69,6 +73,18 @@ def load(path: str | Path) -> Spec:
     flake = str(exp.get("flake", "."))
     if flake.startswith((".", "/")):
         flake = str((path.parent / flake).resolve())
+    data = {}
+    for dataset, body in raw.get("data", {}).items():
+        schema.parse(dataset, body.get("columns", {}))
+        data[dataset] = {c: str(t) for c, t in body["columns"].items()}
+    pipelines = {}
+    for pname, body in raw.get("pipeline", {}).items():
+        if not _NAME.fullmatch(pname) or not isinstance(body.get("script"), str):
+            raise ValueError(f"{path}: [pipeline.{pname}] needs a valid name and a script")
+        pipelines[pname] = {
+            "script": body["script"],
+            "inputs": list(body.get("inputs", [exp["name"]])),
+        }
     return Spec(
         name=exp["name"],
         flake=flake,
@@ -79,4 +95,6 @@ def load(path: str | Path) -> Spec:
         resources=dict(raw.get("resources", {})),
         outputs=dict(raw.get("outputs", {})),
         path=path,
+        data=data,
+        pipelines=pipelines,
     )

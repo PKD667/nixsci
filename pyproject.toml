@@ -8,6 +8,7 @@ dependencies = []
 [project.optional-dependencies]
 deploy = ["nix-deploy"]
 numpy = ["numpy"]
+arrow = ["pyarrow"]
 
 [project.scripts]
 nix-lab = "nix_lab.cli:main"

@@ -7,17 +7,17 @@
         ]
       },
       "locked": {
-        "lastModified": 1791165285,
-        "narHash": "sha256-hqNUT2Us4eJ5JryZYbpOmaQu5WQ9HPk+8N8hvNCOimk=",
-        "ref": "refs/heads/main",
-        "rev": "de653128302c0174f7f0a9aed81eede46fd86b80",
-        "revCount": 11,
-        "type": "git",
-        "url": "ssh://git@github.com/PKD667/nix-deploy"
+        "lastModified": 1791168386,
+        "narHash": "sha256-pdV2PsUbXNx6ogY0+/kqq4ew+J0Q37eV9pZMoyZ2RIw=",
+        "owner": "PKD667",
+        "repo": "nix-deploy",
+        "rev": "c89c487b72192608ad8f4ee043815e223f4bdabe",
+        "type": "github"
       },
       "original": {
-        "type": "git",
-        "url": "ssh://git@github.com/PKD667/nix-deploy"
+        "owner": "PKD667",
+        "repo": "nix-deploy",
+        "type": "github"
       }
     },
     "nixpkgs": {

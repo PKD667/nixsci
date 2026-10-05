@@ -68,6 +68,8 @@ def _run_job(spec, job, name, configs, closures, factory, out_root, stamp, poll,
     env = {"NIX_LAB_RUN": run_id, "NIX_LAB_PARAMS": json.dumps(job.params, sort_keys=True)}
     if job.seed is not None:
         env["NIX_LAB_SEED"] = str(job.seed)
+    if spec.data:
+        env["NIX_LAB_SCHEMA"] = json.dumps(spec.data, sort_keys=True)
     started = _utc()
     be.stage(closure)
     handle = be.launch(closure, run_id=run_id, env=env)
@@ -87,6 +89,7 @@ def _run_job(spec, job, name, configs, closures, factory, out_root, stamp, poll,
     manifest = {
         "v": 1,
         "app": spec.name,
+        "schema": spec.data,
         "run": run_id,
         "state": state,
         "seed": job.seed,

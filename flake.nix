@@ -26,13 +26,26 @@
           mkdir -p $site
           cp -r ${./src/lab} $site/lab
         '';
+        # R package that reads collected runs and compacted datasets.
+        labr = pkgs.rPackages.buildRPackage {
+          name = "labr";
+          src = ./r/labr;
+          propagatedBuildInputs = with pkgs.rPackages; [ arrow jsonlite ];
+        };
+        # The pinned R used by `nix-lab analyze`: Rscript plus the analysis packages.
+        r-env = pkgs.rWrapper.override {
+          packages = with pkgs.rPackages; [ arrow dplyr ggplot2 jsonlite self.packages.${pkgs.system}.labr ];
+        };
         nix-lab = pkgs.python3Packages.buildPythonApplication {
           pname = "nix-lab";
           version = "0.1.0";
           src = self;
           pyproject = true;
           build-system = [ pkgs.python3Packages.setuptools ];
-          dependencies = [ nix-deploy.packages.${pkgs.system}.nix-deploy ];
+          dependencies = [
+            nix-deploy.packages.${pkgs.system}.nix-deploy
+            pkgs.python3Packages.pyarrow
+          ];
           pythonImportsCheck = [ "nix_lab" "lab" ];
           meta.mainProgram = "nix-lab";
         };
@@ -45,7 +58,7 @@
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
           packages = [ pkgs.python3 pkgs.python3Packages.pytest pkgs.git ];
-          shellHook = ''export PYTHONPATH="$PWD/src:${nix-deploy}:$PYTHONPATH"'';
+          shellHook = ''export PYTHONPATH="$PWD/src:${nix-deploy.outPath}:$PYTHONPATH"'';
         };
       });
     };

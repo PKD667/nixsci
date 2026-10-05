@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from . import schema
+
 VERSION = 1
 _counter = itertools.count()
 
@@ -66,9 +68,18 @@ def _jsonable(value: Any) -> bool:
     return False
 
 
+def _declared() -> dict[str, dict[str, tuple[str, bool]]]:
+    raw = os.environ.get("NIX_LAB_SCHEMA")
+    if not raw:
+        return {}
+    return {n: schema.parse(n, c) for n, c in json.loads(raw).items()}
+
+
 def record(name: str, value: Any, **tags: Any) -> None:
     """Record `value` under `name`. JSON-like values are stored inline; numpy
-    arrays, bytes and file paths become content-addressed artifacts."""
+    arrays, bytes and file paths become content-addressed artifacts. When the run
+    declares datasets, a JSON value must be a declared dataset's row and is checked
+    against its columns."""
     if not isinstance(name, str) or not name:
         raise ValueError("record name must be a non-empty string")
     if not _jsonable(tags):
@@ -81,6 +92,13 @@ def record(name: str, value: Any, **tags: Any) -> None:
         "tags": tags,
     }
     if _jsonable(value):
+        declared = _declared()
+        if declared:
+            if name not in declared:
+                raise ValueError(
+                    f"{name!r} is not a declared dataset; declared: {sorted(declared)}"
+                )
+            schema.check(name, declared[name], value)
         entry.update(kind="value", data=value)
     else:
         blob, media = _blob(value)
