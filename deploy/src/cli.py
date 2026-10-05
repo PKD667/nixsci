@@ -2,8 +2,8 @@
 
 nixsci deploy lease acquire <provider> <name> [--hosts N] [--walltime MIN] [--opt KEY=VALUE]...
 nixsci deploy lease ls | show <name> | release <name>
-nix-deploy (--lease NAME | --config FILE --target T) run <flake> <experiment> <run_id> --handle FILE
-nix-deploy (--lease NAME | --config FILE --target T) status|stop|fetch ...
+nixsci deploy (--lease NAME | --config FILE --target T) run <flake> <experiment> <run_id> --handle FILE
+nixsci deploy (--lease NAME | --config FILE --target T) status|stop|fetch ...
 """
 
 import argparse
