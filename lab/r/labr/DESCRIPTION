@@ -1,0 +1,7 @@
+Package: labr
+Title: Read nix-lab runs and compacted datasets
+Version: 0.1.0
+Description: Reads the Parquet datasets and run manifests that nix-lab collects, as data frames, for analysis pipelines.
+License: MIT
+Encoding: UTF-8
+Imports: arrow, jsonlite

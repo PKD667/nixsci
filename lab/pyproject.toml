@@ -1,0 +1,21 @@
+[project]
+name = "nix-lab"
+version = "0.1.0"
+description = "Typed experiment records and analysis, with optional remote runs via nix-deploy"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+deploy = ["nix-deploy"]
+numpy = ["numpy"]
+arrow = ["pyarrow"]
+
+[project.scripts]
+nix-lab = "nix_lab.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
