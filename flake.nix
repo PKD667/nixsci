@@ -28,7 +28,8 @@
         '';
         # R package that reads collected runs and compacted datasets.
         labr = pkgs.rPackages.buildRPackage {
-          name = "labr";
+          pname = "labr";
+          version = "0.1.0";
           src = ./r/labr;
           propagatedBuildInputs = with pkgs.rPackages; [ arrow jsonlite ];
         };
