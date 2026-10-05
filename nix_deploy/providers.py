@@ -255,14 +255,22 @@ def load_toml(path: Path) -> dict[str, Any]:
 _BUILTIN: dict[str, Callable[[], Provider]] = {"local": Local, "static": Static, "oar": OAR}
 
 
+#: Per-user settings win; machine-wide ones (/etc) fill in for names the user does not set.
+CONFIG_FILES = ("~/.config/nix-deploy/providers.toml", "/etc/nix-deploy/providers.toml")
+
+
 def get(
-    name: str, config_path: str | Path = "~/.config/nix-deploy/providers.toml"
+    name: str, config_path: str | Path | None = None
 ) -> tuple[Provider, dict[str, Any]]:
     """Resolve a logical provider name on this machine -> (provider, its default options)."""
-    path = Path(config_path).expanduser()
     options: dict[str, Any] = {}
-    if path.exists():
-        options = dict(load_toml(path).get("providers", {}).get(name, {}))
+    for candidate in [config_path] if config_path else CONFIG_FILES:
+        path = Path(candidate).expanduser()
+        if path.exists():
+            entry = load_toml(path).get("providers", {}).get(name)
+            if entry is not None:
+                options = dict(entry)
+                break
     use = options.pop("use", name)
     if use in _BUILTIN:
         return _BUILTIN[use](), options
