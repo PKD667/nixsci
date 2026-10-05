@@ -24,7 +24,7 @@
       experiments = nixpkgs.lib.genAttrs systems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          run = pkgs.writeShellScript "hello" ''
+          run = pkgs.writeShellScriptBin "hello" ''
             echo "hello from $(hostname) arch=$(uname -m) workdir=$NIX_DEPLOY_WORKDIR"
             echo "enter: ''${NIX_DEPLOY_ENTER:-unset}"
             echo "hosts: ''${NIX_DEPLOY_HOSTFILE:+$(cat "$NIX_DEPLOY_HOSTFILE" | tr '\n' ' ')}"
@@ -32,7 +32,7 @@
         in {
           hello = pkgs.runCommand "hello-experiment" { } ''
             mkdir $out
-            echo '{"program": "${run}"}' > $out/experiment.json
+            echo '{"program": "${run}/bin/hello"}' > $out/experiment.json
           '';
         });
 
