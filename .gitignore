@@ -5,3 +5,5 @@ result-*
 *.egg-info/
 runs/
 lab/examples/*.lab.lock
+.hypothesis/
+.pytest_cache/
