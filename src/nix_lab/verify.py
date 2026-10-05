@@ -47,6 +47,12 @@ def locked_ref(locked: dict[str, Any]) -> str:
     return result.stdout
 
 
+def _source_ref(source: dict[str, Any]) -> str | None:
+    """Where to rebuild the code from: the flake as locked (rev), else the store snapshot."""
+    locked = source.get("origin") or source.get("locked")
+    return locked_ref(locked) if locked else None
+
+
 def bundle(run_dir: str | Path) -> dict[str, Any]:
     """Everything needed to run this measurement again, as plain data."""
     run_dir = Path(run_dir)
@@ -57,7 +63,7 @@ def bundle(run_dir: str | Path) -> dict[str, Any]:
     return {
         "run": manifest["run"],
         "input_id": manifest.get("input_id"),
-        "flake": locked_ref(source["locked"]) if source.get("locked") else None,
+        "flake": _source_ref(source),
         "attr": attr,
         "closure": manifest.get("closure"),
         "params": manifest.get("params"),
