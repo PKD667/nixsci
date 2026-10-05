@@ -39,8 +39,31 @@ class Lease:
         self._release()
 
 
+@dataclass(frozen=True)
+class Resources:
+    """What every provider understands. Anything else is a provider option."""
+    hosts: int = 1
+    gpus: int = 0
+    walltime: int = 60          # minutes
+    system: str = "x86_64-linux"
+
+    @classmethod
+    def of(cls, raw: Mapping[str, Any]) -> "Resources":
+        unknown = set(raw) - {f for f in cls.__dataclass_fields__} - {"provider", "opts"}
+        if unknown:
+            raise ValueError(f"unknown resources {sorted(unknown)}; provider-specific settings go in [resources.opts]")
+        return cls(**{k: v for k, v in raw.items() if k in cls.__dataclass_fields__})
+
+
+def check_opts(name: str, opts: Mapping[str, Any], required: set[str], optional: set[str]) -> dict[str, Any]:
+    missing, unknown = required - set(opts), set(opts) - required - optional
+    if missing or unknown:
+        raise ValueError(f"provider {name!r} options: missing {sorted(missing)}, unknown {sorted(unknown)}")
+    return dict(opts)
+
+
 class Provider(Protocol):
-    def acquire(self, request: Mapping[str, Any]) -> Lease: ...
+    def acquire(self, resources: Resources, opts: Mapping[str, Any]) -> Lease: ...
 
 
 def system() -> str:
@@ -50,22 +73,24 @@ def system() -> str:
 class Local:
     """This machine's own Nix store; no privileges, no ssh."""
 
-    def acquire(self, request):
+    def acquire(self, resources, opts):
+        check_opts("local", opts, set(), set())
         state = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "nix-deploy" / "runs"
-        n = int(request.get("hosts", 1))
         return Lease([{"backend": "native", "system": system(), "store": "/nix/store",
-                       "run_root": str(state / f"slot{i}"), "rootless": False} for i in range(n)])
+                       "run_root": str(state / f"slot{i}"), "rootless": False} for i in range(resources.hosts)])
 
 
 class Static:
     """Named targets from a targets file (CBP servers, any ssh host)."""
 
-    def acquire(self, request):
-        config = Path(request.get("config", "~/.config/nix-deploy/targets.toml")).expanduser()
+    def acquire(self, resources, opts):
+        o = check_opts("static", opts, {"targets"}, {"config"})
+        config = Path(o.get("config", "~/.config/nix-deploy/targets.toml")).expanduser()
         table = load_toml(config)["targets"]
-        names = request.get("targets") or ([request["target"]] if "target" in request else None)
-        if not names:
-            raise ValueError("static provider needs `target` or `targets`")
+        names = list(o["targets"])
+        if len(names) < resources.hosts:
+            raise ValueError(f"asked for {resources.hosts} hosts, static provider lists {len(names)}")
+        names = names[:resources.hosts]
         missing = [n for n in names if n not in table]
         if missing:
             raise KeyError(f"targets not in {config}: {missing}")
@@ -90,17 +115,17 @@ class OAR:
     Nodes are plain `ssh` backends with a pinned static Nix bootstrap.
     """
 
-    def acquire(self, request):
+    def acquire(self, resources, opts):
         c = {"access": "access.grid5000.fr", "queue": None, "cluster": None, "besteffort": False,
-             "walltime": 60, "hosts": 1, "poll": 2, "timeout": 3600, **request}
-        for key in ("login", "site", "bootstrap", "bootstrap_sha256"):
-            if key not in c:
-                raise ValueError(f"oar provider needs `{key}`")
+             "poll": 2, "timeout": 3600,
+             **check_opts("oar", opts, {"login", "site", "bootstrap", "bootstrap_sha256"},
+                          {"access", "queue", "cluster", "besteffort", "poll", "timeout",
+                           "store", "run_root", "remote_bootstrap"})}
         login, site, access = c["login"], c["site"], c["access"]
         for value in (login, site, access, c["cluster"] or "x", c["queue"] or "x"):
             if not _NAME.fullmatch(value):
                 raise ValueError(f"invalid OAR option {value!r}")
-        walltime, hosts = int(c["walltime"]), int(c["hosts"])
+        walltime, hosts = resources.walltime, resources.hosts
         jump = ["-o", f"ProxyJump={login}@{access}"]
         frontend = ["ssh", "-o", "BatchMode=yes", *jump, f"{login}@{site}"]
         cmd = f"oarsub -n nix-deploy -l nodes={hosts},walltime={walltime // 60}:{walltime % 60:02d}:00"
@@ -137,7 +162,7 @@ class OAR:
         except BaseException:
             release()
             raise
-        base = {"backend": "ssh", "system": c.get("system", "x86_64-linux"),
+        base = {"backend": "ssh", "system": resources.system,
                 "store": c.get("store", f"/tmp/{login}-nix-deploy/store"),
                 "run_root": c.get("run_root", f"/tmp/{login}-nix-deploy/runs"), "rootless": True,
                 "bootstrap": c["bootstrap"], "bootstrap_sha256": c["bootstrap_sha256"],
@@ -169,9 +194,11 @@ def get(name: str, config_path: str | Path = "~/.config/nix-deploy/providers.tom
     raise KeyError(f"provider {use!r} (for {name!r}) not found; available: {available}")
 
 
-def acquire(name: str, request: Mapping[str, Any] | None = None, **kw: Any) -> Lease:
+def acquire(name: str, resources: Mapping[str, Any] | None = None, opts: Mapping[str, Any] | None = None,
+            **kw: Any) -> Lease:
+    """`resources` is generic; `opts` is for the provider alone (machine defaults fill gaps)."""
     provider, defaults = get(name, **kw)
-    return provider.acquire({**defaults, **(request or {})})
+    return provider.acquire(Resources.of(resources or {}), {**defaults, **(opts or {})})
 
 
-__all__ = ["Lease", "Provider", "acquire", "get", "Local", "Static", "OAR"]
+__all__ = ["Lease", "Provider", "Resources", "acquire", "get", "Local", "Static", "OAR"]
