@@ -187,6 +187,7 @@ def _get(data: dict[str, Any], key: str) -> Any:
     return data
 
 
+from .home import store_root  # noqa: E402
 from .run import Run, run_name  # noqa: E402  (after record(): Run calls it)
 
-__all__ = ["record", "params", "seed", "load", "artifact", "runs", "Run", "run_name"]
+__all__ = ["record", "params", "seed", "load", "artifact", "runs", "Run", "run_name", "store_root"]

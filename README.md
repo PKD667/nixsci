@@ -119,6 +119,34 @@ with lab.Run("runs", lab.run_name("meas", seed=3), spec="measure.toml", seed=3,
 `lab.record` reads are set for the block and restored afterwards. The manifest layout is in
 `SPEC.md`; nothing else needs to be written by hand.
 
+## Where the data lives
+
+One **store per machine**, never inside a project: `$NIX_LAB_STORE`, else
+`$XDG_DATA_HOME/nix-lab` (`~/.local/share/nix-lab`). It holds `runs/` (immutable, sealed),
+`data/` (Parquet, rebuildable) and `analysis/` (pipeline outputs, rebuildable). Nothing needs a
+directory argument: `lab.Run(None, name, spec=...)`, `nix-lab run`, `compact` and `analyze` all
+default to it, and `nix-lab ls` shows what is in it.
+
+```sh
+nix-lab build experiments/demo.toml    # run what is missing -> compact -> analyze -> lock
+```
+
+`build` is the whole flow, and it is incremental: finished inputs are skipped, compacted runs are
+not rewritten, unchanged pipelines are not rerun. When the spec has pipelines it writes
+`experiments/demo.lab.lock` beside the spec. **Commit that file.** It lists, per pipeline, the
+output hashes and the exact runs the pipeline read (manifest and records hashes, closure, source,
+machine) -- a few KB of hashes, no data. It is the project's reproducibility claim.
+
+```sh
+nix-lab check experiments/demo.toml                 # does this machine's store match the lock?
+nix-lab push  me@host:/srv/lab experiments/demo.toml   # send the locked runs and outputs
+nix-lab pull  me@host:/srv/lab experiments/demo.toml   # fetch what is missing, verify by hash
+```
+
+A *remote* is any directory with the store layout, local or over ssh; there is no server. Runs
+are immutable, so they are copied once; everything is checked against the lock afterwards. On a
+fresh machine: clone the project, `nix-lab pull <remote> <spec>`, then `nix-lab check`.
+
 ## Replicates, identity and reproducing a run
 
 A run is identified by its **inputs**: the experiment closure (so the code and every dependency),

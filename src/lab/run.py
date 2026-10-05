@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import schema
+from . import home, schema
 
 _ENV = (
     "NIX_LAB_DIR",
@@ -91,7 +91,7 @@ def _utc() -> str:
 class Run:
     def __init__(
         self,
-        root: str | os.PathLike[str],
+        root: str | os.PathLike[str] | None,
         name: str,
         *,
         spec: str | os.PathLike[str] | None = None,
@@ -109,7 +109,8 @@ class Run:
         if not self.app:
             raise ValueError("give app=..., or a spec with an [experiment] name")
         self.name, self.seed, self.params = name, seed, dict(params or {})
-        self.directory = Path(root) / self.app / name
+        # root=None: the nix-lab store (see lab.home), so no directory has to be named
+        self.directory = (Path(root) if root is not None else home.runs_dir()) / self.app / name
         self.started = _utc()
         self._saved: dict[str, str | None] | None = None
         self._finished = False
