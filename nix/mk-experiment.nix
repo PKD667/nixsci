@@ -2,10 +2,11 @@
 # `bin/run` wrapper that provisions $NIX_LAB_DIR, runs the program, forwards
 # SIGTERM, and records status.json however the program was written.
 { pkgs }:
-{ name, program, runtime ? [ ], metadata ? { }, resources ? { }, env ? { } }:
+{ name, program, args ? [ ], runtime ? [ ], metadata ? { }, resources ? { }, env ? { } }:
 pkgs.runCommand "experiment-${name}" {
   nativeBuildInputs = [ pkgs.jq ];
   inherit program;
+  programArgs = pkgs.lib.escapeShellArgs args;
   runtimePath = pkgs.lib.makeBinPath runtime;
   meta_json = builtins.toJSON metadata;
   resources_json = builtins.toJSON resources;
@@ -20,7 +21,7 @@ pkgs.runCommand "experiment-${name}" {
   mkdir -p "\$NIX_LAB_DIR/artifacts"
   export PATH="$runtimePath:\$PATH"
   started=\$(${pkgs.coreutils}/bin/date -u +%Y-%m-%dT%H:%M:%SZ)
-  "$program" "\$@" &
+  "$program" $programArgs "\$@" &
   child=\$!
   trap 'kill -TERM \$child 2>/dev/null' TERM INT
   code=0
