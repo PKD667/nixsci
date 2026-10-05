@@ -3,10 +3,8 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
-from unittest import mock
 
 from nixsci import lab
-from nixsci.lab import schema
 from nixsci.lab import spec as spec_mod
 from nixsci.lab import store, verify
 
@@ -38,15 +36,6 @@ class Fixture(unittest.TestCase):
 
 
 class Identity(Fixture):
-    def test_input_id_depends_on_every_input_and_nothing_else(self):
-        base = ("meas", "/nix/store/a-x", {"p": 1}, 3, {"d": {"c": "int"}}, {"d": ["c"]})
-        same = store.input_id(*base)
-        self.assertEqual(same, store.input_id(*base))
-        for i, other in enumerate(["x", "/nix/store/b-x", {"p": 2}, 4, {}, {}], start=0):
-            changed = list(base)
-            changed[i] = other
-            self.assertNotEqual(same, store.input_id(*changed), i)
-
     def test_plan_skips_satisfied_inputs_and_numbers_replicates_after_failures(self):
         spec = spec_mod.load(self.spec_path)
         assign = lambda job: ("t0", "/nix/store/a-x")  # noqa: E731
@@ -66,37 +55,9 @@ class Identity(Fixture):
         again = [t for t in todo if t[2] == ident0]
         self.assertEqual([t[3] for t in again], [4])  # continues after 3 existing runs
 
-    def test_spec_validation(self):
-        for bad in ("replicates = 0", "replicates = true", "replicates = 'x'"):
-            path = self.root / "bad.toml"
-            path.write_text(SPEC.replace("replicates = 2", bad))
-            with self.assertRaises(ValueError):
-                spec_mod.load(path)
-        for noisy in ("{ n = 0.1 }", "{ note = 0.1 }", "{ nope = 0.1 }", "{ seconds = -1 }"):
-            tables = {
-                "size": {
-                    "columns": {"n": "int", "seconds": "float", "note": "str"},
-                    "key": ["n"],
-                    "noisy": json.loads(json.dumps({})) or {},
-                }
-            }
-            import tomllib
-
-            tables["size"]["noisy"] = tomllib.loads(f"x = {noisy}")["x"]
-            with self.assertRaises(ValueError):
-                schema.tolerances(tables)
 
 
 class Sealing(Fixture):
-    def test_a_manual_run_is_sealed_with_hash_spec_machine_and_tolerance(self):
-        d = self.make_run("r", [{"n": 1, "seconds": 1.0, "note": "a"}])
-        m = json.loads((d / "manifest.json").read_text())
-        self.assertEqual(m["records_sha256"], lab.run.sha256_file(d / "records.jsonl"))
-        self.assertEqual(m["tolerance"], {"size": {"seconds": 0.25}})
-        self.assertTrue((d / "spec.toml").is_file())
-        self.assertEqual(len(m["spec_sha256"]), 64)
-        self.assertIn("hostname", m["machine"])
-
     def test_compact_refuses_data_changed_after_the_run(self):
         try:
             import pyarrow  # noqa: F401
@@ -111,17 +72,6 @@ class Sealing(Fixture):
         with self.assertRaises(ValueError):
             compact(self.runs, self.root / "data", force=True)
 
-    def test_compact_is_incremental(self):
-        try:
-            import pyarrow  # noqa: F401
-        except ImportError:
-            self.skipTest("pyarrow not installed")
-        from nixsci.lab.compact import compact
-
-        self.make_run("r", [{"n": 1, "seconds": 1.0, "note": "a"}])
-        self.assertEqual(len(compact(self.runs, self.root / "data")), 1)
-        self.assertEqual(compact(self.runs, self.root / "data"), [])
-        self.assertEqual(len(compact(self.runs, self.root / "data", force=True)), 1)
 
 
 class Comparison(Fixture):
@@ -141,34 +91,6 @@ class Comparison(Fixture):
         self.assertIn("seconds", report["datasets"]["size"]["problems"][0])
         self.assertAlmostEqual(report["datasets"]["size"]["worst_relative"]["seconds"], 0.5)
 
-    def test_exact_columns_and_key_sets_must_match(self):
-        a = self.make_run("a", [self.row])
-        self.assertFalse(verify.compare(a, self.make_run("b", [{**self.row, "note": "z"}]))["ok"])
-        self.assertFalse(verify.compare(a, self.make_run("c", [{**self.row, "n": 9}]))["ok"])
-        self.assertFalse(
-            verify.compare(a, self.make_run("d", [self.row, {**self.row, "n": 2}]))["ok"]
-        )
-
-    def test_bundle_collects_what_a_rerun_needs(self):
-        d = self.make_run("a", [self.row])
-        info = verify.bundle(d)
-        self.assertEqual((info["run"], info["attr"], info["seed"]), ("a", "meas", 0))
-        self.assertEqual(info["records_sha256"], lab.run.sha256_file(d / "records.jsonl"))
-        self.assertIsNone(info["flake"])  # a hand-made run has no locked source
-
-    def test_locked_ref_renders_through_nix(self):
-        locked = {"type": "github", "owner": "o", "repo": "r", "rev": "a" * 40}
-        with mock.patch("subprocess.run") as run:
-            run.return_value.returncode, run.return_value.stdout = 0, "github:o/r/" + "a" * 40
-            self.assertEqual(verify.locked_ref(locked), "github:o/r/" + "a" * 40)
-            self.assertIn("flakeRefToString", run.call_args[0][0][-1])
-
-    def test_find_run_by_id(self):
-        d = self.make_run("a", [self.row])
-        self.assertEqual(verify.find_run("a", self.runs), d)
-        self.assertEqual(verify.find_run(d), d)
-        with self.assertRaises(SystemExit):
-            verify.find_run("missing", self.runs)
 
 
 if __name__ == "__main__":

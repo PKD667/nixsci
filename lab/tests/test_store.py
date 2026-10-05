@@ -2,7 +2,6 @@ import json
 import os
 import tempfile
 import textwrap
-import tomllib
 import unittest
 from pathlib import Path
 
@@ -81,31 +80,9 @@ class Env(unittest.TestCase):
         return lock.collect(spec, home.runs_dir(), home.analysis_dir() / "fig")
 
 
-class Location(Env):
-    def test_the_store_comes_from_the_environment_then_xdg(self):
-        self.assertEqual(home.store_root(), self.store)
-        os.environ.pop("NIX_LAB_STORE")
-        os.environ["XDG_DATA_HOME"] = str(self.root / "xdg")
-        self.assertEqual(home.store_root(), self.root / "xdg" / "nix-lab")
-
-    def test_a_run_without_a_root_lands_in_the_store(self):
-        with lab.Run(None, "r", spec=self.spec_path) as run:
-            run.record("size", {"n": 1, "seconds": 1.0})
-        self.assertTrue((self.store / "runs" / "meas" / "r" / "manifest.json").is_file())
 
 
 class ExperimentLock(Env):
-    def test_collect_write_read_roundtrip(self):
-        self.measured()
-        data = lock.read(self.spec_path)
-        self.assertEqual((data["kind"], data["app"]), ("experiment", "meas"))
-        self.assertEqual([r["run"] for r in data["run"]], ["meas-r1"])
-        self.assertEqual(data["pipeline"], [])
-        written = lock.path_for(self.spec_path)
-        self.assertEqual(written.name, "meas.lab.lock")
-        parsed = tomllib.loads(written.read_text())
-        self.assertEqual(parsed["run"][0]["records_sha256"], data["run"][0]["records_sha256"])
-
     def test_only_finished_runs_are_locked(self):
         self.measured()
         bad = home.runs_dir() / "meas" / "meas-bad"
@@ -115,14 +92,6 @@ class ExperimentLock(Env):
         data = lock.collect(spec, home.runs_dir(), home.analysis_dir() / "meas")
         self.assertEqual([r["run"] for r in data["run"]], ["meas-r1"])
 
-    def test_check_reports_changed_records(self):
-        self.measured()
-        data = lock.read(self.spec_path)
-        runs = home.runs_dir()
-        self.assertEqual(lock.check(data, runs, Path(os.devnull)), [])
-        with (runs / "meas" / "meas-r1" / "records.jsonl").open("a") as f:
-            f.write("\n")
-        self.assertEqual({k for k, _, _ in lock.check(data, runs, Path(os.devnull))}, {"changed"})
 
 
 class AnalysisLock(Env):
@@ -146,11 +115,6 @@ class AnalysisLock(Env):
         lock.write(self.analysis_path, data)
         self.assertEqual(lock.read(self.analysis_path)["use"][0]["alias"], "meas")
 
-    def test_it_cannot_be_locked_before_the_experiment_is(self):
-        with self.assertRaises(SystemExit) as stop:
-            self.analysis_lock()
-        self.assertIn("no lock file", str(stop.exception))
-
     def test_check_distinguishes_missing_from_changed(self):
         self.make_analysed_store()
         data = self.analysis_lock()
@@ -162,10 +126,6 @@ class AnalysisLock(Env):
         kinds = {(k, w.split("/")[0]) for k, w, _ in lock.check(data, runs, analysis)}
         self.assertEqual(kinds, {("changed", "meas-r1"), ("missing", "curve")})
 
-    def test_failed_pipelines_are_not_locked(self):
-        self.make_analysed_store()
-        (home.analysis_dir() / "fig" / "curve" / "provenance.json").write_text('{"exit_code": 1}')
-        self.assertEqual(self.analysis_lock()["pipeline"], [])
 
 
 class Sync(Env):

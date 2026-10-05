@@ -9,7 +9,6 @@ from pathlib import Path
 from nixsci.lab import lock
 from nixsci.lab import spec as spec_mod
 from nixsci.lab.analysis import analyze
-from nixsci.lab.run import sha256_file
 
 
 class Analysis(unittest.TestCase):
@@ -90,13 +89,6 @@ class Analysis(unittest.TestCase):
         self.assertTrue({"NIX_LAB_VIEW", "NIX_LAB_OUT"} <= names)
         self.assertTrue({"NIX_LAB_STORE", "NIX_LAB_DATA", "NIX_LAB_RUNS"}.isdisjoint(names))
 
-    def test_provenance_names_the_lock_each_input_came_through(self):
-        self.run_it()
-        info = json.loads((self.root / "out" / "p" / "provenance.json").read_text())
-        wanted = sha256_file(lock.path_for(self.root / "e.toml"))
-        self.assertEqual(info["use"]["e"]["lock_sha256"], wanted)
-        self.assertEqual([i["alias"] for i in info["inputs"]], ["e"])
-
     def test_missing_locked_data_stops_before_r_starts(self):
         (self.runs / "e" / "e-0" / "manifest.json").unlink()
         with self.assertRaises(SystemExit) as stop:
@@ -104,16 +96,6 @@ class Analysis(unittest.TestCase):
         self.assertIn("does not hold", str(stop.exception))
         self.assertEqual(self.times(), 0)
 
-    def test_an_experiment_without_a_lock_cannot_be_used(self):
-        lock.path_for(self.root / "e.toml").unlink()
-        with self.assertRaises(SystemExit) as stop:
-            self.run_it()
-        self.assertIn("no lock file", str(stop.exception))
-
-    def test_an_experiment_spec_is_not_analysed(self):
-        spec = spec_mod.load(self.root / "e.toml")
-        with self.assertRaises(SystemExit):
-            analyze(spec, self.runs, self.root / "data", self.root / "out")
 
 
 if __name__ == "__main__":

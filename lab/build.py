@@ -9,7 +9,6 @@ input runs are unchanged is not rerun (analysis fingerprint).
 from __future__ import annotations
 
 from collections import defaultdict
-from pathlib import Path
 from typing import Callable
 
 from nixsci.lab import home

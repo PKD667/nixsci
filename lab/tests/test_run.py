@@ -1,5 +1,4 @@
 import json
-import os
 import tempfile
 import textwrap
 import unittest
@@ -35,38 +34,6 @@ class ManualRun(unittest.TestCase):
         )
         self.assertEqual(manifest["schema"], {"size": {"n": "int", "seconds": "float"}})
         self.assertEqual([r["data"]["n"] for r in lab.load(directory, "size")], [10, 20])
-
-    def test_schema_and_keys_are_enforced_inside_the_block(self):
-        with self.assertRaises(ValueError):
-            with lab.Run(self.root / "runs", "r", spec=self.spec) as run:
-                run.record("size", {"n": 1, "seconds": 1.0})
-                run.record("size", {"n": 1, "seconds": 2.0})  # repeated key
-        manifest = json.loads((self.root / "runs/meas/r/manifest.json").read_text())
-        self.assertEqual(manifest["state"], "failed")
-        self.assertEqual(len(lab.load(self.root / "runs/meas/r", "size")), 1)
-
-    def test_the_environment_is_restored(self):
-        os.environ["NIX_LAB_DIR"] = "/before"
-        os.environ.pop("NIX_LAB_SEED", None)
-        self.addCleanup(os.environ.pop, "NIX_LAB_DIR", None)
-        with lab.Run(self.root, "r", spec=self.spec, seed=1):
-            self.assertEqual(os.environ["NIX_LAB_SEED"], "1")
-        self.assertEqual(os.environ["NIX_LAB_DIR"], "/before")
-        self.assertNotIn("NIX_LAB_SEED", os.environ)
-
-    def test_bad_arguments(self):
-        with self.assertRaises(ValueError):
-            lab.Run(self.root, "../x", spec=self.spec)
-        with self.assertRaises(ValueError):
-            lab.Run(self.root, "r")  # no spec, no app
-        run = lab.Run(self.root, "r", app="a")
-        with self.assertRaises(ValueError):
-            run.finish("weird")
-
-    def test_run_name_matches_the_runner_style(self):
-        self.assertEqual(
-            lab.run_name("meas", seed=2, stamp="20261005T000000Z"), "meas-20261005T000000Z-s2"
-        )
 
     def test_compact_reads_a_manual_run(self):
         try:

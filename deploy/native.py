@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os, shutil, signal, socket, subprocess, json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 from . import nix
 from .backend import Backend
 from .model import Closure

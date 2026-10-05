@@ -210,7 +210,7 @@ deps = ["helpers.R"]         # other files the script uses (hashed with it)
 An alias resolves through the experiment's `demo.lab.lock`: the analysis sees exactly the locked
 runs, never a replicate or a half-finished sweep that arrived later. `analyze` stops, before R
 starts, if the store does not hold what the lock names (`nixsci lab pull`, or `build` the
-experiment). It then builds a *view*, a directory of symlinks to just those runs' Parquet files, and
+experiment). It then builds a *view*, a directory of symlinks to only those runs' Parquet files, and
 runs the script with `NIX_LAB_VIEW` (the view) and `NIX_LAB_OUT` (`<out>/<pipeline>/`). No variable
 names the store. The `nixsci` R package reads the view and has no function that reads anything else:
 

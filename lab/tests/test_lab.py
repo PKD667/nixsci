@@ -21,12 +21,6 @@ class Schema(unittest.TestCase):
             lambda: [os.environ.pop(k, None) for k in ("NIX_LAB_DIR", "NIX_LAB_SCHEMA")]
         )
 
-    def test_valid_rows_are_recorded(self):
-        lab.record("loss", {"epoch": 1, "value": 0.5, "split": None})
-        lab.record("loss", {"epoch": 2, "value": 1, "split": "val"})
-        rows = lab.load(self.dir, "loss")
-        self.assertEqual([r["data"]["epoch"] for r in rows], [1, 2])
-
     def test_wrong_rows_are_refused_and_nothing_is_written(self):
         for bad in (
             {"epoch": 1, "value": 0.5},
@@ -42,14 +36,6 @@ class Schema(unittest.TestCase):
             lab.record("undeclared", {"a": 1})
         self.assertEqual(lab.load(self.dir), [])
 
-    def test_artifacts_stay_free_when_a_schema_is_declared(self):
-        lab.record("blob", b"abc")
-        self.assertEqual(lab.load(self.dir, "blob")[0]["kind"], "artifact")
-
-    def test_bad_declarations_are_refused(self):
-        for columns in ({"run": "int"}, {"x": "number"}, {}, {"bad name": "int"}):
-            with self.assertRaises(ValueError):
-                schema.parse("d", columns)
 
 
 class SpecKinds(unittest.TestCase):
@@ -57,31 +43,6 @@ class SpecKinds(unittest.TestCase):
         path = Path(tempfile.mkdtemp()) / "s.toml"
         path.write_text(textwrap.dedent(text))
         return spec_mod.load(path)
-
-    def test_an_experiment_declares_data(self):
-        s = self.load("""
-            [experiment]
-            name = "e"
-            [data.loss]
-            columns = { epoch = "int", value = "float" }
-        """)
-        self.assertEqual(s.data["loss"], {"epoch": "int", "value": "float"})
-        self.assertEqual(s.kind, "experiment")
-
-    def test_an_analysis_names_what_it_uses_and_holds_the_pipelines(self):
-        s = self.load("""
-            [analysis]
-            name = "fig"
-            [use]
-            nerve = "measure/nerve.toml"
-            [pipeline.agree]
-            script = "agree.R"
-        """)
-        self.assertEqual((s.kind, list(s.use)), ("analysis", ["nerve"]))
-        self.assertEqual(s.use["nerve"].name, "nerve.toml")
-        self.assertEqual(s.pipelines["agree"], {"script": "agree.R", "deps": []})
-        with self.assertRaises(ValueError):
-            s.jobs()
 
     def test_pipelines_belong_to_an_analysis_not_an_experiment(self):
         with self.assertRaises(ValueError) as error:

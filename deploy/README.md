@@ -109,7 +109,7 @@ works, but then it must come with its `bootstrap_sha256`.
 `ssh_command` and `scp_command` (default `ssh` and `scp -q`), `ssh_options` (extra
 `-o ...`), `jump` (ProxyJump chain), `rsh` (what jobs use to reach their peers,
 becomes `NIX_DEPLOY_RSH`) and `ready_timeout`. That is how Grid'5000 (a gateway
-plus `oarsh` or plain ssh), a cloud VM or a laptop on the LAN are all just
+plus `oarsh` or plain ssh), a cloud VM or a laptop on the LAN are all
 different values.
 
 **Walltime.** `walltime` (minutes) is a generic resource. When given, the lease
