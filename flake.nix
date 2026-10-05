@@ -32,6 +32,14 @@
             echo "home: ''${HOME:-unset}"
             echo "enter: ''${NIX_DEPLOY_ENTER:-unset}"
             echo "hosts: ''${NIX_DEPLOY_HOSTFILE:+$(tr '\n' ' ' < "$NIX_DEPLOY_HOSTFILE")}"
+            if [ -n "''${NIX_DEPLOY_HOSTFILE:-}" ]; then
+              first=1
+              while read -r host; do
+                if [ "$first" = 1 ]; then first=0; continue; fi
+                # shellcheck disable=SC2086
+                echo "peer $host: $(''${NIX_DEPLOY_RSH:-ssh} "$host" "$NIX_DEPLOY_ENTER" hostname 2>&1 | tail -n 1)"
+              done < "$NIX_DEPLOY_HOSTFILE"
+            fi
           '';
           };
         in {
