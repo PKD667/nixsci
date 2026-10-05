@@ -65,7 +65,7 @@ class SpecData(unittest.TestCase):
         """))
         s = spec_mod.load(path)
         self.assertEqual(s.data["loss"], {"epoch": "int", "value": "float"})
-        self.assertEqual(s.pipelines["fig"], {"script": "fig.R", "inputs": ["e"]})
+        self.assertEqual(s.pipelines["fig"], {"script": "fig.R", "inputs": ["e"], "deps": []})
 
 
 class Compact(unittest.TestCase):

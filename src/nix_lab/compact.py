@@ -38,6 +38,16 @@ def compact(runs_root: str | Path, out: str | Path) -> list[Path]:
         for dataset, columns in (manifest.get("schema") or {}).items():
             parsed = parse(dataset, columns)
             rows = load(directory, dataset)
+            key = (manifest.get("keys") or {}).get(dataset)
+            if key:
+                seen = set()
+                for row in rows:
+                    ident = tuple(row["data"][c] for c in key)
+                    if ident in seen:
+                        raise ValueError(
+                            f"run {manifest['run']}: dataset {dataset!r}: duplicate key {ident!r}"
+                        )
+                    seen.add(ident)
             fields = [
                 pa.field("run", pa.string()),
                 pa.field("seed", pa.int64()),

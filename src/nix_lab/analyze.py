@@ -9,8 +9,12 @@ script is run with Rscript and sees:
 
 and a `provenance.json` is written beside its outputs: the script's hash, every
 input run with the hash of its manifest, the R version, and the exit code.
-Run it inside the pinned environment (`nix run <nix-lab>#r-env -- ...` or the
-flake's `analyze` app) so the R packages are the pinned ones.
+
+A pipeline is skipped when its previous run succeeded and nothing it depends on
+has changed: the script, its `deps` files, and the set of input runs with their
+manifest hashes (the `fingerprint` in provenance.json). `force=True` reruns.
+Run it inside the pinned environment (the flake's `r-env`) so the R packages are
+the pinned ones.
 """
 
 from __future__ import annotations
@@ -34,9 +38,20 @@ def _utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _fingerprint(script: Path, deps: dict[str, str], inputs: list[dict[str, str]]) -> str:
+    body = {"script": _sha(script), "deps": deps, "inputs": inputs}
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()
+
+
 def analyze(
-    spec: Spec, runs: Path, data: Path, out: Path, only: str | None = None
-) -> dict[str, int]:
+    spec: Spec,
+    runs: Path,
+    data: Path,
+    out: Path,
+    only: str | None = None,
+    force: bool = False,
+) -> dict[str, tuple[int, bool]]:
+    """Returns {pipeline: (exit code, skipped)}."""
     rscript = os.environ.get("NIX_LAB_RSCRIPT") or shutil.which("Rscript")
     if not rscript:
         raise SystemExit("Rscript not found: run inside the pinned R environment")
@@ -44,7 +59,9 @@ def analyze(
     for name, pipeline in spec.pipelines.items():
         if only and name != only:
             continue
-        script = (spec.path.parent / pipeline["script"]).resolve()
+        base = spec.path.parent
+        script = (base / pipeline["script"]).resolve()
+        deps = {d: _sha((base / d).resolve()) for d in pipeline["deps"]}
         target = out / name
         target.mkdir(parents=True, exist_ok=True)
         inputs = []
@@ -53,6 +70,13 @@ def analyze(
                 inputs.append(
                     {"app": app, "run": manifest.parent.name, "manifest_sha256": _sha(manifest)}
                 )
+        fingerprint = _fingerprint(script, deps, inputs)
+        previous = target / "provenance.json"
+        if not force and previous.exists():
+            before = json.loads(previous.read_text())
+            if before.get("fingerprint") == fingerprint and before.get("exit_code") == 0:
+                results[name] = (0, True)
+                continue
         started = _utc()
         env = {
             **os.environ,
@@ -62,14 +86,16 @@ def analyze(
         }
         code = subprocess.run([rscript, str(script)], env=env, cwd=target).returncode
         version = subprocess.run([rscript, "--version"], capture_output=True, text=True)
-        (target / "provenance.json").write_text(
+        previous.write_text(
             json.dumps(
                 {
                     "v": 1,
                     "pipeline": name,
-                    "script": str(script.relative_to(spec.path.parent)),
+                    "script": str(script.relative_to(base)),
                     "script_sha256": _sha(script),
+                    "deps": deps,
                     "inputs": inputs,
+                    "fingerprint": fingerprint,
                     "r": (version.stderr or version.stdout).strip(),
                     "started": started,
                     "ended": _utc(),
@@ -80,5 +106,5 @@ def analyze(
             )
             + "\n"
         )
-        results[name] = code
+        results[name] = (code, False)
     return results

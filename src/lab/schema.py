@@ -35,6 +35,22 @@ def parse(name: str, columns: Mapping[str, str]) -> dict[str, tuple[str, bool]]:
     return parsed
 
 
+def parse_key(name: str, columns: Mapping[str, tuple[str, bool]], key: Any) -> tuple[str, ...]:
+    """A dataset key: a non-empty list of declared, non-nullable columns."""
+    if not isinstance(key, (list, tuple)) or not key or len(set(key)) != len(key):
+        raise ValueError(f"dataset {name!r}: key must be a non-empty list of distinct columns")
+    for column in key:
+        if column not in columns:
+            raise ValueError(f"dataset {name!r}: key column {column!r} is not declared")
+        if columns[column][1]:
+            raise ValueError(f"dataset {name!r}: key column {column!r} must not be nullable")
+    return tuple(key)
+
+
+def key_of(key: tuple[str, ...], row: Mapping[str, Any]) -> tuple[Any, ...]:
+    return tuple(row[column] for column in key)
+
+
 def _fits(kind: str, value: Any) -> bool:
     if isinstance(value, bool):
         return kind == "bool"

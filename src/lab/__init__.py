@@ -75,6 +75,14 @@ def _declared() -> dict[str, dict[str, tuple[str, bool]]]:
     return {n: schema.parse(n, c) for n, c in json.loads(raw).items()}
 
 
+_seen: dict[str, set[tuple[Any, ...]]] = {}
+
+
+def _keys() -> dict[str, tuple[str, ...]]:
+    raw = os.environ.get("NIX_LAB_KEYS")
+    return {n: tuple(k) for n, k in json.loads(raw).items()} if raw else {}
+
+
 def record(name: str, value: Any, **tags: Any) -> None:
     """Record `value` under `name`. JSON-like values are stored inline; numpy
     arrays, bytes and file paths become content-addressed artifacts. When the run
@@ -99,6 +107,12 @@ def record(name: str, value: Any, **tags: Any) -> None:
                     f"{name!r} is not a declared dataset; declared: {sorted(declared)}"
                 )
             schema.check(name, declared[name], value)
+            key = _keys().get(name)
+            if key:
+                ident = schema.key_of(key, value)
+                if ident in _seen.setdefault(name, set()):
+                    raise ValueError(f"dataset {name!r}: duplicate key {ident!r}")
+                _seen[name].add(ident)
         entry.update(kind="value", data=value)
     else:
         blob, media = _blob(value)

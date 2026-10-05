@@ -70,6 +70,8 @@ def _run_job(spec, job, name, configs, closures, factory, out_root, stamp, poll,
         env["NIX_LAB_SEED"] = str(job.seed)
     if spec.data:
         env["NIX_LAB_SCHEMA"] = json.dumps(spec.data, sort_keys=True)
+    if spec.keys:
+        env["NIX_LAB_KEYS"] = json.dumps(spec.keys, sort_keys=True)
     started = _utc()
     be.stage(closure)
     handle = be.launch(closure, run_id=run_id, env=env)
@@ -90,6 +92,7 @@ def _run_job(spec, job, name, configs, closures, factory, out_root, stamp, poll,
         "v": 1,
         "app": spec.name,
         "schema": spec.data,
+        "keys": spec.keys,
         "run": run_id,
         "state": state,
         "seed": job.seed,

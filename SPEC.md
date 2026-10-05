@@ -12,6 +12,8 @@ write it and the runner can `fetch` it later.
 | `NIX_LAB_RUN`     | run id, unique per (spec, params, seed, time)                |
 | `NIX_LAB_SEED`    | seed for this run (string, may be unset)                     |
 | `NIX_LAB_PARAMS`  | JSON object: this run's parameters                           |
+| `NIX_LAB_SCHEMA`  | JSON `{dataset: {column: type}}`; when set, JSON values must be declared rows |
+| `NIX_LAB_KEYS`    | JSON `{dataset: [key columns]}`; a key may appear once per run |
 
 ## Layout of `$NIX_LAB_DIR`
 

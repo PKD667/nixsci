@@ -90,11 +90,15 @@ lab.record("loss", {"epoch": 3.5, "value": 0.25, "split": "a"})  # TypeError, no
 lab.record("lossy", {...})                                       # ValueError: not declared
 ```
 
+Add `key = ["epoch", "split"]` to a dataset and each key may appear once per run: a second
+row with the same key is refused at record time, and `compact` re-checks the whole run (a
+restarted process would not remember). Key columns must be declared and not nullable.
+
 Types are `int`, `float`, `str`, `bool`. A row must carry exactly the declared
 columns (`run`, `seed` and `time` are reserved: nix-lab adds them). Once a spec
 declares datasets, JSON values must be rows of a declared dataset; arrays, bytes
 and files still record freely as artifacts. The schema travels to the run in
-`NIX_LAB_SCHEMA` and is copied into each run's `manifest.json`.
+`NIX_LAB_SCHEMA` (keys in `NIX_LAB_KEYS`) and is copied into each run's `manifest.json`.
 
 ## Compaction and analysis
 
@@ -113,6 +117,7 @@ Analysis is R. Declare pipelines next to the data:
 [pipeline.curve]
 script = "demo.R"            # path relative to the spec
 inputs = ["demo"]            # apps it reads (default: this experiment)
+deps = ["helpers.R"]        # other files the script uses (hashed with it)
 ```
 
 `analyze` runs the script with `Rscript` and these variables: `NIX_LAB_DATA`
@@ -126,12 +131,32 @@ runs <- lab_manifests("demo")                    # one row per run, params as pa
 write.csv(summary, lab_out("final.csv"))
 ```
 
+A pipeline whose last run succeeded is skipped (`up to date`) while its script, its `deps`
+files and its input runs (with their manifest hashes) are unchanged; `--force` reruns.
+
 After each pipeline a `provenance.json` is written beside its outputs: the script
 and its hash, every input run with the hash of its manifest, the R version, the
 exit code. A figure or table can therefore say exactly which runs and which code
 produced it. For pinned R packages run inside the flake's R environment
 (`nix build .#r-env`, then `NIX_LAB_RSCRIPT=<out>/bin/Rscript`, or put it on
 `PATH`). `examples/demo.{toml,py,R}` is a complete worked example.
+
+## Recording from Rust
+
+`rust/lab` is a small crate (serde_json + sha2) that writes the same format:
+
+```rust
+lab::record("loss", &serde_json::json!({"epoch": 3, "split": "train", "value": 0.25}))?;
+lab::record_bytes("weights", &bytes, "application/octet-stream")?;
+let epsilon = lab::params()["epsilon"].as_f64();   // lab::seed() -> Option<i64>
+```
+
+It enforces the same declared columns and keys as the Python module. Add it as a path or git
+dependency (`lab = { git = "https://github.com/PKD667/nix-lab", package = "lab" }` does not
+apply: the crate lives in `rust/lab`, so use a path or vendor it). `tests/test_rust.py` builds
+nothing itself: point `NIX_LAB_RUST_EMIT` at `cargo build --example emit` and Python checks that
+it can read and validate what Rust wrote. A recorder in another language only has to follow
+`SPEC.md`.
 
 ## Making a flake experiment
 
@@ -164,6 +189,5 @@ Verified (on camarade): typed record validation, spec loading with `[data]` and
 all `ok`), compaction to Parquet, and the R pipeline with provenance, using the
 pinned `r-env` and `labr`. Unit tests: `tests/test_lab.py`.
 
-Not built yet: recording libraries for Rust and R; a `key` constraint on datasets
-(uniqueness); incremental pipelines (every `analyze` reruns its scripts); migrating
-nerve's `data/` into runs (nerve's own task, using this as its record format).
+Not built yet: an R recorder (not wanted); migrating nerve's `data/` into runs (nerve's own
+task, using this as its record format); declaring the Rust crate as a Nix package.

@@ -34,6 +34,7 @@ class Spec:
     outputs: dict[str, Any]
     path: Path
     data: dict[str, dict[str, str]] = field(default_factory=dict)
+    keys: dict[str, list[str]] = field(default_factory=dict)
     pipelines: dict[str, dict[str, Any]] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -73,10 +74,12 @@ def load(path: str | Path) -> Spec:
     flake = str(exp.get("flake", "."))
     if flake.startswith((".", "/")):
         flake = str((path.parent / flake).resolve())
-    data = {}
+    data, keys = {}, {}
     for dataset, body in raw.get("data", {}).items():
-        schema.parse(dataset, body.get("columns", {}))
+        parsed = schema.parse(dataset, body.get("columns", {}))
         data[dataset] = {c: str(t) for c, t in body["columns"].items()}
+        if "key" in body:
+            keys[dataset] = list(schema.parse_key(dataset, parsed, body["key"]))
     pipelines = {}
     for pname, body in raw.get("pipeline", {}).items():
         if not _NAME.fullmatch(pname) or not isinstance(body.get("script"), str):
@@ -84,6 +87,7 @@ def load(path: str | Path) -> Spec:
         pipelines[pname] = {
             "script": body["script"],
             "inputs": list(body.get("inputs", [exp["name"]])),
+            "deps": list(body.get("deps", [])),
         }
     return Spec(
         name=exp["name"],
@@ -96,5 +100,6 @@ def load(path: str | Path) -> Spec:
         outputs=dict(raw.get("outputs", {})),
         path=path,
         data=data,
+        keys=keys,
         pipelines=pipelines,
     )
