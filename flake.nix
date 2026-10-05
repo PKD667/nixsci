@@ -30,7 +30,10 @@
             echo "hosts: ''${NIX_DEPLOY_HOSTFILE:+$(cat "$NIX_DEPLOY_HOSTFILE" | tr '\n' ' ')}"
           '';
         in {
-          hello = pkgs.writeTextDir "experiment.json" (builtins.toJSON { program = "${run}"; });
+          hello = pkgs.runCommand "hello-experiment" { } ''
+            mkdir $out
+            echo '{"program": "${run}"}' > $out/experiment.json
+          '';
         });
 
       apps = forAll (pkgs: {

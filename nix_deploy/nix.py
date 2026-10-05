@@ -47,7 +47,9 @@ def capture_source(nix, flake):
     return {"flake": flake, "snapshot": ref, "locked": metadata["locked"]}, ref
 def build(nix, flake, installable, system):
     value = _json(run(nix, None, "build", "--no-link", "--no-update-lock-file", "--json", "--system", system, f"{flake}#{installable}"), "build")
-    try: path = value[0]["outputs"]["out"]["path"]
+    try:
+        out = value[0]["outputs"]["out"]  # a path string since Nix 2.33, {"path": ...} before
+        path = out["path"] if isinstance(out, dict) else out
     except (IndexError, KeyError, TypeError) as error: raise NixError(f"Nix build did not produce an out path: {value!r}") from error
     if not isinstance(path, str) or not path.startswith("/nix/store/"): raise NixError(f"invalid Nix output path: {path!r}")
     return path
