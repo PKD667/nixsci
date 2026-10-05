@@ -20,6 +20,19 @@
           meta.mainProgram = "nix-deploy";
         };
       });
+      # Self-test fixture: a closure that reports where it ran, to exercise any target end to end.
+      experiments = nixpkgs.lib.genAttrs systems (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          run = pkgs.writeShellScript "hello" ''
+            echo "hello from $(hostname) arch=$(uname -m) workdir=$NIX_DEPLOY_WORKDIR"
+            echo "enter: ''${NIX_DEPLOY_ENTER:-unset}"
+            echo "hosts: ''${NIX_DEPLOY_HOSTFILE:+$(cat "$NIX_DEPLOY_HOSTFILE" | tr '\n' ' ')}"
+          '';
+        in {
+          hello = pkgs.writeTextDir "experiment.json" (builtins.toJSON { program = "${run}"; });
+        });
+
       apps = forAll (pkgs: {
         default = { type = "app"; program = "${self.packages.${pkgs.system}.nix-deploy}/bin/nix-deploy"; };
       });
