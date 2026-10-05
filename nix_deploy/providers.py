@@ -33,6 +33,8 @@ class Lease:
     """What `acquire` returns. `targets` are `factory.backend` configs, one per host."""
     targets: list[dict[str, Any]]
     hosts: list[str] = field(default_factory=list)
+    #: JSON-able facts the provider needs to release this lease from any process.
+    state: dict[str, Any] = field(default_factory=dict)
     _release: Callable[[], None] = lambda: None
 
     def release(self) -> None:
@@ -64,6 +66,7 @@ def check_opts(name: str, opts: Mapping[str, Any], required: set[str], optional:
 
 class Provider(Protocol):
     def acquire(self, resources: Resources, opts: Mapping[str, Any]) -> Lease: ...
+    def release(self, state: Mapping[str, Any]) -> None: ...
 
 
 def system() -> str:
@@ -72,6 +75,9 @@ def system() -> str:
 
 class Local:
     """This machine's own Nix store; no privileges, no ssh."""
+
+    def release(self, state):
+        pass
 
     def acquire(self, resources, opts):
         check_opts("local", opts, set(), set())
@@ -82,6 +88,9 @@ class Local:
 
 class Static:
     """Named targets from a targets file (CBP servers, any ssh host)."""
+
+    def release(self, state):
+        pass
 
     def acquire(self, resources, opts):
         o = check_opts("static", opts, {"targets"}, {"config"})
@@ -115,6 +124,9 @@ class OAR:
     Nodes are plain `ssh` backends with a pinned static Nix bootstrap.
     """
 
+    def release(self, state):
+        _ssh(state["frontend"], f"oardel {state['job']}", check=False)
+
     def acquire(self, resources, opts):
         c = {"access": "access.grid5000.fr", "queue": None, "cluster": None, "besteffort": False,
              "poll": 2, "timeout": 3600,
@@ -141,8 +153,10 @@ class OAR:
             raise RuntimeError(f"no OAR job id in: {out!r}")
         job = found.group(1)
 
+        state = {"job": job, "frontend": frontend}
+
         def release() -> None:
-            _ssh(frontend, f"oardel {job}", check=False)
+            self.release(state)
 
         try:
             deadline = time.monotonic() + float(c["timeout"])
@@ -168,7 +182,7 @@ class OAR:
                 "bootstrap": c["bootstrap"], "bootstrap_sha256": c["bootstrap_sha256"],
                 "remote_bootstrap": c.get("remote_bootstrap", f"/tmp/{login}-nix-deploy/bin/nix"),
                 "ssh_options": jump}
-        return Lease([{**base, "host": f"{login}@{node}"} for node in nodes], nodes, release)
+        return Lease([{**base, "host": f"{login}@{node}"} for node in nodes], nodes, state, release)
 
 
 def load_toml(path: Path) -> dict[str, Any]:
