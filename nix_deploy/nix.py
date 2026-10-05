@@ -113,7 +113,17 @@ def capture_source(nix, flake):
     metadata = _json(run(nix, None, "flake", "metadata", "--json", ref), "captured flake metadata")
     if not isinstance(metadata, dict) or not isinstance(metadata.get("locked"), dict):
         raise NixError("captured source lacks locked identity")
-    return {"flake": flake, "snapshot": ref, "locked": metadata["locked"]}, ref
+    # `locked` above describes the store snapshot (a path: source), which cannot be fetched on
+    # another machine. `origin` is the locked identity of the flake as given (rev, narHash, url),
+    # the part a later reader can rebuild the source from.
+    original = _json(run(nix, None, "flake", "metadata", "--json", flake), "flake metadata")
+    origin = original.get("locked") if isinstance(original, dict) else None
+    return {
+        "flake": flake,
+        "snapshot": ref,
+        "locked": metadata["locked"],
+        "origin": origin,
+    }, ref
 
 
 def build(nix, flake, installable, system):
