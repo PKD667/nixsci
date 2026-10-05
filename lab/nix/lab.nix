@@ -2,6 +2,7 @@
 #
 #   lab = nixsci.lib.lab { inherit pkgs; project = self; };
 #   lab.experiment { name = "demo"; closures.${system} = ...; seeds = [ 0 1 ]; ... }
+#   An experiment with no `closures` is recorded by hand (`lab.Run`); it has no `run` to execute.
 #   lab.analysis   { name = "curves"; use.demo = demo; pipelines.curve.script = ./curve.R; }
 #
 # An experiment is the one impure step: its `run` app starts the Python executor, which runs the
@@ -36,8 +37,8 @@ in
 rec {
   experiment =
     { name
-    , closures
-    , systems ? [ host ]
+    , closures ? { }
+    , systems ? builtins.attrNames closures
     , seeds ? [ ]
     , replicates ? 1
     , params ? { }
