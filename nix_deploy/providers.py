@@ -132,13 +132,15 @@ class OAR:
              "poll": 2, "timeout": 3600,
              **check_opts("oar", opts, {"login", "site", "bootstrap", "bootstrap_sha256"},
                           {"access", "queue", "cluster", "besteffort", "poll", "timeout",
-                           "store", "run_root", "remote_bootstrap"})}
+                           "store", "run_root", "remote_bootstrap", "ssh_options"})}
         login, site, access = c["login"], c["site"], c["access"]
         for value in (login, site, access, c["cluster"] or "x", c["queue"] or "x"):
             if not _NAME.fullmatch(value):
                 raise ValueError(f"invalid OAR option {value!r}")
         walltime, hosts = resources.walltime, resources.hosts
-        jump = ["-o", f"ProxyJump={login}@{access}"]
+        # Frontends and nodes are not in a fresh known_hosts; trust a key on first contact only.
+        jump = ["-o", "StrictHostKeyChecking=accept-new", *c.get("ssh_options", []),
+                "-o", f"ProxyJump={login}@{access}"]
         frontend = ["ssh", "-o", "BatchMode=yes", *jump, f"{login}@{site}"]
         cmd = f"oarsub -n nix-deploy -l nodes={hosts},walltime={walltime // 60}:{walltime % 60:02d}:00"
         if c["besteffort"]:
