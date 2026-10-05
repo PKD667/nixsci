@@ -30,7 +30,7 @@
 
       # Wrap a program so it becomes a nixsci experiment closure.
       #   mkExperiment pkgs { name = "x"; program = "${drv}/bin/x"; metadata = {...}; }
-      lib.mkExperiment = pkgs: import ./nix/mk-experiment.nix { inherit pkgs; };
+      lib.mkExperiment = pkgs: import ./lab/nix/mk-experiment.nix { inherit pkgs; };
 
       packages = forAll (pkgs:
         let pp = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).pkgs; in rec {
@@ -40,13 +40,13 @@
           lab-py = pkgs.runCommand "nixsci-lab-py" { } ''
             site=$out/${pkgs.python3.sitePackages}/nixsci
             mkdir -p $site
-            cp -r ${./nixsci/lab} $site/lab
+            cp -r ${./lab/src} $site/lab
           '';
           # R package that reads collected runs and compacted datasets.
           labr = pkgs.rPackages.buildRPackage {
             pname = "labr";
             version = "0.1.0";
-            src = ./r/labr;
+            src = ./lab/r/labr;
             propagatedBuildInputs = with pkgs.rPackages; [ arrow jsonlite ];
           };
           # The pinned R used by `nix-lab analyze`: Rscript plus the analysis packages.
@@ -81,11 +81,11 @@
             mkdir $out
             echo '{"program": "${run}/bin/hello"}' > $out/experiment.json
           '';
-        # Typed loss rows, one curve per run (see examples/demo.toml).
-        demo = (import ./nix/mk-experiment.nix { inherit pkgs; }) {
+        # Typed loss rows, one curve per run (see lab/examples/demo.toml).
+        demo = (import ./lab/nix/mk-experiment.nix { inherit pkgs; }) {
           name = "demo";
           program = "${pkgs.python3}/bin/python";
-          args = [ "${./examples/demo.py}" ];
+          args = [ "${./lab/examples/demo.py}" ];
           env.PYTHONPATH = "${self.packages.${pkgs.system}.lab-py}/${pkgs.python3.sitePackages}";
         };
       });
@@ -98,7 +98,13 @@
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
           packages = [ pkgs.python3 pkgs.python3Packages.pytest pkgs.python3Packages.pyarrow pkgs.git ];
-          shellHook = ''export PYTHONPATH="$PWD:$PYTHONPATH"'';
+          # The sources live in deploy/src and lab/src; the namespace is assembled in .dev/.
+          shellHook = ''
+            mkdir -p .dev/nixsci
+            ln -sfn "$PWD/deploy/src" .dev/nixsci/deploy
+            ln -sfn "$PWD/lab/src" .dev/nixsci/lab
+            export PYTHONPATH="$PWD/.dev:$PYTHONPATH"
+          '';
         };
       });
     };

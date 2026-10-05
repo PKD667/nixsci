@@ -18,5 +18,9 @@ nix-lab = "nixsci.lab.cli:main"
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.packages.find]
-include = ["nixsci*"]
+[tool.setuptools]
+packages = ["nixsci.deploy", "nixsci.lab"]
+
+[tool.setuptools.package-dir]
+"nixsci.deploy" = "deploy/src"
+"nixsci.lab" = "lab/src"
