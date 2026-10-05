@@ -31,8 +31,7 @@ def run(spec: Spec, out_root: Path, *, poll: float = 1.0, timeout: float = 24 * 
         log: Callable[[str], None] = print) -> list[dict[str, Any]]:
     factory, providers, resolver = _deploy()
     jobs = spec.jobs()
-    request = {k: v for k, v in spec.resources.items() if k not in ("provider", "opts")}
-    lease = providers.acquire(spec.provider, {**request, **spec.resources.get("opts", {})})
+    lease = providers.acquire(spec.provider, spec.resources, spec.resources.get("opts", {}))
     try:
         configs = {f"t{i}": c for i, c in enumerate(lease.targets)}
         names = list(configs)
