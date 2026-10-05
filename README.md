@@ -222,6 +222,10 @@ saw, and its `NIX_DEPLOY_ENTER`. The tree must be committed first.
 Verified end to end:
 
 - `local` provider and `native` backend, on a laptop and on a server.
+- The refactored design (no scheduler code, flake-reference bootstrap `nixpkgs#nixStatic`, `static`
+  provider with a gateway `jump`) end to end on 2 hand-reserved Grid'5000 nodes at Lille: group
+  launch, node-to-node ssh through `NIX_DEPLOY_RSH`, command in the peer's store view through
+  `NIX_DEPLOY_ENTER`, job released afterwards.
 - The `ssh` backend on real Grid'5000 nodes (1 and 2 Lille nodes, reserved by hand, reached
   through the site gateway): ship a static Nix, ship and verify the closure by NAR hash
   under a rootless store, run it inside that store view, read its log, fetch results.
