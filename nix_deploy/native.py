@@ -64,7 +64,9 @@ class Native(Backend):
         if not self.alive(handle): raise RuntimeError(f"process {handle.get('pid', '?')} is no longer running")
         os.killpg(int(handle["pgid"]), signal.SIGTERM)
     def remove(self, handle): shutil.rmtree(self._path(str(handle["workdir"])))
-    def tunnel(self, handle, remote_port):
+    def enter(self, closure): return nix.command(self.nix, self._target_store(), "shell", "--offline", closure.path, "--command")
+    def tunnel(self, handle, remote_port, host="127.0.0.1"):
+        if host not in ("127.0.0.1", "localhost"): raise ValueError("a native target only has itself")
         if not isinstance(remote_port, int) or not 1 <= remote_port <= 65535: raise ValueError("remote_port must be a TCP port")
         try: socket.create_connection(("127.0.0.1", remote_port), timeout=.5).close()
         except OSError as error: raise RuntimeError(f"native port {remote_port} is not ready") from error

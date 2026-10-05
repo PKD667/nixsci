@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 from pathlib import Path
+import re
 import shlex
 import socket
 import subprocess
@@ -107,7 +108,7 @@ class SSH(Backend):
             else:
                 result = subprocess.run([*self._scp, *( ["-rp"] if source.is_dir() else [] ), str(source), f"{self.host}:{target}"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 if result.returncode: raise RuntimeError(f"cannot ship private input {name!r}: {result.stderr.decode(errors='replace')[-1000:]}")
-            if source.is_dir():
+            if not isinstance(source, bytes) and source.is_dir():
                 actual = self._remote("tar -C " + shlex.quote(target) + " --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf - . | sha256sum").stdout.decode().split()[0]
             else: actual = self._remote(f"sha256sum {shlex.quote(target)}").stdout.decode().split()[0]
             if actual != digest:
@@ -167,14 +168,18 @@ class SSH(Backend):
         if result.returncode: raise RuntimeError(f"cannot stop remote run {handle.get('id', '?')}")
     def remove(self, handle: Mapping[str, Any]) -> None:
         self._remote(f"rm -rf -- {shlex.quote(str(handle['workdir']))}")
-    def tunnel(self, handle: Mapping[str, Any], remote_port: int):
+    def enter(self, closure: Closure) -> list[str]:
+        return nix.command(self.remote_bootstrap, self.store, "shell", "--offline", closure.path, "--command")
+    def tunnel(self, handle: Mapping[str, Any], remote_port: int, host: str = "127.0.0.1"):
         if not isinstance(remote_port, int) or not 1 <= remote_port <= 65535:
             raise ValueError("remote_port must be a TCP port")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]*", host):
+            raise ValueError("tunnel host must be a hostname or address")
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             local = sock.getsockname()[1]
         process = subprocess.Popen([*self._ssh, "-N", "-o", "ExitOnForwardFailure=yes", "-L",
-                                    f"127.0.0.1:{local}:127.0.0.1:{remote_port}", self.host],
+                                    f"127.0.0.1:{local}:{host}:{remote_port}", self.host],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         for _ in range(100):
             if process.poll() is not None:

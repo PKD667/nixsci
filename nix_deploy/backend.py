@@ -1,6 +1,6 @@
 """Shared manifest and lifecycle protocol for local and SSH targets."""
 from __future__ import annotations
-import hashlib, json, os, re, subprocess
+import hashlib, json, os, re, shlex, subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 from .model import Closure
@@ -86,6 +86,9 @@ class Backend:
         if wanted_driver is not None and wanted_driver != self.driver: raise RuntimeError(f"target does not provide declared driver {wanted_driver!r}")
         if wanted_profile is not None and wanted_profile not in self.profiles: raise RuntimeError(f"target does not provide declared profile {wanted_profile!r}")
     def stage(self, closure: Closure) -> dict[str, Any]: raise NotImplementedError
+    def enter(self, closure: Closure) -> list[str] | None:
+        """Command prefix that runs a program inside this target's store view."""
+        return None
     def _workdir(self, run_id: str) -> str:
         if not isinstance(run_id, str) or not _RUN.fullmatch(run_id): raise ValueError("run_id contains characters not allowed in a deployment path")
         return f"{self.run_root}/{run_id}"
@@ -100,6 +103,8 @@ class Backend:
         if env is not None: values.update(env)
         if any(not isinstance(k, str) or not k or "\x00" in k or not isinstance(v, str) or "\x00" in v for k, v in values.items()): raise ValueError("environment names and values must be NUL-free strings")
         input_env, input_json = self._stage_inputs(workdir, records); values.update(input_env); values["NIX_DEPLOY_WORKDIR"] = workdir
+        enter = self.enter(closure)
+        if enter: values["NIX_DEPLOY_ENTER"] = " ".join(shlex.quote(part) for part in enter)
         self._write_json(workdir, "inputs.json", input_json)
         handle = self._spawn(closure, workdir, run_id, self._program(closure, program), args, values)
         handle.update({"id": run_id, "workdir": workdir, "closure": closure.as_dict(), "inputs": input_json, "program": program}); self._write_json(workdir, "handle.json", handle); return handle
