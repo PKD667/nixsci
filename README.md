@@ -119,6 +119,37 @@ with lab.Run("runs", lab.run_name("meas", seed=3), spec="measure.toml", seed=3,
 `lab.record` reads are set for the block and restored afterwards. The manifest layout is in
 `SPEC.md`; nothing else needs to be written by hand.
 
+## Replicates, identity and reproducing a run
+
+A run is identified by its **inputs**: the experiment closure (so the code and every dependency),
+the parameters, the seed and the declared schema. Runs with the same inputs are *replicates*.
+
+```toml
+[experiment]
+replicates = 3          # at least 3 finished runs per input (default 1)
+
+[data.size]
+columns = { n = "int", seconds = "float" }
+key = ["n"]
+noisy = { seconds = 0.25 }   # seconds may differ by up to 25% between replicates; others must match
+```
+
+- `nix-lab run` is **idempotent and resumable**: inputs that already have enough finished
+  replicates are skipped, so a preempted sweep continues where it stopped, and changed code (a new
+  closure) is a new input. `nix-lab run --again` adds one more replicate.
+- Every run is **sealed**: its manifest holds the SHA-256 of `records.jsonl`, of the spec (a copy is
+  stored as `spec.toml`), the source as locked (git rev, narHash), the closure, and the machine
+  (hostname, kernel, CPU, cores, memory). `compact` refuses a run whose records changed afterwards.
+- `nix-lab repro <run>` prints everything needed to run that measurement again (the flake as a
+  locked reference, parameters, seed, expected hash, machine).
+- `nix-lab verify <run>` rebuilds the code from the locked source, runs one new replicate and
+  compares the datasets. Exact columns must match; `noisy` columns must agree within their
+  tolerance. It exits 0 only if they do.
+
+nix-lab does not promise identical bytes: a measurement with an uncontrolled component (MPI timing,
+a shared cluster) is a random variable. What it guarantees is exact *provenance* and honest
+*re-measurement*. See `DESIGN.md` for the reasoning and the literature behind it.
+
 ## Compaction and analysis
 
 ```sh

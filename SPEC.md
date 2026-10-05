@@ -41,6 +41,12 @@ status.json            written by the wrapper when the program exits
 * Values are JSON only. No pickle, no language-specific encodings: anything
   else is stored as an artifact with a `media` type.
 
+## `machine.json`
+
+Written by the `mkExperiment` wrapper on the host that ran the program, next to `status.json`:
+`{"hostname", "kernel", "arch", "cpus", "cpu", "mem_kb"}`. A reader comparing two
+measurements needs these; a run recorded by hand (`lab.Run`) gets the same facts from Python.
+
 ## `status.json`
 
 `{"exit_code": 0, "started": "...Z", "ended": "...Z"}`. A run with no
@@ -57,6 +63,17 @@ write it; `compact`, `analyze` and `lab.runs` read it. Readers MUST ignore unkno
  "schema": {"loss": {"epoch": "int", "value": "float"}}, "keys": {"loss": ["epoch"]},
  "started": "2026-10-05T06:14:18Z", "ended": "2026-10-05T06:14:20Z"}
 ```
+
+Since format 1.1 a manifest also carries: `input_id` and `replicate` (run identity, below),
+`records_sha256` (SHA-256 of `records.jsonl`, the seal), `spec_sha256` (and a copy of the spec as
+`spec.toml` in the run directory), `tolerance` (`{dataset: {column: relative tolerance}}` for noisy
+columns), and `machine` (see `machine.json` below). `source` is
+`{flake, snapshot, locked, origin}`: `origin` is the flake as locked (rev, narHash), the part a
+later reader can rebuild the code from; `locked` describes the local store snapshot.
+
+`input_id` = SHA-256 of the canonical JSON of {app, closure store path, params, seed, schema,
+keys}. Runs sharing it are replicates of one measurement; `replicate` numbers them 1, 2, ...
+in the order they were made. The runner names the directory `<app>-<input_id[:12]>-r<replicate>`.
 
 `state` is `ok`, `failed` or `incomplete` (no `status.json`, no manifest end); only `ok` runs
 are compacted. `schema` and `keys` are the declared datasets the run was recorded under.

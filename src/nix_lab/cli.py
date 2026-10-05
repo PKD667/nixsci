@@ -49,7 +49,7 @@ def main(argv=None) -> int:
         if args.cmd == "repro":
             print(json.dumps(verify_mod.bundle(run_dir), indent=1, sort_keys=True))
             return 0
-        report = verify_mod.verify(run_dir)
+        report = verify_mod.verify(run_dir, log=lambda m: print(m, file=sys.stderr))
         print(json.dumps(report, indent=1, sort_keys=True))
         return 0 if report["ok"] else 1
     spec = spec_mod.load(args.spec)
