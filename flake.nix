@@ -18,6 +18,8 @@
           build-system = [ py.setuptools ];
           dependencies = [ py.pyarrow ];
           pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" ];
+          # A store path is immutable: bytecode written into one changes its hash and Nix then refuses it.
+          makeWrapperArgs = [ "--set" "PYTHONDONTWRITEBYTECODE" "1" ];
           meta.mainProgram = "nixsci";
         };
       };
