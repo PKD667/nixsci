@@ -164,12 +164,12 @@ class OAR:
             deadline = time.monotonic() + float(c["timeout"])
             while True:
                 info = _ssh(frontend, f"oarstat -fj {job}")
-                state = re.search(r"^\s*state = (\w+)", info, re.M)
-                state = state.group(1) if state else ""
-                if state == "Running":
+                found_state = re.search(r"^\s*state = (\w+)", info, re.M)
+                job_state = found_state.group(1) if found_state else ""
+                if job_state == "Running":
                     break
-                if state in ("", "Terminated", "Error", "Finishing") or time.monotonic() > deadline:
-                    raise RuntimeError(f"OAR job {job} did not run: state={state or 'unknown'}")
+                if job_state in ("", "Terminated", "Error", "Finishing") or time.monotonic() > deadline:
+                    raise RuntimeError(f"OAR job {job} did not run: state={job_state or 'unknown'}")
                 time.sleep(float(c["poll"]))
             names = re.search(r"^\s*assigned_hostnames = (.+)$", info, re.M)
             nodes = sorted(set(names.group(1).strip().split("+"))) if names else []

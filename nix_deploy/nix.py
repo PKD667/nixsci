@@ -3,7 +3,7 @@ import json, subprocess
 from pathlib import Path
 from typing import Any
 class NixError(RuntimeError): pass
-def _command(nix, store, *args): return [nix, *((["--store", store] if store else [])), *args]
+def _command(nix, store, *args): return [nix, "--extra-experimental-features", "nix-command", *((["--store", store] if store else [])), *args]
 def run(nix, store, *args, input=None):
     cmd = _command(nix, store, *args); result = subprocess.run(cmd, input=input, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if result.returncode: raise NixError(f"Nix command failed ({result.returncode}): {' '.join(cmd)}\n{result.stderr.decode('utf-8','replace')[-3000:]}")

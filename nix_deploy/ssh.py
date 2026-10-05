@@ -124,7 +124,7 @@ class SSH(Backend):
         command = nix.command(self.remote_bootstrap, self.store, "shell", "--offline", closure.path,
                               "--command", executable, *argv)
         exports = " ".join(f"{key}={shlex.quote(value)}" for key, value in sorted(values.items()))
-        script = "#!/bin/sh\nset -eu\nstat=$(cat /proc/$$/stat); rest=${stat##*) }; set -- $rest; printf '%s %s %s\\n' \"$$\" \"$3\" \"$20\" > " + shlex.quote(pid_file) + "\ncd " + shlex.quote(workdir) + "\nexec env -i " + exports + " " + shlex.join(command) + " > " + shlex.quote(self._workdir_path(workdir, "process.log")) + " 2>&1 < /dev/null\n"
+        script = "#!/bin/sh\nset -eu\nstat=$(cat /proc/$$/stat); rest=${stat##*) }; set -- $rest; printf '%s %s %s\\n' \"$$\" \"$3\" \"${20}\" > " + shlex.quote(pid_file) + "\ncd " + shlex.quote(workdir) + "\nexec env -i " + exports + " " + shlex.join(command) + " > " + shlex.quote(self._workdir_path(workdir, "process.log")) + " 2>&1 < /dev/null\n"
         script_path = self._workdir_path(workdir, "launch.sh")
         self._remote(f"umask 077; cat > {shlex.quote(script_path)}; chmod 700 {shlex.quote(script_path)}", data=script.encode())
         # -f backgrounds the SSH client after authentication; the remote script
