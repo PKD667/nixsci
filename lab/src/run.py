@@ -160,7 +160,6 @@ class Run:
             raise ValueError(f"invalid run state {state!r}; one of {STATES}")
         self._finished = True
         manifest = {
-            "v": 1,
             "app": self.app,
             "run": self.name,
             "state": state,

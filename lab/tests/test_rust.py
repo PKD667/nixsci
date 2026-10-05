@@ -36,7 +36,6 @@ class RustWritesWhatPythonReads(unittest.TestCase):
         parsed = schema.parse("loss", COLUMNS["loss"])
         for row in rows[:3]:
             schema.check("loss", parsed, row["data"])
-            self.assertEqual(row["v"], 1)
             self.assertRegex(row["time"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
         self.assertAlmostEqual(rows[1]["data"]["value"], 0.15)
         self.assertEqual(lab.artifact(directory, rows[3]), b"abc")

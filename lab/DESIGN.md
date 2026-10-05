@@ -60,9 +60,10 @@ HPC-focused survey: [arXiv:2402.07530](https://arxiv.org/pdf/2402.07530).
 6. **Where data lives** (decided with the user's constraints: no central storage, no `<repo>/data`):
    - a **per-machine content store**, default `$XDG_DATA_HOME/nix-lab` (override with
      `NIX_LAB_STORE`), shared by all projects; runs are write-once and addressed by `input_id`;
-   - a small **`lab.lock`** next to the spec, committed to git, listing for each input the
-     replicates and their `records_sha256`, and for each pipeline its `fingerprint` and output
-     hashes. The lock is the reproducibility claim; the bytes are not in the repository;
+   - a small **`<spec>.lab.lock`** next to each spec, committed to git. An experiment's lock lists
+     its finished runs and their `records_sha256`; an analysis' lock pins the experiment locks it
+     `use`s by hash and lists each pipeline's `fingerprint` and output hashes. The lock is the
+     reproducibility claim; the bytes are not in the repository;
    - **remotes** are plain ssh directories (`nixsci lab push|pull <host:dir>`), moved with rsync.
      Any machine can fetch what the lock names and verify it by hash.
 7. **No workflow language.** Experiments are Nix flake outputs, analysis is a script, the spec
@@ -74,4 +75,4 @@ HPC-focused survey: [arXiv:2402.07530](https://arxiv.org/pdf/2402.07530).
 - Whether the lock should also pin pipeline *outputs* by hash (figures) so a paper build can
   fetch them: likely yes; blocked on nix-science's builder shape.
 - Artifact (array) records are not compared by `verify`.
-- Cross-machine replicate analysis (confidence intervals over replicates): a `labr` helper.
+- Cross-machine replicate analysis (confidence intervals over replicates): a helper in the `nixsci` R package.

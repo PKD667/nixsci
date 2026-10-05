@@ -23,7 +23,7 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     b = sub.add_parser(
-        "build", help="run what is missing, compact, analyse, lock (no flags needed)"
+        "build", help="experiment: run what is missing, compact, lock; analysis: run its pipelines, lock"
     )
     b.add_argument("spec")
     b.add_argument("--again", action="store_true", help="add one more replicate per input")
@@ -39,7 +39,7 @@ def main(argv=None) -> int:
     c.add_argument("runs", nargs="?", help="runs directory (default: the store)")
     c.add_argument("--out", help="Parquet directory (default: the store)")
     c.add_argument("--force", action="store_true", help="rewrite files that look up to date")
-    a = sub.add_parser("analyze", help="run the spec's R pipelines and record their provenance")
+    a = sub.add_parser("analyze", help="run an analysis spec's R pipelines over the locked data it [use]s")
     a.add_argument("spec")
     a.add_argument("--runs")
     a.add_argument("--data")
@@ -47,7 +47,7 @@ def main(argv=None) -> int:
     a.add_argument("--only")
     a.add_argument("--force", action="store_true", help="rerun even if nothing changed")
 
-    sub.add_parser("lock", help="write <spec>.lab.lock from the analysed pipelines").add_argument(
+    sub.add_parser("lock", help="write <spec>.lab.lock (an experiment's runs, or an analysis' uses and outputs)").add_argument(
         "spec"
     )
     sub.add_parser("check", help="verify the store against <spec>.lab.lock").add_argument("spec")
@@ -98,6 +98,9 @@ def main(argv=None) -> int:
 
     spec = spec_mod.load(args.spec)
     if args.cmd == "plan":
+        if spec.kind != "experiment":
+            _err(f"{spec.path.name} is an analysis; only an experiment has jobs")
+            return 2
         for job in spec.jobs():
             print(f"{job.index:03d} seed={job.seed} params={job.params}")
         return 0
@@ -106,7 +109,7 @@ def main(argv=None) -> int:
 
         return build(spec, again=args.again)
     if args.cmd == "analyze":
-        from .analyze import analyze
+        from .analysis import analyze
 
         results = analyze(
             spec,

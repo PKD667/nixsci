@@ -1,0 +1,6 @@
+S3method("$",nixsci_use)
+S3method(print,nixsci_use)
+export(out)
+export(params)
+export(runs)
+export(use)

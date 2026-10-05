@@ -22,8 +22,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const VERSION: u64 = 1;
-
 #[derive(Debug)]
 pub enum Error {
     /// The value does not fit the run's declared datasets.
@@ -192,7 +190,6 @@ fn now() -> String {
 fn entry(name: &str, tags: &Map<String, Value>) -> Map<String, Value> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let mut e = Map::new();
-    e.insert("v".into(), json!(VERSION));
     e.insert("id".into(), json!(format!("{}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed))));
     e.insert("time".into(), json!(now()));
     e.insert("name".into(), json!(name));

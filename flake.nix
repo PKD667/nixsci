@@ -43,16 +43,16 @@
             mkdir -p $site
             cp -r ${./lab/src} $site/lab
           '';
-          # R package that reads collected runs and compacted datasets.
-          labr = pkgs.rPackages.buildRPackage {
-            pname = "labr";
+          # R package for analysis scripts: use("alias"), runs(), params(), out().
+          nixsci-r = pkgs.rPackages.buildRPackage {
+            pname = "nixsci";
             version = "0.1.0";
-            src = ./lab/r/labr;
+            src = ./lab/r;
             propagatedBuildInputs = with pkgs.rPackages; [ arrow jsonlite ];
           };
           # The pinned R used by `nixsci lab analyze`: Rscript plus the analysis packages.
           r-env = pkgs.rWrapper.override {
-            packages = with pkgs.rPackages; [ arrow dplyr ggplot2 jsonlite labr ];
+            packages = with pkgs.rPackages; [ arrow dplyr ggplot2 jsonlite nixsci-r ];
           };
         });
 

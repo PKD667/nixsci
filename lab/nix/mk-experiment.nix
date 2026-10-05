@@ -42,6 +42,6 @@ pkgs.runCommand "experiment-${name}" {
   jq -n --arg program "$out/bin/run" --arg name "${name}" \
         --argjson metadata "$meta_json" --argjson resources "$resources_json" \
         --argjson env "$env_json" \
-    '{program: $program, metadata: ($metadata + {lab: {format: 1, name: $name}}),
+    '{program: $program, metadata: ($metadata + {lab: {name: $name}}),
       resources: $resources, env: $env}' > $out/experiment.json
 ''

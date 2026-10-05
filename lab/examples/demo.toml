@@ -1,6 +1,6 @@
 [experiment]
 name  = "demo"
-flake = ".."
+flake = "../.."
 attr  = "demo"
 seeds = [0, 1]
 
@@ -13,6 +13,3 @@ columns = { epoch = "int", value = "float", split = "str" }
 [resources]
 provider = "local"
 hosts = 2
-
-[pipeline.curve]
-script = "demo.R"

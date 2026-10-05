@@ -139,7 +139,6 @@ def _run_job(
     status = json.loads(be.read_file(handle, "lab/status.json") or "null")
     state = "incomplete" if status is None else ("ok" if status["exit_code"] == 0 else "failed")
     manifest = {
-        "v": 1,
         "app": spec.name,
         "schema": spec.data,
         "keys": spec.keys,

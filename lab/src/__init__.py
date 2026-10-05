@@ -20,7 +20,6 @@ from typing import Any
 
 from . import schema
 
-VERSION = 1
 _counter = itertools.count()
 
 
@@ -93,7 +92,6 @@ def record(name: str, value: Any, **tags: Any) -> None:
     if not _jsonable(tags):
         raise TypeError("tags must be JSON-like")
     entry: dict[str, Any] = {
-        "v": VERSION,
         "id": f"{os.getpid()}-{next(_counter)}",
         "time": _now(),
         "name": name,

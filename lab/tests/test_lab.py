@@ -52,20 +52,56 @@ class Schema(unittest.TestCase):
                 schema.parse("d", columns)
 
 
-class SpecData(unittest.TestCase):
-    def test_data_and_pipeline_tables_load(self):
-        path = Path(tempfile.mkdtemp()) / "e.toml"
-        path.write_text(textwrap.dedent("""
+class SpecKinds(unittest.TestCase):
+    def load(self, text):
+        path = Path(tempfile.mkdtemp()) / "s.toml"
+        path.write_text(textwrap.dedent(text))
+        return spec_mod.load(path)
+
+    def test_an_experiment_declares_data(self):
+        s = self.load("""
             [experiment]
             name = "e"
             [data.loss]
             columns = { epoch = "int", value = "float" }
-            [pipeline.fig]
-            script = "fig.R"
-        """))
-        s = spec_mod.load(path)
+        """)
         self.assertEqual(s.data["loss"], {"epoch": "int", "value": "float"})
-        self.assertEqual(s.pipelines["fig"], {"script": "fig.R", "inputs": ["e"], "deps": []})
+        self.assertEqual(s.kind, "experiment")
+
+    def test_an_analysis_names_what_it_uses_and_holds_the_pipelines(self):
+        s = self.load("""
+            [analysis]
+            name = "fig"
+            [use]
+            nerve = "measure/nerve.toml"
+            [pipeline.agree]
+            script = "agree.R"
+        """)
+        self.assertEqual((s.kind, list(s.use)), ("analysis", ["nerve"]))
+        self.assertEqual(s.use["nerve"].name, "nerve.toml")
+        self.assertEqual(s.pipelines["agree"], {"script": "agree.R", "deps": []})
+        with self.assertRaises(ValueError):
+            s.jobs()
+
+    def test_pipelines_belong_to_an_analysis_not_an_experiment(self):
+        with self.assertRaises(ValueError) as error:
+            self.load("""
+                [experiment]
+                name = "e"
+                [pipeline.p]
+                script = "p.R"
+            """)
+        self.assertIn("analysis", str(error.exception))
+
+    def test_an_analysis_reads_only_what_it_uses(self):
+        for text in (
+            '[analysis]\nname = "a"\n[pipeline.p]\nscript = "p.R"\n',
+            '[analysis]\nname = "a"\n[use]\nx = "e.toml"\n[pipeline.p]\nscript = "p.R"\ninputs = ["x"]\n',
+            '[analysis]\nname = "a"\n[use]\n"bad-alias" = "e.toml"\n',
+            '[analysis]\nname = "a"\n[experiment]\nname = "e"\n',
+        ):
+            with self.assertRaises(ValueError, msg=text):
+                self.load(text)
 
 
 class Compact(unittest.TestCase):

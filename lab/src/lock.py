@@ -1,31 +1,66 @@
-"""`<spec>.lab.lock`: the committed claim of which runs and outputs a project's results rest on.
+"""`<spec>.lab.lock`: the committed claim of which runs and outputs a result rests on.
 
-It holds hashes only. Pipelines are the unit: a published table or figure is the output of a
-pipeline, and the pipeline's provenance names exactly the runs it read. The lock therefore lists
-each pipeline (fingerprint, output hashes) and each run it consumed (manifest and records hashes,
-closure, source). Anyone can `pull` the named runs from any remote and `check` them by hash.
+It holds hashes only. An experiment's lock lists its finished runs (manifest and records hashes,
+closure, source, machine). An analysis' lock pins the experiment locks it `use`s by hash, lists the
+union of their runs, and for each pipeline its fingerprint and output hashes. A figure therefore
+traces to exact runs; anyone can `pull` them from any remote and `check` them by hash.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import tomllib
 from pathlib import Path
 from typing import Any
 
 from nixsci.lab.run import sha256_file
 
-VERSION = 1
+TABLES = ("use", "pipeline", "run")
 
 
 def path_for(spec_path: Path) -> Path:
     return spec_path.with_name(spec_path.stem + ".lab.lock")
 
 
-def collect(spec: Any, runs_root: Path, analysis_root: Path) -> dict[str, Any]:
-    """Build the lock data from the store: analysed pipelines and the runs they consumed."""
-    pipelines: list[dict[str, Any]] = []
+def _entry(manifest: dict[str, Any], manifest_sha256: str, app: str) -> dict[str, Any]:
+    return {
+        "app": manifest.get("app", app),
+        "run": manifest["run"],
+        "input_id": manifest.get("input_id"),
+        "replicate": manifest.get("replicate"),
+        "manifest_sha256": manifest_sha256,
+        "records_sha256": manifest.get("records_sha256"),
+        "closure": manifest.get("closure"),
+        "source": (manifest.get("source") or {}).get("origin"),
+        "machine": (manifest.get("machine") or {}).get("hostname"),
+    }
+
+
+def _experiment(spec: Any, runs_root: Path) -> dict[str, Any]:
+    runs = []
+    for path in sorted((runs_root / spec.name).glob("*/manifest.json")):
+        manifest = json.loads(path.read_text())
+        if manifest.get("state") == "ok":
+            runs.append(_entry(manifest, sha256_file(path), spec.name))
+    return {"kind": "experiment", "app": spec.name, "use": [], "pipeline": [], "run": runs}
+
+
+def _analysis(spec: Any, analysis_root: Path) -> dict[str, Any]:
+    uses: list[dict[str, Any]] = []
     runs: dict[str, dict[str, Any]] = {}
+    for alias, target in sorted(spec.use.items()):
+        used = read(target)
+        uses.append(
+            {
+                "alias": alias,
+                "spec": os.path.relpath(target, spec.path.parent),
+                "lock_sha256": sha256_file(path_for(target)),
+            }
+        )
+        for entry in used["run"]:
+            runs[entry["run"]] = entry
+    pipelines: list[dict[str, Any]] = []
     for name in sorted(spec.pipelines):
         out = analysis_root / name
         provenance = out / "provenance.json"
@@ -34,42 +69,31 @@ def collect(spec: Any, runs_root: Path, analysis_root: Path) -> dict[str, Any]:
         info = json.loads(provenance.read_text())
         if info.get("exit_code") != 0:
             continue
-        outputs = {
-            str(f.relative_to(out)): sha256_file(f)
-            for f in sorted(out.rglob("*"))
-            if f.is_file() and f.name != "provenance.json"
-        }
-        ids = []
-        for item in info["inputs"]:
-            directory = runs_root / item["app"] / item["run"]
-            manifest = json.loads((directory / "manifest.json").read_text())
-            ids.append(item["run"])
-            runs[item["run"]] = {
-                "app": item["app"],
-                "run": item["run"],
-                "input_id": manifest.get("input_id"),
-                "replicate": manifest.get("replicate"),
-                "manifest_sha256": item["manifest_sha256"],
-                "records_sha256": manifest.get("records_sha256"),
-                "closure": manifest.get("closure"),
-                "source": (manifest.get("source") or {}).get("origin"),
-                "machine": (manifest.get("machine") or {}).get("hostname"),
-            }
         pipelines.append(
             {
                 "name": name,
                 "fingerprint": info.get("fingerprint"),
                 "script_sha256": info.get("script_sha256"),
-                "outputs": outputs,
-                "runs": sorted(ids),
+                "outputs": {
+                    str(f.relative_to(out)): sha256_file(f)
+                    for f in sorted(out.rglob("*"))
+                    if f.is_file() and f.name != "provenance.json"
+                },
+                "runs": sorted({item["run"] for item in info["inputs"]}),
             }
         )
     return {
-        "version": VERSION,
+        "kind": "analysis",
         "app": spec.name,
+        "use": uses,
         "pipeline": pipelines,
         "run": sorted(runs.values(), key=lambda r: r["run"]),
     }
+
+
+def collect(spec: Any, runs_root: Path, analysis_root: Path) -> dict[str, Any]:
+    """Build the lock data from the store (an experiment's runs, or an analysis' uses and outputs)."""
+    return _analysis(spec, analysis_root) if spec.kind == "analysis" else _experiment(spec, runs_root)
 
 
 def _value(v: Any) -> str:
@@ -92,11 +116,11 @@ def _value(v: Any) -> str:
 def dumps(data: dict[str, Any]) -> str:
     lines = [
         "# Written by `nixsci lab lock` (and `build`). Commit it: it is the claim of which runs and",
-        "# outputs the results rest on. Hashes only; the data lives in the nix-lab store.",
-        f"version = {data['version']}",
+        "# outputs the results rest on. Hashes only; the data lives in the nixsci lab store.",
+        f"kind = {json.dumps(data['kind'])}",
         f"app = {json.dumps(data['app'])}",
     ]
-    for table in ("pipeline", "run"):
+    for table in TABLES:
         for entry in data[table]:
             lines += ["", f"[[{table}]]"]
             lines += [f"{k} = {_value(v)}" for k, v in entry.items() if v is not None]
@@ -112,10 +136,10 @@ def write(spec_path: Path, data: dict[str, Any]) -> Path:
 def read(spec_path: Path) -> dict[str, Any]:
     target = path_for(spec_path)
     if not target.is_file():
-        raise SystemExit(f"no lock file: {target} (run `nixsci lab build` or `nixsci lab lock` first)")
+        raise SystemExit(f"no lock file: {target} (run `nixsci lab build {spec_path}` first)")
     data = tomllib.loads(target.read_text())
-    if data.get("version") != VERSION:
-        raise SystemExit(f"{target}: unsupported lock version {data.get('version')!r}")
+    for table in TABLES:
+        data.setdefault(table, [])
     return data
 
 

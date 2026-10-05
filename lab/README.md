@@ -128,14 +128,16 @@ directory argument: `lab.Run(None, name, spec=...)`, `nixsci lab run`, `compact`
 default to it, and `nixsci lab ls` shows what is in it.
 
 ```sh
-nixsci lab build experiments/demo.toml    # run what is missing -> compact -> analyze -> lock
+nixsci lab build experiments/demo.toml            # experiment: run what is missing -> compact -> lock
+nixsci lab build experiments/demo-analysis.toml   # analysis: run its pipelines over the locked data -> lock
 ```
 
-`build` is the whole flow, and it is incremental: finished inputs are skipped, compacted runs are
-not rewritten, unchanged pipelines are not rerun. When the spec has pipelines it writes
-`experiments/demo.lab.lock` beside the spec. **Commit that file.** It lists, per pipeline, the
-output hashes and the exact runs the pipeline read (manifest and records hashes, closure, source,
-machine) -- a few KB of hashes, no data. It is the project's reproducibility claim.
+`build` is incremental: finished inputs are skipped, compacted runs are not rewritten, unchanged
+pipelines are not rerun. It writes `<spec>.lab.lock` beside the spec. **Commit that file.** An
+experiment's lock lists its finished runs (manifest and records hashes, closure, source, machine).
+An analysis' lock pins the experiment locks it uses by hash, lists their runs, and holds each
+pipeline's output hashes -- a few KB of hashes, no data. These locks are the project's
+reproducibility claim.
 
 ```sh
 nixsci lab check experiments/demo.toml                 # does this machine's store match the lock?
@@ -182,42 +184,57 @@ a shared cluster) is a random variable. What it guarantees is exact *provenance*
 
 ```sh
 nixsci lab compact runs --out data             # needs pyarrow (the nix-lab package has it)
-nixsci lab analyze experiments/demo.toml --runs runs --data data --out analysis
+nixsci lab analyze experiments/demo-analysis.toml --runs runs --data data --out analysis
 ```
 
 `compact` writes each finished run's declared datasets as typed Parquet,
 `data/<app>/<dataset>/<run id>.parquet`, with the declared columns plus `run`,
 `seed` and `time`. Runs that did not end `ok` are skipped.
 
-Analysis is R. Declare pipelines next to the data:
+Analysis is R, and it is a spec of its own: an analysis never measures and an experiment never
+aggregates. An analysis names under `[use]` the experiments it reads, and holds the pipelines:
 
 ```toml
+# experiments/demo-analysis.toml
+[analysis]
+name = "demo-curves"
+
+[use]
+demo = "demo.toml"           # alias = the experiment spec whose locked runs this reads
+
 [pipeline.curve]
 script = "demo.R"            # path relative to the spec
-inputs = ["demo"]            # apps it reads (default: this experiment)
-deps = ["helpers.R"]        # other files the script uses (hashed with it)
+deps = ["helpers.R"]         # other files the script uses (hashed with it)
 ```
 
-`analyze` runs the script with `Rscript` and these variables: `NIX_LAB_DATA`
-(the Parquet root), `NIX_LAB_RUNS` (raw runs), `NIX_LAB_OUT` (`<out>/<pipeline>/`).
-The `labr` R package reads them:
+An alias resolves through the experiment's `demo.lab.lock`: the analysis sees exactly the locked
+runs, never a replicate or a half-finished sweep that arrived later. `analyze` stops, before R
+starts, if the store does not hold what the lock names (`nixsci lab pull`, or `build` the
+experiment). It then builds a *view*, a directory of symlinks to just those runs' Parquet files, and
+runs the script with `NIX_LAB_VIEW` (the view) and `NIX_LAB_OUT` (`<out>/<pipeline>/`). No variable
+names the store. The `nixsci` R package reads the view and has no function that reads anything else:
 
 ```r
-library(dplyr); library(labr)
-loss <- lab_data("demo", "loss") |> collect()    # lazy Arrow dataset over all runs
-runs <- lab_manifests("demo")                    # one row per run, params as param.<name>
-write.csv(summary, lab_out("final.csv"))
+library(dplyr); library(nixsci)
+demo <- use("demo")             # an alias declared under [use]; any other name is an error
+loss <- demo$loss |> collect()  # lazy Arrow dataset over the locked runs only
+runs(demo)                      # one row per locked run; `params` is a list column
+params(demo)                    # run plus one column per parameter
+write.csv(summary, out("final.csv"))
 ```
 
-A pipeline whose last run succeeded is skipped (`up to date`) while its script, its `deps`
-files and its input runs (with their manifest hashes) are unchanged; `--force` reruns.
+A pipeline whose last run succeeded is skipped (`up to date`) while its script, its `deps` files
+and its locked input runs (with their manifest hashes) are unchanged; `--force` reruns.
 
-After each pipeline a `provenance.json` is written beside its outputs: the script
-and its hash, every input run with the hash of its manifest, the R version, the
-exit code. A figure or table can therefore say exactly which runs and which code
-produced it. For pinned R packages run inside the flake's R environment
-(`nix build .#r-env`, then `NIX_LAB_RSCRIPT=<out>/bin/Rscript`, or put it on
-`PATH`). `examples/demo.{toml,py,R}` is a complete worked example.
+After each pipeline a `provenance.json` is written beside its outputs: the script and its hash,
+every input run with the hash of its manifest, the experiment locks they came through, the R
+version, the exit code. A figure or table can therefore say exactly which runs and which code
+produced it. For pinned R packages run inside the flake's R environment (`nix build .#r-env`, then
+`NIX_LAB_RSCRIPT=<out>/bin/Rscript`, or put it on `PATH`). `examples/demo.{toml,py,R}` and
+`examples/demo-analysis.toml` are a complete worked example.
+
+"Declared" holds by construction, not by sandbox: a script that guesses an absolute path into the
+store can still read it.
 
 ## Recording from Rust
 
@@ -262,7 +279,7 @@ wrapper is a convenience, not a requirement.
 
 ## Status
 
-Verified on camarade with the demo experiment: `nixsci lab build` (run -> compact -> analyze -> lock)
+Verified on camarade with the demo experiment: `nixsci lab build` (experiment: run -> compact -> lock; analysis: pipelines -> lock)
 from an empty store, a second `build` that does nothing, `repro` and `verify` (rebuild from the
 locked git revision, run a replicate, compare 5 rows against 5), `push` to a directory and `pull`
 into an empty store ending in `store matches the lock`. 35 unit tests cover identity and
@@ -270,7 +287,7 @@ replicates, sealing and tamper detection, noisy-column comparison, the lock, and
 
 Not built yet: claim checks in `verify` (an analysis pipeline that fails when a claim fails is
 already one; `verify --claims` would run them on the replicates), export of a run as a Workflow
-Run RO-Crate, confidence-interval helpers in `labr` for replicates, garbage collection of the
+Run RO-Crate, confidence-interval helpers in the `nixsci` R package for replicates, garbage collection of the
 store, comparison of artifact (array) records, and recorders for R (not wanted). Migrating nerve's
 `data/` into runs is nerve's own task. The reasoning behind the design, with the literature, is in
 `DESIGN.md`.

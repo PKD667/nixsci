@@ -26,13 +26,13 @@ status.json            written by the wrapper when the program exits
 ## `records.jsonl`
 
 ```json
-{"v":1,"id":"4121-0","time":"2026-10-04T08:00:00.123456Z","name":"loss",
+{"id":"4121-0","time":"2026-10-04T08:00:00.123456Z","name":"loss",
  "kind":"value","data":0.25,"tags":{"epoch":3}}
-{"v":1,"id":"4121-1","time":"...","name":"weights","kind":"artifact",
+{"id":"4121-1","time":"...","name":"weights","kind":"artifact",
  "sha256":"…","bytes":4096,"media":"application/x-npy","tags":{}}
 ```
 
-* `v` is the format version; readers MUST ignore unknown fields.
+* Readers MUST ignore unknown fields.
 * `kind` is `value` (inline JSON in `data`) or `artifact` (blob in
   `artifacts/<sha256>`, hash is SHA-256 of the blob bytes).
 * `time` is UTC, ISO 8601, microseconds, `Z`.
@@ -58,7 +58,7 @@ One per run directory, `<runs root>/<app>/<run>/manifest.json`. `nixsci lab run`
 write it; `compact`, `analyze` and `lab.runs` read it. Readers MUST ignore unknown fields.
 
 ```json
-{"v": 1, "app": "demo", "run": "demo-20261005T061418Z-000-s0", "state": "ok",
+{"app": "demo", "run": "demo-20261005T061418Z-000-s0", "state": "ok",
  "seed": 0, "params": {"epsilon": 0.1},
  "schema": {"loss": {"epoch": "int", "value": "float"}}, "keys": {"loss": ["epoch"]},
  "started": "2026-10-05T06:14:18Z", "ended": "2026-10-05T06:14:20Z"}

@@ -1,8 +1,9 @@
-"""`nixsci lab build`: run what is missing, compact, analyse, lock. No directories to name.
+"""`nixsci lab build`: for an experiment, run what is missing, compact, lock; for an analysis,
+run its pipelines over the locked data it `use`s, lock. No directories to name.
 
 Every step is incremental, so building twice does nothing the second time: finished inputs are
-skipped (store.plan), compacted runs are not rewritten, and a pipeline whose script and input
-runs are unchanged is not rerun (analyze fingerprint).
+skipped (store.plan), compacted runs are not rewritten, and a pipeline whose script and locked
+input runs are unchanged is not rerun (analysis fingerprint).
 """
 
 from __future__ import annotations
@@ -18,34 +19,35 @@ from .spec import Spec
 
 
 def build(spec: Spec, *, again: bool = False, log: Callable[[str], None] = print) -> int:
-    from .analyze import analyze
-    from .compact import compact
-    from .runner import run
-
     runs_root, data_root = home.runs_dir(), home.data_dir()
     analysis_root = home.analysis_dir() / spec.name
     log(f"store: {home.store_root()}")
 
-    new = run(spec, runs_root, again=again, log=log)
-    failed = [m for m in new if m["state"] != "ok"]
-    for m in failed:
-        log(f"FAILED {m['run']} ({m['state']})")
-    if failed:
-        return 1
-    log(f"{len(new)} new run(s)" if new else "no new runs needed")
+    if spec.kind == "analysis":
+        from .analysis import analyze
 
-    if spec.data:
-        written = compact(runs_root, data_root)
-        log(f"compacted {len(written)} file(s)" if written else "data up to date")
-
-    if spec.pipelines:
         codes = analyze(spec, runs_root, data_root, analysis_root)
         for name, (code, skipped) in codes.items():
             log(f"pipeline {name}: " + ("up to date" if skipped else f"exit {code}"))
         if any(code for code, _ in codes.values()):
             return 1
-        written = lock.write(spec.path, lock.collect(spec, runs_root, analysis_root))
-        log(f"lock: {written}")
+    else:
+        from .compact import compact
+        from .runner import run
+
+        new = run(spec, runs_root, again=again, log=log)
+        failed = [m for m in new if m["state"] != "ok"]
+        for m in failed:
+            log(f"FAILED {m['run']} ({m['state']})")
+        if failed:
+            return 1
+        log(f"{len(new)} new run(s)" if new else "no new runs needed")
+        if spec.data:
+            written = compact(runs_root, data_root)
+            log(f"compacted {len(written)} file(s)" if written else "data up to date")
+
+    written = lock.write(spec.path, lock.collect(spec, runs_root, analysis_root))
+    log(f"lock: {written}")
     return 0
 
 
