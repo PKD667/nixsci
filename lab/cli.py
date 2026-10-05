@@ -43,7 +43,7 @@ def _listing(project: Path | None, app: str | None) -> None:
 def _copy(direction: str, remote: str, project: Path) -> int:
     paths = [e["path"] for entries in publish.read_lock(project).values() for e in entries]
     if not paths:
-        _err(f"{project / 'lab.lock.json'} lists no runs")
+        _err(f"{project / 'lab.lock'} lists no runs")
         return 1
     cmd = ["nix", "--extra-experimental-features", "nix-command", "copy", "--no-check-sigs", f"--{direction}", remote, *paths]
     return subprocess.run(cmd).returncode
@@ -104,7 +104,7 @@ def main(argv=None) -> int:
     p = sub.add_parser("plan", help="print the jobs a spec expands to")
     p.add_argument("--spec", required=True)
     sub.add_parser("ls", help="what the runs directory holds").add_argument("app", nargs="?")
-    sub.add_parser("add", help="add a finished run directory to the Nix store and lab.lock.json").add_argument("run")
+    sub.add_parser("add", help="add a finished run directory to the Nix store and lab.lock").add_argument("run")
     for name, text in (("push", "copy the locked runs to REMOTE"), ("pull", "copy the locked runs from REMOTE")):
         sub.add_parser(name, help=f"{text} (a Nix store URL, e.g. ssh-ng://host)").add_argument("remote")
     rp = sub.add_parser("repro", help="print everything needed to run a run's measurement again")
@@ -181,7 +181,7 @@ def main(argv=None) -> int:
     bad = [m for m in runs if m["state"] != "ok"]
     print(f"{len(runs) - len(bad)}/{len(runs)} new run(s) ok" if runs else "nothing to run: up to date")
     if runs:
-        print(f"commit {project / 'lab.lock.json'} to keep these runs")
+        print(f"commit {project / 'lab.lock'} to keep these runs")
     return 1 if bad else 0
 
 

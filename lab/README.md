@@ -8,7 +8,7 @@ The record side has no dependencies. Running on hosts uses [`nixsci.deploy`](../
 
 ```
 nix run .#demo            impure, Python: run the jobs, seal each run, add it to the Nix store,
-                          list it in lab.lock.json                      (commit that file)
+                          list it in lab.lock                      (commit that file)
 nix build .#demo-curves   pure, Nix: compact each run to Parquet, build a view of the runs the
                           lock names, run the R pipelines in the sandbox
 ```
@@ -36,7 +36,7 @@ let lab = nixsci.lib.lab { inherit pkgs; project = self; }; in {
 
 `closures` maps each system you deploy to a built experiment; `systems` (default: this machine's) names which of them to build. `resources.provider` is a name from `~/.config/nix-deploy/providers.toml`, and provider-specific settings go only under `resources.opts`. Unknown fields and a malformed name are evaluation errors.
 
-`nix run .#demo` resolves nothing at run time: Nix already built the closures. The executor leases hosts, spreads the jobs over them, waits, fetches each run's `lab/` directory, writes its `manifest.json` (state `ok`, `failed` or `incomplete`, seed, parameters, target, times, the flake's source identity and the closure path), adds the run directory to the Nix store and lists it in `lab.lock.json`. Flakes only see git-tracked files, so `git add lab.lock.json`.
+`nix run .#demo` resolves nothing at run time: Nix already built the closures. The executor leases hosts, spreads the jobs over them, waits, fetches each run's `lab/` directory, writes its `manifest.json` (state `ok`, `failed` or `incomplete`, seed, parameters, target, times, the flake's source identity and the closure path), adds the run directory to the Nix store and lists it in `lab.lock`. Flakes only see git-tracked files, so `git add lab.lock`.
 
 ## Recording (inside an experiment)
 
@@ -79,11 +79,11 @@ with lab.Run(None, lab.run_name("meas", seed=3), spec="result/demo-spec.json", s
     run.record("size", {"n": 1000, "seconds": 1.5})
 ```
 
-`root=None` means `<project>/.nixsci/runs`. Then `nixsci lab add <run directory>` adds the run to the Nix store and `lab.lock.json`, which makes it visible to analyses like any other run.
+`root=None` means `<project>/.nixsci/runs`. Then `nixsci lab add <run directory>` adds the run to the Nix store and `lab.lock`, which makes it visible to analyses like any other run.
 
 ## Where files live
 
-Runs are staged in `<project>/.nixsci/runs/<app>/<run>/`. A project is the nearest directory with a `.git`; the directory ignores itself in git, and `$NIXSCI_STORE` moves it. The runs that count are in the Nix store, named by `lab.lock.json`. Move them between machines with Nix:
+Runs are staged in `<project>/.nixsci/runs/<app>/<run>/`. A project is the nearest directory with a `.git`; the directory ignores itself in git, and `$NIXSCI_STORE` moves it. The runs that count are in the Nix store, named by `lab.lock`. Move them between machines with Nix:
 
 ```sh
 nixsci lab push ssh-ng://host      # nix copy the locked runs to a store

@@ -6,7 +6,7 @@
 #
 # An experiment is the one impure step: its `run` app starts the Python executor, which runs the
 # jobs on hosts, seals each finished run and adds it to the Nix store. The runs it produced are
-# listed in `lab.lock.json` next to the flake. Everything after that is pure: an analysis is built
+# listed in `lab.lock` next to the flake. Everything after that is pure: an analysis is built
 # from those run store paths in the sandbox, with no network, and sees only the data it `use`s.
 { pkgs, nixsci, python, rEnv, project }:
 let
@@ -17,14 +17,14 @@ let
       "${what} name ${builtins.toJSON n} must start with a letter and use letters, digits, '_', '.', '-'";
     n;
 
-  lockFile = project + "/lab.lock.json";
+  lockFile = project + "/lab.lock";
   locked = if builtins.pathExists lockFile then builtins.fromJSON (builtins.readFile lockFile) else { };
 
   # The runs of an experiment that its lock names, each checked by the hash of its contents.
   runsOf = exp:
     let entries = locked.${exp.name} or [ ];
     in assert lib.assertMsg (entries != [ ])
-      "experiment ${exp.name} has no locked runs: run it (nix run .#${exp.name}) and commit lab.lock.json";
+      "experiment ${exp.name} has no locked runs: run it (nix run .#${exp.name}) and commit lab.lock";
     map (r: { inherit (r) name; path = builtins.path { inherit (r) path sha256 name; }; }) entries;
 
   # One run as the Parquet tables it declared, plus its manifest row.

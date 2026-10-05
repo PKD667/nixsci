@@ -6,7 +6,7 @@ or the working directory upwards, that holds a `.git`, or else the directory of 
     <project>/.nixsci/runs/<app>/<run>/    sealed runs, as the executor and `lab.Run` write them
 
 The directory ignores itself in git. Every finished run is also added to the Nix store and listed in
-`<project>/lab.lock.json`, which the project commits; analyses are built from those store paths and
+`<project>/lab.lock`, which the project commits; analyses are built from those store paths and
 the bytes move between machines with `nixsci lab push|pull`. `$NIXSCI_STORE` puts the directory
 somewhere else.
 

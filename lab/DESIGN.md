@@ -61,7 +61,7 @@ HPC-focused survey: [arXiv:2402.07530](https://arxiv.org/pdf/2402.07530).
    - a **per-project store**, `<project>/.nixsci/` (override with `NIXSCI_STORE`); outputs are not
      shareable data, so they stay with their project; runs are write-once and addressed by `input_id`.
      Inputs (datasets and models) are the shared part and live in a separate store, per grid;
-   - **`lab.lock.json`** next to the flake, committed to git: the finished runs of each experiment, as
+   - **`lab.lock`** next to the flake, committed to git: the finished runs of each experiment, as
      Nix store paths with their hashes. Analyses are derivations over exactly those paths, so a
      result's provenance is its derivation graph, and the bytes are not in the repository;
    - **remotes** are Nix stores (`nixsci lab push|pull ssh-ng://host`, `nix copy`). Any machine can
