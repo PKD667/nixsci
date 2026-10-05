@@ -19,7 +19,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("provider")
     ap.add_argument("hosts", nargs="?", type=int, default=1)
-    ap.add_argument("--flake", default=str(Path(__file__).resolve().parents[1]))
+    ap.add_argument("--flake", default=str(Path(__file__).resolve().parents[2]))
     ap.add_argument("--walltime", type=int, default=20, help="minutes")
     ap.add_argument(
         "--opt", action="append", default=[], help="provider option, e.g. queue=besteffort"

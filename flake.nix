@@ -8,61 +8,45 @@
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAll = f: nixpkgs.lib.genAttrs systems (s: f nixpkgs.legacyPackages.${s});
 
-      # One python library (with its CLI) per distribution in this repository.
-      distributions = py: {
-        nixsci-deploy = py.buildPythonPackage {
-          pname = "nixsci-deploy";
+      # The python library, with both CLIs (nix-deploy, nix-lab).
+      library = py: {
+        nixsci = py.buildPythonPackage {
+          pname = "nixsci";
           version = "0.1.0";
-          src = ./deploy;
+          src = ./.;
           pyproject = true;
           build-system = [ py.setuptools ];
-          pythonImportsCheck = [ "nixsci.deploy" ];
-          meta.mainProgram = "nix-deploy";
-        };
-        nixsci-lab = py.buildPythonPackage {
-          pname = "nixsci-lab";
-          version = "0.1.0";
-          src = ./lab;
-          pyproject = true;
-          build-system = [ py.setuptools ];
-          dependencies = [ py.nixsci-deploy py.pyarrow ];
-          pythonImportsCheck = [ "nixsci.lab" ];
-          meta.mainProgram = "nix-lab";
+          dependencies = [ py.pyarrow ];
+          pythonImportsCheck = [ "nixsci.deploy" "nixsci.lab" ];
         };
       };
     in {
-      # `pkgs.python3.withPackages (p: [ p.nixsci-deploy ])` in any consumer that applies this.
+      # `pkgs.python3.withPackages (p: [ p.nixsci ])` in any consumer that applies this.
       overlays.default = final: prev: {
         pythonPackagesExtensions = prev.pythonPackagesExtensions ++ [
-          (pyfinal: pyprev: distributions pyfinal)
+          (pyfinal: pyprev: library pyfinal)
         ];
       };
 
       # Wrap a program so it becomes a nixsci experiment closure.
       #   mkExperiment pkgs { name = "x"; program = "${drv}/bin/x"; metadata = {...}; }
-      lib.mkExperiment = pkgs: import ./lab/nix/mk-experiment.nix { inherit pkgs; };
+      lib.mkExperiment = pkgs: import ./nix/mk-experiment.nix { inherit pkgs; };
 
       packages = forAll (pkgs:
-        let
-          pyl = pkgs.python3.override {
-            packageOverrides = pyfinal: pyprev: distributions pyfinal;
-          };
-          pp = pyl.pkgs;
-        in rec {
-          default = deploy;
-          deploy = pp.nixsci-deploy;
-          lab = pp.nixsci-lab;
+        let pp = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).pkgs; in rec {
+          default = nixsci;
+          nixsci = pp.nixsci;
           # `from nixsci import lab` with no dependencies: safe to put in any experiment closure.
           lab-py = pkgs.runCommand "nixsci-lab-py" { } ''
             site=$out/${pkgs.python3.sitePackages}/nixsci
             mkdir -p $site
-            cp -r ${./lab/src/nixsci/lab} $site/lab
+            cp -r ${./nixsci/lab} $site/lab
           '';
           # R package that reads collected runs and compacted datasets.
           labr = pkgs.rPackages.buildRPackage {
             pname = "labr";
             version = "0.1.0";
-            src = ./lab/r/labr;
+            src = ./r/labr;
             propagatedBuildInputs = with pkgs.rPackages; [ arrow jsonlite ];
           };
           # The pinned R used by `nix-lab analyze`: Rscript plus the analysis packages.
@@ -97,24 +81,24 @@
             mkdir $out
             echo '{"program": "${run}/bin/hello"}' > $out/experiment.json
           '';
-        # Typed loss rows, one curve per run (see lab/examples/demo.toml).
-        demo = (import ./lab/nix/mk-experiment.nix { inherit pkgs; }) {
+        # Typed loss rows, one curve per run (see examples/demo.toml).
+        demo = (import ./nix/mk-experiment.nix { inherit pkgs; }) {
           name = "demo";
           program = "${pkgs.python3}/bin/python";
-          args = [ "${./lab/examples/demo.py}" ];
+          args = [ "${./examples/demo.py}" ];
           env.PYTHONPATH = "${self.packages.${pkgs.system}.lab-py}/${pkgs.python3.sitePackages}";
         };
       });
 
       apps = forAll (pkgs: {
-        default = { type = "app"; program = "${self.packages.${pkgs.system}.deploy}/bin/nix-deploy"; };
-        lab = { type = "app"; program = "${self.packages.${pkgs.system}.lab}/bin/nix-lab"; };
+        default = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nix-deploy"; };
+        lab = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nix-lab"; };
       });
 
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
           packages = [ pkgs.python3 pkgs.python3Packages.pytest pkgs.python3Packages.pyarrow pkgs.git ];
-          shellHook = ''export PYTHONPATH="$PWD/deploy/src:$PWD/lab/src:$PYTHONPATH"'';
+          shellHook = ''export PYTHONPATH="$PWD:$PYTHONPATH"'';
         };
       });
     };
