@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     nix-deploy = {
-      url = "git+ssh://git@github.com/PKD667/nix-deploy";
+      url = "github:PKD667/nix-deploy";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

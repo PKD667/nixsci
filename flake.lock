@@ -1,0 +1,48 @@
+{
+  "nodes": {
+    "nix-deploy": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1791165285,
+        "narHash": "sha256-hqNUT2Us4eJ5JryZYbpOmaQu5WQ9HPk+8N8hvNCOimk=",
+        "ref": "refs/heads/main",
+        "rev": "de653128302c0174f7f0a9aed81eede46fd86b80",
+        "revCount": 11,
+        "type": "git",
+        "url": "ssh://git@github.com/PKD667/nix-deploy"
+      },
+      "original": {
+        "type": "git",
+        "url": "ssh://git@github.com/PKD667/nix-deploy"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1791048980,
+        "narHash": "sha256-KgItSKML8Xvte0B7/uGnBDsYzSnnKHcOaiUbgWBXLXw=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "a7868a727837f3c09cee2ce0ca671c76b1589fed",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nix-deploy": "nix-deploy",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
