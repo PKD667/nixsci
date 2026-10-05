@@ -284,6 +284,9 @@ class Backend:
         input_env, input_json = self._stage_inputs(workdir, records)
         values.update(input_env)
         values["NIX_DEPLOY_WORKDIR"] = workdir
+        # A closure is immutable: bytecode written into the store changes its hash, and the next
+        # verification of that closure fails.
+        values.setdefault("PYTHONDONTWRITEBYTECODE", "1")
         values.setdefault("PATH", HOST_PATH)
         home = self.home()
         if home:
