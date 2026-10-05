@@ -205,9 +205,19 @@ Verified end to end:
 - Persistent leases through the CLI (`lease acquire`, `--lease NAME run/status/fetch`,
   `lease release`), provider option validation, `put` on the native backend.
 
-Not yet verified on real machines: multi-host `group.launch` (node-to-node ssh
-and `NIX_DEPLOY_RSH` between g5k nodes), `tunnel` to a second host, `put` over ssh.
-Treat failures there as bugs to report.
+Also verified on two real Lille nodes: `group.launch` stages the closure on both and
+starts the program on the first; from there the program reached the second node with
+`$NIX_DEPLOY_RSH` and ran a command inside that node's store view with
+`$NIX_DEPLOY_ENTER`. The hostfile reached the job through the ssh backend's `put` path.
+
+Not verified on real machines: `tunnel(handle, port, host=NODE)` to a second host
+(it is a plain `ssh -L`).
+
+Two things learned on real nodes: OAR reports `Running` before every node accepts the
+user's key, so the `oar` provider waits until each node accepts ssh before returning
+the lease (`ready_timeout`, default 180 s); and inside a rootless store the program runs
+in a user namespace where root-owned `/etc` files look owned by `nobody`, so ssh refuses
+the system config, which is why the default `NIX_DEPLOY_RSH` is `ssh -F /dev/null ...`.
 
 Limits to know: the ssh backend needs unprivileged user namespaces on the target
 (`nix --store` with a local root; present on Grid'5000 nodes); a bare static Nix
