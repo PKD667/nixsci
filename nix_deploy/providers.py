@@ -144,6 +144,18 @@ def _ssh(argv: list[str], command: str, check: bool = True) -> str:
     return result.stdout
 
 
+def _wait_reachable(argv: list[str], within: float, poll: float) -> None:
+    """OAR reports `Running` before every node accepts the user's key; wait for ssh itself."""
+    deadline = time.monotonic() + within
+    while True:
+        result = subprocess.run([*argv, "true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if result.returncode == 0:
+            return
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"{argv[-1]} did not accept ssh within {within:.0f}s")
+        time.sleep(poll)
+
+
 class OAR:
     """Reserve nodes on an OAR cluster (Grid'5000) over plain ssh and your own keys.
 
@@ -163,6 +175,7 @@ class OAR:
             "besteffort": False,
             "poll": 2,
             "timeout": 3600,
+            "ready_timeout": 180,
             **check_opts(
                 "oar",
                 opts,
@@ -178,6 +191,7 @@ class OAR:
                     "run_root",
                     "remote_bootstrap",
                     "ssh_options",
+                    "ready_timeout",
                 },
             ),
         }
@@ -231,6 +245,12 @@ class OAR:
             nodes = sorted(set(names.group(1).strip().split("+"))) if names else []
             if not nodes or not all(_NAME.fullmatch(n) for n in nodes):
                 raise RuntimeError(f"OAR job {job} has no usable assigned hosts: {nodes!r}")
+            for node in nodes:
+                _wait_reachable(
+                    ["ssh", "-o", "BatchMode=yes", *jump, f"{login}@{node}"],
+                    float(c["ready_timeout"]),
+                    float(c["poll"]),
+                )
         except BaseException:
             release()
             raise

@@ -19,8 +19,12 @@ class OarProvider(unittest.TestCase):
             "bootstrap_sha256": "0" * 64,
             "poll": 0,
         }
-        with mock.patch.object(providers, "_ssh", fake):
+        waited = []
+        with mock.patch.object(providers, "_ssh", fake), mock.patch.object(
+            providers, "_wait_reachable", lambda argv, within, poll: waited.append(argv[-1])
+        ):
             lease = providers.OAR().acquire(providers.Resources(hosts=2), opts)
+        self.waited = waited
         return lease, calls
 
     def test_lease_state_survives_waiting_and_release_deletes_the_job(self):
@@ -33,6 +37,7 @@ class OarProvider(unittest.TestCase):
         )
         self.assertEqual(lease.state["job"], "42")
         self.assertEqual(lease.hosts, ["a", "b"])
+        self.assertEqual(self.waited, ["u@a", "u@b"])
         with mock.patch.object(
             providers, "_ssh", lambda argv, cmd, check=True: calls.append(cmd) or ""
         ):
