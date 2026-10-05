@@ -55,7 +55,10 @@ def run(
         closures: dict[str, Any] = {}
         for system in {c["system"] for c in configs.values() if "system" in c}:
             log(f"resolving {spec.flake}#{spec.attr} for {system}")
-            closures[system] = resolver.resolve(spec.flake, spec.attr, system)
+            # a *.lab.lock in the repository is this tool's output, not part of the code
+            closures[system] = resolver.resolve(
+                spec.flake, spec.attr, system, ignore=("*.lab.lock",)
+            )
 
         def assign(job):
             name = names[job.index % len(names)]
