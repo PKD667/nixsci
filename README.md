@@ -262,10 +262,15 @@ wrapper is a convenience, not a requirement.
 
 ## Status
 
-Verified (on camarade): typed record validation, spec loading with `[data]` and
-`[pipeline]`, the runner over nix-deploy's local provider with two hosts (4 jobs,
-all `ok`), compaction to Parquet, and the R pipeline with provenance, using the
-pinned `r-env` and `labr`. Unit tests: `tests/test_lab.py`.
+Verified on camarade with the demo experiment: `nix-lab build` (run -> compact -> analyze -> lock)
+from an empty store, a second `build` that does nothing, `repro` and `verify` (rebuild from the
+locked git revision, run a replicate, compare 5 rows against 5), `push` to a directory and `pull`
+into an empty store ending in `store matches the lock`. 37 unit tests cover identity and
+replicates, sealing and tamper detection, noisy-column comparison, the lock, and push/pull.
 
-Not built yet: an R recorder (not wanted); migrating nerve's `data/` into runs (nerve's own
-task, using this as its record format); declaring the Rust crate as a Nix package.
+Not built yet: claim checks in `verify` (an analysis pipeline that fails when a claim fails is
+already one; `verify --claims` would run them on the replicates), export of a run as a Workflow
+Run RO-Crate, confidence-interval helpers in `labr` for replicates, garbage collection of the
+store, comparison of artifact (array) records, and recorders for R (not wanted). Migrating nerve's
+`data/` into runs is nerve's own task. The reasoning behind the design, with the literature, is in
+`DESIGN.md`.
