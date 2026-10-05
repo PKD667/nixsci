@@ -152,6 +152,9 @@ class Native(Backend):
     def remove(self, handle):
         shutil.rmtree(self._path(str(handle["workdir"])))
 
+    def home(self):
+        return os.environ.get("HOME") or str(Path.home())
+
     def enter(self, closure):
         return nix.command(
             self.nix, self._target_store(), "shell", "--offline", closure.path, "--command"

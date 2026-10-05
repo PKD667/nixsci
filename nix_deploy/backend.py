@@ -212,6 +212,10 @@ class Backend:
     def stage(self, closure: Closure) -> dict[str, Any]:
         raise NotImplementedError
 
+    def home(self) -> str | None:
+        """The target user's home directory when this side knows it (jobs run with a clean env)."""
+        return None
+
     def enter(self, closure: Closure) -> list[str] | None:
         """Command prefix that runs a program inside this target's store view."""
         return None
@@ -257,6 +261,9 @@ class Backend:
         values.update(input_env)
         values["NIX_DEPLOY_WORKDIR"] = workdir
         values.setdefault("PATH", HOST_PATH)
+        home = self.home()
+        if home:
+            values.setdefault("HOME", home)
         enter = self.enter(closure)
         if enter:
             values["NIX_DEPLOY_ENTER"] = " ".join(shlex.quote(part) for part in enter)

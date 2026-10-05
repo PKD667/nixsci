@@ -237,6 +237,7 @@ class SSH(Backend):
             + "\ncd "
             + shlex.quote(workdir)
             + "\nexec env -i "
+            + ("" if "HOME=" in exports else 'HOME="$HOME" ')
             + exports
             + " "
             + shlex.join(command)

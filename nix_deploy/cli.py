@@ -93,14 +93,13 @@ def main(argv=None):
             argv=tuple(args.arg),
             program=args.program,
             env=dict(item.split("=", 1) for item in args.env),
+            inputs=dict(item.split("=", 1) for item in args.input),
         )
         if len(backends) > 1:
             handle = group.launch(backends, hosts, closure, **kwargs)
         else:
             transport.stage(closure)
-            handle = transport.launch(
-                closure, inputs=dict(item.split("=", 1) for item in args.input), **kwargs
-            )
+            handle = transport.launch(closure, **kwargs)
         write(args.handle, {"target": names[0], **handle})
         print(json.dumps(handle, sort_keys=True))
         return 0

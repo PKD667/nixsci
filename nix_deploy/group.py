@@ -29,6 +29,7 @@ def launch(
     argv: tuple[str, ...] = (),
     env: Mapping[str, str] | None = None,
     program: str = "run",
+    inputs: Mapping[str, Any] | None = None,
     rsh: str = DEFAULT_RSH,
 ) -> dict[str, Any]:
     if not backends or len(backends) != len(hosts):
@@ -43,7 +44,7 @@ def launch(
         argv=argv,
         env=values,
         program=program,
-        inputs={"hostfile": ("\n".join(hosts) + "\n").encode()},
+        inputs={**(inputs or {}), "hostfile": ("\n".join(hosts) + "\n").encode()},
     )
     handle["hosts"] = list(hosts)
     return handle

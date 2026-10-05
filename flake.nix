@@ -29,6 +29,7 @@
             runtimeInputs = [ pkgs.coreutils pkgs.hostname ];
             text = ''
             echo "hello from $(hostname) arch=$(uname -m) workdir=$NIX_DEPLOY_WORKDIR"
+            echo "home: ''${HOME:-unset}"
             echo "enter: ''${NIX_DEPLOY_ENTER:-unset}"
             echo "hosts: ''${NIX_DEPLOY_HOSTFILE:+$(tr '\n' ' ' < "$NIX_DEPLOY_HOSTFILE")}"
           '';
