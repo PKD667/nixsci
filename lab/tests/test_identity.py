@@ -5,10 +5,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import lab
-from lab import schema
-from nix_lab import spec as spec_mod
-from nix_lab import store, verify
+from nixsci import lab
+from nixsci.lab import schema
+from nixsci.lab import spec as spec_mod
+from nixsci.lab import store, verify
 
 SPEC = textwrap.dedent("""
     [experiment]
@@ -102,7 +102,7 @@ class Sealing(Fixture):
             import pyarrow  # noqa: F401
         except ImportError:
             self.skipTest("pyarrow not installed")
-        from nix_lab.compact import compact
+        from nixsci.lab.compact import compact
 
         d = self.make_run("r", [{"n": 1, "seconds": 1.0, "note": "a"}])
         compact(self.runs, self.root / "data")
@@ -116,7 +116,7 @@ class Sealing(Fixture):
             import pyarrow  # noqa: F401
         except ImportError:
             self.skipTest("pyarrow not installed")
-        from nix_lab.compact import compact
+        from nixsci.lab.compact import compact
 
         self.make_run("r", [{"n": 1, "seconds": 1.0, "note": "a"}])
         self.assertEqual(len(compact(self.runs, self.root / "data")), 1)

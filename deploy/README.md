@@ -161,7 +161,7 @@ ssh_options = ["-o", "ProxyJump=user@jump"]
 ## Python API
 
 ```python
-from nix_deploy import providers, factory, resolver, group, leases
+from nixsci.deploy import providers, factory, resolver, group, leases
 
 lease = providers.acquire("lab", {"walltime": 240}, {"hosts": "n1,n2"})   # or leases.load("warm")
 configs = {f"t{i}": c for i, c in enumerate(lease.targets)}
@@ -194,9 +194,9 @@ Both are plain classes found through Python entry points, so site-specific code
 lives in its own package and nix-deploy never names it:
 
 ```toml
-[project.entry-points."nix_deploy.providers"]
+[project.entry-points."nixsci.deploy.providers"]
 my-site = "my_site.provider:Provider"
-[project.entry-points."nix_deploy.backends"]
+[project.entry-points."nixsci.deploy.backends"]
 my-backend = "my_site.backend:Backend"
 ```
 
@@ -204,8 +204,8 @@ A provider has `acquire(resources, opts) -> Lease` and `release(state)`; the
 `Lease` carries `targets` (backend configs, one per host), `hosts` (names
 reachable from inside the allocation) and a JSON-able `state` that `release`
 needs, so a lease can be released from another process. A backend takes its
-config dict and implements the methods above. See `nix_deploy/providers.py`
-(`Local`, `Static`) and `nix_deploy/ssh.py`.
+config dict and implements the methods above. See `nixsci.deploy/providers.py`
+(`Local`, `Static`) and `nixsci.deploy/ssh.py`.
 
 ## Testing
 

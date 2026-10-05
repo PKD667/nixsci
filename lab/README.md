@@ -12,7 +12,7 @@ The record side has no dependencies. Running experiments remotely uses
 ## Recording (inside an experiment)
 
 ```python
-import lab
+from nixsci import lab
 
 lab.record("loss", 0.25, epoch=3)         # JSON-like value, stored inline
 lab.record("weights", numpy_array)        # arrays, bytes and paths become content-addressed artifacts
@@ -30,7 +30,7 @@ else in the system changes.
 Reading back:
 
 ```python
-import lab
+from nixsci import lab
 rows = lab.load("runs/blocks/blocks-20261005T...-000-s0")      # records of one run
 lab.artifact(run_dir, rows[3])                                 # bytes of an artifact record
 lab.runs("runs", app="blocks", seed=1, params__epsilon=0.3)    # find run directories by manifest fields
@@ -108,7 +108,7 @@ declared datasets and keys to `lab.record`, and writes `manifest.json` when the 
 (`ok`, or `failed` if it raised), so `compact` and `analyze` treat it like any other run:
 
 ```python
-import lab
+from nixsci import lab
 
 with lab.Run("runs", lab.run_name("meas", seed=3), spec="measure.toml", seed=3,
              params={"workers": 62}) as run:

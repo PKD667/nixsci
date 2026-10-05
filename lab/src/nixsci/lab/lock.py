@@ -13,7 +13,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from lab.run import sha256_file
+from nixsci.lab.run import sha256_file
 
 VERSION = 1
 

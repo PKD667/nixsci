@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from nix_deploy import nix
+from nixsci.deploy import nix
 
 
 class SourceIdentity(unittest.TestCase):

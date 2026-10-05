@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lab import schema
+from nixsci.lab import schema
 
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 _KNOWN = {"experiment", "params", "sweep", "resources", "outputs", "data", "pipeline"}

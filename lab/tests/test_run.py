@@ -5,7 +5,7 @@ import textwrap
 import unittest
 from pathlib import Path
 
-import lab
+from nixsci import lab
 
 SPEC = textwrap.dedent("""
     [experiment]
@@ -73,7 +73,7 @@ class ManualRun(unittest.TestCase):
             import pyarrow.parquet as pq
         except ImportError:
             self.skipTest("pyarrow not installed")
-        from nix_lab.compact import compact
+        from nixsci.lab.compact import compact
 
         with lab.Run(self.root / "runs", "r", spec=self.spec, seed=5) as run:
             run.record("size", {"n": 1, "seconds": 2.5})

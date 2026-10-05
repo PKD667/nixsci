@@ -14,7 +14,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import lab
+from nixsci import lab
 
 from . import spec as spec_mod
 

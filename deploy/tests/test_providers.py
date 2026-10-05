@@ -5,8 +5,8 @@ import tempfile
 import unittest
 import unittest.mock
 
-from nix_deploy import group, providers
-from nix_deploy.ssh import SSH
+from nixsci.deploy import group, providers
+from nixsci.deploy.ssh import SSH
 
 
 def bootstrap():
@@ -24,7 +24,7 @@ class Options(unittest.TestCase):
         with self.assertRaises(ValueError):
             providers.Local().acquire(providers.Resources(), {"site": "lille"})
 
-    def test_there_is_no_scheduler_in_nix_deploy(self):
+    def test_there_is_no_scheduler_in_nixsci_deploy(self):
         self.assertEqual(sorted(providers._BUILTIN), ["local", "static"])
 
 
@@ -116,7 +116,7 @@ class BootstrapIsAFlakeReference(unittest.TestCase):
 
     def test_a_rootless_target_needs_no_binary_or_hash_in_its_config(self):
         path, digest, calls, resolve = self.fake_nix()
-        with unittest.mock.patch("nix_deploy.backend.resolve_bootstrap", resolve):
+        with unittest.mock.patch("nixsci.deploy.backend.resolve_bootstrap", resolve):
             b = SSH(
                 host="me@a",
                 system="x86_64-linux",
@@ -129,7 +129,7 @@ class BootstrapIsAFlakeReference(unittest.TestCase):
 
     def test_a_wrong_pinned_hash_for_a_reference_is_refused(self):
         _, _, _, resolve = self.fake_nix()
-        with unittest.mock.patch("nix_deploy.backend.resolve_bootstrap", resolve):
+        with unittest.mock.patch("nixsci.deploy.backend.resolve_bootstrap", resolve):
             with self.assertRaises(ValueError):
                 SSH(
                     host="me@a",

@@ -1,6 +1,6 @@
 """lab.record(...): write experimental data where nix-lab will collect it.
 
-import lab
+from nixsci import lab
 lab.record("loss", 0.25, epoch=3)
 lab.record("weights", numpy_array)        # stored as an artifact
 lab.params()                              # this run's parameters

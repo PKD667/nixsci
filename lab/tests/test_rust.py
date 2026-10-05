@@ -10,8 +10,8 @@ import subprocess
 import tempfile
 import unittest
 
-import lab
-from lab import schema
+from nixsci import lab
+from nixsci.lab import schema
 
 COLUMNS = {"loss": {"epoch": "int", "split": "str", "value": "float"}}
 EMIT = os.environ.get("NIX_LAB_RUST_EMIT")

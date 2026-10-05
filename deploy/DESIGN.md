@@ -1,4 +1,4 @@
-# `nix_deploy`
+# `nixsci.deploy`
 
 The invariant is an executable immutable flake-derived closure with explicit
 private inputs. Placement changes the target and transport, never the
@@ -61,7 +61,7 @@ backgrounded after authentication while the remote script remains foreground;
 there is no detached `cd && background` command whose inherited channel can
 block the launch.
 
-The public interface is `python -m nix_deploy` (the `run`, `status`, `stop`,
+The public interface is `python -m nixsci.deploy` (the `run`, `status`, `stop`,
 and `fetch` commands). Handles are JSON, mode 600, and contain enough
 closure/source/input identity to replay a lifecycle operation. There is no
 resident deployment service.

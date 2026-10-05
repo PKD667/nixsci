@@ -11,7 +11,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Callable
 
-from lab import home
+from nixsci.lab import home
 
 from . import lock
 from .spec import Spec

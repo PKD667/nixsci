@@ -1,4 +1,4 @@
-"""Backend selection. Built-ins plus anything installed under `nix_deploy.backends`."""
+"""Backend selection. Built-ins plus anything installed under `nixsci.deploy.backends`."""
 
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -39,7 +39,7 @@ def backend(name, configs):
         from .modal import Modal
 
         return Modal(config)
-    for ep in entry_points(group="nix_deploy.backends"):
+    for ep in entry_points(group="nixsci.deploy.backends"):
         if ep.name == kind:
             return ep.load()(config)
     raise ValueError(f"target {name!r}: unknown backend {kind!r}")

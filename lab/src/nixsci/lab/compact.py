@@ -12,9 +12,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from lab import load
-from lab.run import sha256_file
-from lab.schema import parse
+from nixsci.lab import load
+from nixsci.lab.run import sha256_file
+from nixsci.lab.schema import parse
 
 ARROW = {"int": "int64", "float": "float64", "str": "string", "bool": "bool_"}
 

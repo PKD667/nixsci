@@ -6,10 +6,10 @@ import tomllib
 import unittest
 from pathlib import Path
 
-import lab
-from lab import home
-from lab.run import sha256_file
-from nix_lab import lock, spec as spec_mod, sync
+from nixsci import lab
+from nixsci.lab import home
+from nixsci.lab.run import sha256_file
+from nixsci.lab import lock, spec as spec_mod, sync
 
 SPEC = textwrap.dedent("""
     [experiment]

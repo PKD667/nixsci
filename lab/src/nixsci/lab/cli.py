@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from lab import home
+from nixsci.lab import home
 
 from . import spec as spec_mod
 

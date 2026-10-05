@@ -7,10 +7,10 @@ import textwrap
 import unittest
 from pathlib import Path
 
-import lab
-from lab import schema
-from nix_lab import spec as spec_mod
-from nix_lab.analyze import analyze
+from nixsci import lab
+from nixsci.lab import schema
+from nixsci.lab import spec as spec_mod
+from nixsci.lab.analyze import analyze
 
 COLUMNS = {"loss": {"epoch": "int", "split": "str", "value": "float"}}
 

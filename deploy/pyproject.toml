@@ -1,5 +1,5 @@
 [project]
-name = "nix-deploy"
+name = "nixsci-deploy"
 version = "0.1.0"
 description = "Flake-derived compute execution and infrastructure transport"
 requires-python = ">=3.11"
@@ -9,11 +9,12 @@ dependencies = []
 modal = ["modal"]
 
 [project.scripts]
-nix-deploy = "nix_deploy.cli:main"
+nix-deploy = "nixsci.deploy.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["nix_deploy"]
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["nixsci.deploy*"]

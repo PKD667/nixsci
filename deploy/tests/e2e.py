@@ -12,7 +12,7 @@ import sys
 import time
 from pathlib import Path
 
-from nix_deploy import factory, group, providers, resolver
+from nixsci.deploy import factory, group, providers, resolver
 
 
 def main() -> int:

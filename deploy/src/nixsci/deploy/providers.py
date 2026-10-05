@@ -10,7 +10,7 @@ ever say `provider = "g5k"`:
     jump = "me@gateway"
     user = "me"
     # or, on a server with a shared-credential helper:
-    # use = "site-helper"  # any provider installed under `nix_deploy.providers`
+    # use = "site-helper"  # any provider installed under `nixsci.deploy.providers`
 """
 
 from __future__ import annotations
@@ -220,10 +220,10 @@ def get(name: str, config_path: str | Path | None = None) -> tuple[Provider, dic
     use = options.pop("use", name)
     if use in _BUILTIN:
         return _BUILTIN[use](), options
-    for ep in entry_points(group="nix_deploy.providers"):
+    for ep in entry_points(group="nixsci.deploy.providers"):
         if ep.name == use:
             return ep.load()(), options
-    available = sorted({*_BUILTIN, *(e.name for e in entry_points(group="nix_deploy.providers"))})
+    available = sorted({*_BUILTIN, *(e.name for e in entry_points(group="nixsci.deploy.providers"))})
     raise KeyError(f"provider {use!r} (for {name!r}) not found; available: {available}")
 
 

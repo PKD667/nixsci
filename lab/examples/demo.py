@@ -2,7 +2,7 @@
 
 import random
 
-import lab
+from nixsci import lab
 
 rng = random.Random(lab.seed() or 0)
 epsilon = lab.params().get("epsilon", 0.1)

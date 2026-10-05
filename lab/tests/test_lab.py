@@ -5,9 +5,9 @@ import textwrap
 import unittest
 from pathlib import Path
 
-import lab
-from lab import schema
-from nix_lab import spec as spec_mod
+from nixsci import lab
+from nixsci.lab import schema
+from nixsci.lab import spec as spec_mod
 
 SCHEMA = {"loss": {"epoch": "int", "value": "float", "split": "str?"}}
 
@@ -74,7 +74,7 @@ class Compact(unittest.TestCase):
             import pyarrow.parquet as pq
         except ImportError:
             self.skipTest("pyarrow not installed")
-        from nix_lab.compact import compact
+        from nixsci.lab.compact import compact
 
         root = Path(tempfile.mkdtemp())
         for i, seed in enumerate((0, 1)):
