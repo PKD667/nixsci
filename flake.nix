@@ -24,11 +24,15 @@
       experiments = nixpkgs.lib.genAttrs systems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          run = pkgs.writeShellScriptBin "hello" ''
+          run = pkgs.writeShellApplication {
+            name = "hello";
+            runtimeInputs = [ pkgs.coreutils pkgs.hostname ];
+            text = ''
             echo "hello from $(hostname) arch=$(uname -m) workdir=$NIX_DEPLOY_WORKDIR"
             echo "enter: ''${NIX_DEPLOY_ENTER:-unset}"
-            echo "hosts: ''${NIX_DEPLOY_HOSTFILE:+$(cat "$NIX_DEPLOY_HOSTFILE" | tr '\n' ' ')}"
+            echo "hosts: ''${NIX_DEPLOY_HOSTFILE:+$(tr '\n' ' ' < "$NIX_DEPLOY_HOSTFILE")}"
           '';
+          };
         in {
           hello = pkgs.runCommand "hello-experiment" { } ''
             mkdir $out

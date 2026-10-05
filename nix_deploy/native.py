@@ -7,7 +7,7 @@ from .backend import Backend
 from .model import Closure
 class Native(Backend):
     def __init__(self, *, system: str, store: str = "/nix/store", run_root: str, nix_executable: str = "nix", rootless: bool = False, bootstrap: str | None = None, bootstrap_sha256: str | None = None, driver: str | None = None, profiles: tuple[str, ...] = ()):
-        super().__init__(system=system, store=store, run_root=run_root, nix=nix_executable, rootless=rootless, bootstrap=bootstrap, bootstrap_sha256=bootstrap_sha256, driver=driver, profiles=profiles); Path(run_root).mkdir(parents=True, exist_ok=True)
+        super().__init__(system=system, store=store, run_root=run_root, nix=nix_executable, rootless=rootless, bootstrap=bootstrap, bootstrap_sha256=bootstrap_sha256, driver=driver, profiles=profiles); Path(run_root).mkdir(parents=True, exist_ok=True); self.nix = shutil.which(self.nix) or self.nix
     def stage(self, closure: Closure) -> dict[str, Any]:
         self._admit(closure)
         if self.rootless: nix.copy_to(self.nix, self.store, closure.path)

@@ -4,6 +4,8 @@ import hashlib, json, os, re, shlex, subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 from .model import Closure
+#: Host tools (ssh, oarsh, ip) a job may call; closures bring everything else themselves.
+HOST_PATH = "/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin"
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 _RUN = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 def normalize_manifest(value: Mapping[str, Any], paths: Mapping[str, str]) -> dict[str, Any]:
@@ -103,6 +105,7 @@ class Backend:
         if env is not None: values.update(env)
         if any(not isinstance(k, str) or not k or "\x00" in k or not isinstance(v, str) or "\x00" in v for k, v in values.items()): raise ValueError("environment names and values must be NUL-free strings")
         input_env, input_json = self._stage_inputs(workdir, records); values.update(input_env); values["NIX_DEPLOY_WORKDIR"] = workdir
+        values.setdefault("PATH", HOST_PATH)
         enter = self.enter(closure)
         if enter: values["NIX_DEPLOY_ENTER"] = " ".join(shlex.quote(part) for part in enter)
         self._write_json(workdir, "inputs.json", input_json)
