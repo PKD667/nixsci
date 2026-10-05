@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from lab import load
+from lab.run import sha256_file
 from lab.schema import parse
 
 ARROW = {"int": "int64", "float": "float64", "str": "string", "bool": "bool_"}
@@ -23,7 +24,14 @@ def _manifests(runs_root: Path):
         yield path.parent, json.loads(path.read_text())
 
 
-def compact(runs_root: str | Path, out: str | Path) -> list[Path]:
+def _records(directory: Path) -> Path | None:
+    for base in (directory, directory / "lab"):
+        if (base / "records.jsonl").is_file():
+            return base / "records.jsonl"
+    return None
+
+
+def compact(runs_root: str | Path, out: str | Path, *, force: bool = False) -> list[Path]:
     """Write every finished run's declared datasets under `out`; returns the files written."""
     try:
         import pyarrow as pa
@@ -35,8 +43,23 @@ def compact(runs_root: str | Path, out: str | Path) -> list[Path]:
     for directory, manifest in _manifests(runs_root):
         if manifest.get("state") != "ok":
             continue
+        records = _records(directory)
+        expected = manifest.get("records_sha256")
+        if expected and records is not None and sha256_file(records) != expected:
+            raise ValueError(
+                f"run {manifest['run']}: records.jsonl does not match the hash sealed in its "
+                "manifest (the data changed after the run)"
+            )
         for dataset, columns in (manifest.get("schema") or {}).items():
             parsed = parse(dataset, columns)
+            target = out / manifest["app"] / dataset / f"{manifest['run']}.parquet"
+            if (
+                not force
+                and target.exists()
+                and records is not None
+                and target.stat().st_mtime >= records.stat().st_mtime
+            ):
+                continue
             rows = load(directory, dataset)
             key = (manifest.get("keys") or {}).get(dataset)
             if key:
@@ -62,7 +85,6 @@ def compact(runs_root: str | Path, out: str | Path) -> list[Path]:
                 data["time"].append(row["time"])
                 for column in parsed:
                     data[column].append(row["data"][column])
-            target = out / manifest["app"] / dataset / f"{manifest['run']}.parquet"
             target.parent.mkdir(parents=True, exist_ok=True)
             pq.write_table(pa.table(data, schema=schema), target)
             written.append(target)

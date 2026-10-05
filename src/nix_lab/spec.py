@@ -35,6 +35,8 @@ class Spec:
     path: Path
     data: dict[str, dict[str, str]] = field(default_factory=dict)
     keys: dict[str, list[str]] = field(default_factory=dict)
+    tolerance: dict[str, dict[str, float]] = field(default_factory=dict)
+    replicates: int = 1
     pipelines: dict[str, dict[str, Any]] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -75,6 +77,10 @@ def load(path: str | Path) -> Spec:
     if flake.startswith((".", "/")):
         flake = str((path.parent / flake).resolve())
     data, keys = schema.declared(raw.get("data", {}))
+    tolerance = schema.tolerances(raw.get("data", {}))
+    replicates = exp.get("replicates", 1)
+    if isinstance(replicates, bool) or not isinstance(replicates, int) or replicates < 1:
+        raise ValueError(f"{path}: experiment.replicates must be an integer >= 1")
     pipelines = {}
     for pname, body in raw.get("pipeline", {}).items():
         if not _NAME.fullmatch(pname) or not isinstance(body.get("script"), str):
@@ -96,5 +102,7 @@ def load(path: str | Path) -> Spec:
         path=path,
         data=data,
         keys=keys,
+        tolerance=tolerance,
+        replicates=replicates,
         pipelines=pipelines,
     )

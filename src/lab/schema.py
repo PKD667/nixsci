@@ -65,6 +65,34 @@ def declared(tables: Mapping[str, Any]) -> tuple[dict[str, dict[str, str]], dict
     return columns, keys
 
 
+def tolerances(tables: Mapping[str, Any]) -> dict[str, dict[str, float]]:
+    """`[data.x] noisy = { col = relative_tolerance }` -> {dataset: {column: tolerance}}.
+
+    A noisy column is numeric and not part of the key; every other column is expected to match
+    exactly when a measurement is repeated.
+    """
+    out: dict[str, dict[str, float]] = {}
+    for dataset, body in tables.items():
+        noisy = body.get("noisy")
+        if noisy is None:
+            continue
+        if not isinstance(noisy, Mapping):
+            raise ValueError(f"[data.{dataset}] noisy must be a table of column = tolerance")
+        parsed = parse(dataset, body.get("columns", {}))
+        key = body.get("key", [])
+        for column, tol in noisy.items():
+            if column not in parsed:
+                raise ValueError(f"dataset {dataset!r}: noisy column {column!r} is not declared")
+            if parsed[column][0] not in ("int", "float"):
+                raise ValueError(f"dataset {dataset!r}: noisy column {column!r} is not numeric")
+            if column in key:
+                raise ValueError(f"dataset {dataset!r}: key column {column!r} cannot be noisy")
+            if isinstance(tol, bool) or not isinstance(tol, (int, float)) or tol < 0:
+                raise ValueError(f"dataset {dataset!r}: tolerance for {column!r} must be >= 0")
+            out.setdefault(dataset, {})[column] = float(tol)
+    return out
+
+
 def _fits(kind: str, value: Any) -> bool:
     if isinstance(value, bool):
         return kind == "bool"

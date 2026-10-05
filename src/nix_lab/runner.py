@@ -13,7 +13,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from .spec import Job, Spec
+import hashlib
+
+from lab.run import seal
+
+from . import store
+from .spec import Spec
 
 
 def _utc() -> str:
@@ -34,31 +39,47 @@ def run(
     *,
     poll: float = 1.0,
     timeout: float = 24 * 3600,
+    again: bool = False,
     log: Callable[[str], None] = print,
 ) -> list[dict[str, Any]]:
+    """Run what is missing and return the manifests of the new runs.
+
+    A run is identified by its inputs (store.input_id); inputs that already have
+    `spec.replicates` finished runs are skipped, `again=True` adds one more replicate.
+    """
     factory, providers, resolver = _deploy()
-    jobs = spec.jobs()
     lease = providers.acquire(spec.provider, spec.resources, spec.resources.get("opts", {}))
     try:
         configs = {f"t{i}": c for i, c in enumerate(lease.targets)}
         names = list(configs)
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         closures: dict[str, Any] = {}
         for system in {c["system"] for c in configs.values() if "system" in c}:
             log(f"resolving {spec.flake}#{spec.attr} for {system}")
             closures[system] = resolver.resolve(spec.flake, spec.attr, system)
 
-        def one(job: Job) -> dict[str, Any]:
+        def assign(job):
             name = names[job.index % len(names)]
+            return name, closures[configs[name]["system"]].path
+
+        todo, satisfied = store.plan(spec, out_root, assign, again=again)
+        if satisfied:
+            log(f"{satisfied} input(s) already have {spec.replicates} finished run(s): skipped")
+        if not todo:
+            return []
+
+        def one(item) -> dict[str, Any]:
+            job, name, ident, replicate = item
+            closure = closures[configs[name]["system"]]
             return _run_job(
                 spec,
                 job,
                 name,
+                ident,
+                replicate,
+                closure,
                 configs,
-                closures,
                 factory,
                 out_root,
-                stamp,
                 poll,
                 timeout,
                 log,
@@ -66,18 +87,28 @@ def run(
             )
 
         with ThreadPoolExecutor(max_workers=len(names)) as pool:
-            return list(pool.map(one, jobs))
+            return list(pool.map(one, todo))
     finally:
         lease.release()
 
 
 def _run_job(
-    spec, job, name, configs, closures, factory, out_root, stamp, poll, timeout, log, deadline=None
+    spec,
+    job,
+    name,
+    ident,
+    replicate,
+    closure,
+    configs,
+    factory,
+    out_root,
+    poll,
+    timeout,
+    log,
+    deadline=None,
 ):
-    seedpart = f"-s{job.seed}" if job.seed is not None else ""
-    run_id = f"{spec.name}-{stamp}-{job.index:03d}{seedpart}"
+    run_id = f"{spec.name}-{ident[:12]}-r{replicate}"
     be = factory.backend(name, configs)
-    closure = closures[configs[name]["system"]]
     env = {"NIX_LAB_RUN": run_id, "NIX_LAB_PARAMS": json.dumps(job.params, sort_keys=True)}
     if job.seed is not None:
         env["NIX_LAB_SEED"] = str(job.seed)
@@ -120,7 +151,14 @@ def _run_job(
         "source": closure.source,
         "closure": closure.path,
         "spec": spec.path.name,
+        "input_id": ident,
+        "replicate": replicate,
+        "tolerance": spec.tolerance,
     }
+    spec_bytes = spec.path.read_bytes()
+    (dest / "spec.toml").write_bytes(spec_bytes)
+    manifest["spec_sha256"] = hashlib.sha256(spec_bytes).hexdigest()
+    seal(dest, manifest, local=False)
     (dest / "manifest.json").write_text(
         json.dumps(manifest, sort_keys=True, indent=1, default=str) + "\n"
     )

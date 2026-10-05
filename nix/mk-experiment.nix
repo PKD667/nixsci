@@ -21,6 +21,12 @@ pkgs.runCommand "experiment-${name}" {
   mkdir -p "\$NIX_LAB_DIR/artifacts"
   export PATH="$runtimePath:\$PATH"
   started=\$(${pkgs.coreutils}/bin/date -u +%Y-%m-%dT%H:%M:%SZ)
+  # facts about the host, for comparing measurements (SPEC.md: machine.json)
+  cpu=""; while IFS=: read -r k v; do case "\$k" in "model name"*) cpu=\''${v# }; break;; esac; done < /proc/cpuinfo 2>/dev/null
+  mem=null; while read -r k v _; do case "\$k" in MemTotal:) mem=\$v; break;; esac; done < /proc/meminfo 2>/dev/null
+  printf '{"hostname":"%s","kernel":"%s","arch":"%s","cpus":%s,"cpu":"%s","mem_kb":%s}\n' \
+    "\$(${pkgs.coreutils}/bin/uname -n)" "\$(${pkgs.coreutils}/bin/uname -r)" "\$(${pkgs.coreutils}/bin/uname -m)" \
+    "\$(${pkgs.coreutils}/bin/nproc)" "\''${cpu//[\"\\\\]/}" "\$mem" > "\$NIX_LAB_DIR/machine.json"
   "$program" $programArgs "\$@" &
   child=\$!
   trap 'kill -TERM \$child 2>/dev/null' TERM INT
