@@ -192,14 +192,23 @@ saw, and its `NIX_DEPLOY_ENTER`. The tree must be committed first.
 
 ## Status
 
-Verified: `local` provider and `native` backend end to end; lease
-acquire/use/release through the CLI; provider option validation; `put` on the
-native backend.
+Verified end to end:
 
-Not yet verified on real machines: the `oar` provider against Grid'5000, the
-`ssh` backend with a rootless store, multi-host `group.launch`, `tunnel` to a
-second host, `put` over ssh. Treat failures there as bugs to report.
+- `local` provider and `native` backend, on a laptop and on a server.
+- The `oar` provider and `ssh` backend on real Grid'5000 (one node at Lille, with
+  `queue=besteffort`): reserve, wait for `Running`, ship a static Nix, ship and verify
+  the closure by NAR hash under a rootless store, run it inside that store view,
+  read its log, release the job.
+- Persistent leases through the CLI (`lease acquire`, `--lease NAME run/status/fetch`,
+  `lease release`), provider option validation, `put` on the native backend.
+
+Not yet verified on real machines: multi-host `group.launch` (node-to-node ssh
+and `NIX_DEPLOY_RSH` between g5k nodes), `tunnel` to a second host, `put` over ssh.
+Treat failures there as bugs to report.
 
 Limits to know: the ssh backend needs unprivileged user namespaces on the target
-(`nix --store` with a local root); `x86_64-linux` and `aarch64-linux` only; the
-`nv`-style GPU toolchains are the experiment's business, not nix-deploy's.
+(`nix --store` with a local root; present on Grid'5000 nodes); a bare static Nix
+has no config, so every invocation passes `--extra-experimental-features nix-command`
+itself; Grid'5000 accounts may be restricted to `queue=besteffort`, where jobs can
+be preempted; `x86_64-linux` and `aarch64-linux` only; GPU toolchains are the
+experiment's business, not nix-deploy's.
