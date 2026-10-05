@@ -8,7 +8,7 @@
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAll = f: nixpkgs.lib.genAttrs systems (s: f nixpkgs.legacyPackages.${s});
 
-      # The python library, with both CLIs (nix-deploy, nix-lab).
+      # The python library and its one executable, `nixsci`.
       library = py: {
         nixsci = py.buildPythonPackage {
           pname = "nixsci";
@@ -17,7 +17,8 @@
           pyproject = true;
           build-system = [ py.setuptools ];
           dependencies = [ py.pyarrow ];
-          pythonImportsCheck = [ "nixsci.deploy" "nixsci.lab" ];
+          pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" ];
+          meta.mainProgram = "nixsci";
         };
       };
     in {
@@ -49,7 +50,7 @@
             src = ./lab/r/labr;
             propagatedBuildInputs = with pkgs.rPackages; [ arrow jsonlite ];
           };
-          # The pinned R used by `nix-lab analyze`: Rscript plus the analysis packages.
+          # The pinned R used by `nixsci lab analyze`: Rscript plus the analysis packages.
           r-env = pkgs.rWrapper.override {
             packages = with pkgs.rPackages; [ arrow dplyr ggplot2 jsonlite labr ];
           };
@@ -91,8 +92,7 @@
       });
 
       apps = forAll (pkgs: {
-        default = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nix-deploy"; };
-        lab = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nix-lab"; };
+        default = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nixsci"; };
       });
 
       devShells = forAll (pkgs: {
@@ -101,6 +101,7 @@
           # The sources live in deploy/src and lab/src; the namespace is assembled in .dev/.
           shellHook = ''
             mkdir -p .dev/nixsci
+            ln -sfn "$PWD/cli/src" .dev/nixsci/cli
             ln -sfn "$PWD/deploy/src" .dev/nixsci/deploy
             ln -sfn "$PWD/lab/src" .dev/nixsci/lab
             export PYTHONPATH="$PWD/.dev:$PYTHONPATH"

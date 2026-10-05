@@ -1,8 +1,8 @@
 """Leases that outlive one process: acquire once, use from many commands, release when done.
 
-nix-deploy lease acquire g5k warm --hosts 4 --walltime 240
-nix-deploy --lease warm run . serve run1
-nix-deploy lease release warm
+nixsci deploy lease acquire g5k warm --hosts 4 --walltime 240
+nixsci deploy --lease warm run . serve run1
+nixsci deploy lease release warm
 """
 
 from __future__ import annotations

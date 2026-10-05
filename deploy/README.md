@@ -113,8 +113,8 @@ plus `oarsh` or plain ssh), a cloud VM or a laptop on the LAN are all just
 different values.
 
 **Walltime.** `walltime` (minutes) is a generic resource. When given, the lease
-records when it ends: `nix-deploy run` refuses an expired lease, jobs get
-`NIX_DEPLOY_DEADLINE`, and `nix-lab run` stops waiting for jobs at the deadline.
+records when it ends: `nixsci deploy run` refuses an expired lease, jobs get
+`NIX_DEPLOY_DEADLINE`, and `nixsci lab run` stops waiting for jobs at the deadline.
 
 Generic resources are the same for every provider: `hosts`, `gpus`, `walltime`
 (minutes), `system`. **Everything provider-specific goes in `opts`**, and each
@@ -124,14 +124,14 @@ resources is an error.
 ## Command line
 
 ```sh
-nix-deploy lease acquire lab warm --walltime 240 --opt hosts=n1,n2,n3,n4   # hosts you reserved
-nix-deploy lease ls
-nix-deploy lease show warm
-nix-deploy --lease warm run . my-experiment run1 --handle run1.json --arg 8 --env SEED=3
-nix-deploy --lease warm status run1.json
-nix-deploy --lease warm fetch run1.json out/ ./results
-nix-deploy --lease warm stop run1.json
-nix-deploy lease release warm
+nixsci deploy lease acquire lab warm --walltime 240 --opt hosts=n1,n2,n3,n4   # hosts you reserved
+nixsci deploy lease ls
+nixsci deploy lease show warm
+nixsci deploy --lease warm run . my-experiment run1 --handle run1.json --arg 8 --env SEED=3
+nixsci deploy --lease warm status run1.json
+nixsci deploy --lease warm fetch run1.json out/ ./results
+nixsci deploy --lease warm stop run1.json
+nixsci deploy lease release warm
 ```
 
 A lease outlives the process that acquired it (state is under

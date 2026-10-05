@@ -1,11 +1,11 @@
-"""A run recorded by hand, outside `nix-lab run`.
+"""A run recorded by hand, outside `nixsci lab run`.
 
     with lab.Run("runs", "night-20261005", spec="measure.toml", seed=3) as run:
         run.record("size", {"n": 1000, "seconds": 1.5})
 
 This creates `<root>/<app>/<name>/`, points `lab.record` at it with the spec's declared
 datasets and keys, and writes `manifest.json` when the block ends (state `ok`, or `failed`
-if it raised), so `nix-lab compact <root>` and `nix-lab analyze` read it like any run.
+if it raised), so `nixsci lab compact <root>` and `nixsci lab analyze` read it like any run.
 `app` defaults to the spec's `[experiment] name`.
 """
 

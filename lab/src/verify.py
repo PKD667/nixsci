@@ -75,7 +75,7 @@ def bundle(run_dir: str | Path) -> dict[str, Any]:
         "records_sha256": manifest.get("records_sha256"),
         "machine": manifest.get("machine"),
         "started": manifest.get("started"),
-        "command": f"nix-lab verify {run_dir}",
+        "command": f"nixsci lab verify {run_dir}",
     }
 
 

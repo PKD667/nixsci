@@ -63,8 +63,8 @@ queue = "besteffort"
 ```
 
 ```sh
-nix-lab plan experiments/blocks.toml          # list the jobs this expands to
-nix-lab run  experiments/blocks.toml --out runs
+nixsci lab plan experiments/blocks.toml          # list the jobs this expands to
+nixsci lab run  experiments/blocks.toml --out runs
 ```
 
 `run` resolves the flake once, leases hosts from the provider, spreads the jobs
@@ -102,7 +102,7 @@ and files still record freely as artifacts. The schema travels to the run in
 
 ## Recording a run by hand
 
-A script that is not launched by `nix-lab run` (a measurement you start yourself, a long
+A script that is not launched by `nixsci lab run` (a measurement you start yourself, a long
 service) records through `lab.Run`. It creates `<root>/<app>/<name>/`, applies the spec's
 declared datasets and keys to `lab.record`, and writes `manifest.json` when the block ends
 (`ok`, or `failed` if it raised), so `compact` and `analyze` treat it like any other run:
@@ -124,11 +124,11 @@ with lab.Run("runs", lab.run_name("meas", seed=3), spec="measure.toml", seed=3,
 One **store per machine**, never inside a project: `$NIX_LAB_STORE`, else
 `$XDG_DATA_HOME/nix-lab` (`~/.local/share/nix-lab`). It holds `runs/` (immutable, sealed),
 `data/` (Parquet, rebuildable) and `analysis/` (pipeline outputs, rebuildable). Nothing needs a
-directory argument: `lab.Run(None, name, spec=...)`, `nix-lab run`, `compact` and `analyze` all
-default to it, and `nix-lab ls` shows what is in it.
+directory argument: `lab.Run(None, name, spec=...)`, `nixsci lab run`, `compact` and `analyze` all
+default to it, and `nixsci lab ls` shows what is in it.
 
 ```sh
-nix-lab build experiments/demo.toml    # run what is missing -> compact -> analyze -> lock
+nixsci lab build experiments/demo.toml    # run what is missing -> compact -> analyze -> lock
 ```
 
 `build` is the whole flow, and it is incremental: finished inputs are skipped, compacted runs are
@@ -138,14 +138,14 @@ output hashes and the exact runs the pipeline read (manifest and records hashes,
 machine) -- a few KB of hashes, no data. It is the project's reproducibility claim.
 
 ```sh
-nix-lab check experiments/demo.toml                 # does this machine's store match the lock?
-nix-lab push  me@host:/srv/lab experiments/demo.toml   # send the locked runs and outputs
-nix-lab pull  me@host:/srv/lab experiments/demo.toml   # fetch what is missing, verify by hash
+nixsci lab check experiments/demo.toml                 # does this machine's store match the lock?
+nixsci lab push  me@host:/srv/lab experiments/demo.toml   # send the locked runs and outputs
+nixsci lab pull  me@host:/srv/lab experiments/demo.toml   # fetch what is missing, verify by hash
 ```
 
 A *remote* is any directory with the store layout, local or over ssh; there is no server. Runs
 are immutable, so they are copied once; everything is checked against the lock afterwards. On a
-fresh machine: clone the project, `nix-lab pull <remote> <spec>`, then `nix-lab check`.
+fresh machine: clone the project, `nixsci lab pull <remote> <spec>`, then `nixsci lab check`.
 
 ## Replicates, identity and reproducing a run
 
@@ -162,15 +162,15 @@ key = ["n"]
 noisy = { seconds = 0.25 }   # seconds may differ by up to 25% between replicates; others must match
 ```
 
-- `nix-lab run` is **idempotent and resumable**: inputs that already have enough finished
+- `nixsci lab run` is **idempotent and resumable**: inputs that already have enough finished
   replicates are skipped, so a preempted sweep continues where it stopped, and changed code (a new
-  closure) is a new input. `nix-lab run --again` adds one more replicate.
+  closure) is a new input. `nixsci lab run --again` adds one more replicate.
 - Every run is **sealed**: its manifest holds the SHA-256 of `records.jsonl`, of the spec (a copy is
   stored as `spec.toml`), the source as locked (git rev, narHash), the closure, and the machine
   (hostname, kernel, CPU, cores, memory). `compact` refuses a run whose records changed afterwards.
-- `nix-lab repro <run>` prints everything needed to run that measurement again (the flake as a
+- `nixsci lab repro <run>` prints everything needed to run that measurement again (the flake as a
   locked reference, parameters, seed, expected hash, machine).
-- `nix-lab verify <run>` rebuilds the code from the locked source, runs one new replicate and
+- `nixsci lab verify <run>` rebuilds the code from the locked source, runs one new replicate and
   compares the datasets. Exact columns must match; `noisy` columns must agree within their
   tolerance. It exits 0 only if they do.
 
@@ -181,8 +181,8 @@ a shared cluster) is a random variable. What it guarantees is exact *provenance*
 ## Compaction and analysis
 
 ```sh
-nix-lab compact runs --out data             # needs pyarrow (the nix-lab package has it)
-nix-lab analyze experiments/demo.toml --runs runs --data data --out analysis
+nixsci lab compact runs --out data             # needs pyarrow (the nix-lab package has it)
+nixsci lab analyze experiments/demo.toml --runs runs --data data --out analysis
 ```
 
 `compact` writes each finished run's declared datasets as typed Parquet,
@@ -258,11 +258,11 @@ wrapper is a convenience, not a requirement.
 ## Environment of a run
 
 `NIX_LAB_DIR` (record directory), `NIX_LAB_RUN` (run id), `NIX_LAB_SEED`,
-`NIX_LAB_PARAMS` (JSON). They are set for you by `nix-lab run`.
+`NIX_LAB_PARAMS` (JSON). They are set for you by `nixsci lab run`.
 
 ## Status
 
-Verified on camarade with the demo experiment: `nix-lab build` (run -> compact -> analyze -> lock)
+Verified on camarade with the demo experiment: `nixsci lab build` (run -> compact -> analyze -> lock)
 from an empty store, a second `build` that does nothing, `repro` and `verify` (rebuild from the
 locked git revision, run a replicate, compare 5 rows against 5), `push` to a directory and `pull`
 into an empty store ending in `store matches the lock`. 35 unit tests cover identity and

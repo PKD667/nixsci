@@ -4,7 +4,7 @@ The contract between an experiment (any language) and `nix-lab`. It is a
 directory of files, so a program on a node with no network and no database can
 write it and the runner can `fetch` it later.
 
-## Environment (set by `mkExperiment`'s wrapper and `nix-lab run`)
+## Environment (set by `mkExperiment`'s wrapper and `nixsci lab run`)
 
 | variable          | meaning                                                      |
 |-------------------|--------------------------------------------------------------|
@@ -54,7 +54,7 @@ measurements needs these; a run recorded by hand (`lab.Run`) gets the same facts
 
 ## `manifest.json`
 
-One per run directory, `<runs root>/<app>/<run>/manifest.json`. `nix-lab run` and `lab.Run`
+One per run directory, `<runs root>/<app>/<run>/manifest.json`. `nixsci lab run` and `lab.Run`
 write it; `compact`, `analyze` and `lab.runs` read it. Readers MUST ignore unknown fields.
 
 ```json
@@ -77,7 +77,7 @@ in the order they were made. The runner names the directory `<app>-<input_id[:12
 
 `state` is `ok`, `failed` or `incomplete` (no `status.json`, no manifest end); only `ok` runs
 are compacted. `schema` and `keys` are the declared datasets the run was recorded under.
-`nix-lab run` adds `status`, `target`, `source`, `closure`, `spec`. Records live in `lab/`
+`nixsci lab run` adds `status`, `target`, `source`, `closure`, `spec`. Records live in `lab/`
 under the run directory when fetched from a remote host, or directly in it for `lab.Run`
 (`compact` looks in both).
 

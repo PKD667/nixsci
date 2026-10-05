@@ -11,16 +11,20 @@ numpy = ["numpy"]
 modal = ["modal"]
 
 [project.scripts]
-nix-deploy = "nixsci.deploy.cli:main"
-nix-lab = "nixsci.lab.cli:main"
+nixsci = "nixsci.cli:main"
+
+[project.entry-points."nixsci.commands"]
+deploy = "nixsci.deploy.cli:main"
+lab = "nixsci.lab.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["nixsci.deploy", "nixsci.lab"]
+packages = ["nixsci.cli", "nixsci.deploy", "nixsci.lab"]
 
 [tool.setuptools.package-dir]
+"nixsci.cli" = "cli/src"
 "nixsci.deploy" = "deploy/src"
 "nixsci.lab" = "lab/src"

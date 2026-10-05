@@ -3,7 +3,7 @@
 A run's `input_id` is a hash of everything that determines what it computes: the experiment
 closure (code and every dependency, by store path), the parameters, the seed, and the declared
 dataset schema and keys. Two runs with the same `input_id` are replicates of the same
-measurement. That makes `nix-lab run` idempotent and resumable: inputs that already have enough
+measurement. That makes `nixsci lab run` idempotent and resumable: inputs that already have enough
 finished replicates are skipped, and a changed line of code (a new closure) is a new input.
 """
 

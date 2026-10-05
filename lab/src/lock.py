@@ -91,7 +91,7 @@ def _value(v: Any) -> str:
 
 def dumps(data: dict[str, Any]) -> str:
     lines = [
-        "# Written by `nix-lab lock` (and `build`). Commit it: it is the claim of which runs and",
+        "# Written by `nixsci lab lock` (and `build`). Commit it: it is the claim of which runs and",
         "# outputs the results rest on. Hashes only; the data lives in the nix-lab store.",
         f"version = {data['version']}",
         f"app = {json.dumps(data['app'])}",
@@ -112,7 +112,7 @@ def write(spec_path: Path, data: dict[str, Any]) -> Path:
 def read(spec_path: Path) -> dict[str, Any]:
     target = path_for(spec_path)
     if not target.is_file():
-        raise SystemExit(f"no lock file: {target} (run `nix-lab build` or `nix-lab lock` first)")
+        raise SystemExit(f"no lock file: {target} (run `nixsci lab build` or `nixsci lab lock` first)")
     data = tomllib.loads(target.read_text())
     if data.get("version") != VERSION:
         raise SystemExit(f"{target}: unsupported lock version {data.get('version')!r}")

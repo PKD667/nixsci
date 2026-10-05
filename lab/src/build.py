@@ -1,4 +1,4 @@
-"""`nix-lab build`: run what is missing, compact, analyse, lock. No directories to name.
+"""`nixsci lab build`: run what is missing, compact, analyse, lock. No directories to name.
 
 Every step is incremental, so building twice does nothing the second time: finished inputs are
 skipped (store.plan), compacted runs are not rewritten, and a pipeline whose script and input

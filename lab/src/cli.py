@@ -16,7 +16,7 @@ def _err(message: str) -> None:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="nix-lab")
+    ap = argparse.ArgumentParser(prog="nixsci lab")
     ap.add_argument(
         "--store", help="data store (default: $NIX_LAB_STORE or ~/.local/share/nix-lab)"
     )

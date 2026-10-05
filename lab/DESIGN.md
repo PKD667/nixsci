@@ -63,7 +63,7 @@ HPC-focused survey: [arXiv:2402.07530](https://arxiv.org/pdf/2402.07530).
    - a small **`lab.lock`** next to the spec, committed to git, listing for each input the
      replicates and their `records_sha256`, and for each pipeline its `fingerprint` and output
      hashes. The lock is the reproducibility claim; the bytes are not in the repository;
-   - **remotes** are plain ssh directories (`nix-lab push|pull <host:dir>`), moved with rsync.
+   - **remotes** are plain ssh directories (`nixsci lab push|pull <host:dir>`), moved with rsync.
      Any machine can fetch what the lock names and verify it by hash.
 7. **No workflow language.** Experiments are Nix flake outputs, analysis is a script, the spec
    is TOML. Ordinary LaTeX consumes the outputs.

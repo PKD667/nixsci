@@ -1,7 +1,7 @@
 """One execution contract for every compute provider.
 
-nix-deploy lease acquire <provider> <name> [--hosts N] [--walltime MIN] [--opt KEY=VALUE]...
-nix-deploy lease ls | show <name> | release <name>
+nixsci deploy lease acquire <provider> <name> [--hosts N] [--walltime MIN] [--opt KEY=VALUE]...
+nixsci deploy lease ls | show <name> | release <name>
 nix-deploy (--lease NAME | --config FILE --target T) run <flake> <experiment> <run_id> --handle FILE
 nix-deploy (--lease NAME | --config FILE --target T) status|stop|fetch ...
 """
@@ -40,7 +40,7 @@ def _lease_command(args) -> int:
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="nix-deploy")
+    parser = argparse.ArgumentParser(prog="nixsci deploy")
     parser.add_argument("--config")
     parser.add_argument("--target")
     parser.add_argument("--lease")
