@@ -92,9 +92,9 @@ def _run_job(
         timeout = min(timeout, max(0.0, deadline - time.time()))
     handle = be.launch(closure, run_id=run_id, env=env)
     log(f"[{run_id}] launched on {name}")
-    deadline = time.monotonic() + timeout
+    give_up = time.monotonic() + timeout
     while be.alive(handle):
-        if time.monotonic() > deadline:
+        if time.monotonic() > give_up:
             be.stop(handle)
             break
         time.sleep(poll)
