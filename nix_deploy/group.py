@@ -17,7 +17,9 @@ from typing import Any, Mapping, Sequence
 from .backend import Backend
 from .model import Closure
 
-DEFAULT_RSH = "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+# -F /dev/null: inside a rootless store's user namespace root-owned /etc files look owned by
+# nobody and ssh refuses the system config.
+DEFAULT_RSH = "ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
 
 
 def launch(
