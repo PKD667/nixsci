@@ -1,0 +1,18 @@
+[experiment]
+name  = "demo"
+flake = ".."
+attr  = "demo"
+seeds = [0, 1]
+
+[sweep]
+epsilon = [0.1, 0.3]
+
+[data.loss]
+columns = { epoch = "int", value = "float", split = "str" }
+
+[resources]
+provider = "local"
+hosts = 2
+
+[pipeline.curve]
+script = "demo.R"

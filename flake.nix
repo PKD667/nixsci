@@ -52,6 +52,16 @@
         };
       });
 
+      # Example experiment (see examples/demo.toml): typed loss rows, one curve per run.
+      experiments = forAll (pkgs: {
+        demo = (import ./nix/mk-experiment.nix { inherit pkgs; }) {
+          name = "demo";
+          program = "${pkgs.python3}/bin/python";
+          args = [ "${./examples/demo.py}" ];
+          env.PYTHONPATH = "${self.packages.${pkgs.system}.lab-py}/${pkgs.python3.sitePackages}";
+        };
+      });
+
       apps = forAll (pkgs: {
         default = { type = "app"; program = "${self.packages.${pkgs.system}.nix-lab}/bin/nix-lab"; };
       });
