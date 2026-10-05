@@ -265,7 +265,7 @@ wrapper is a convenience, not a requirement.
 Verified on camarade with the demo experiment: `nix-lab build` (run -> compact -> analyze -> lock)
 from an empty store, a second `build` that does nothing, `repro` and `verify` (rebuild from the
 locked git revision, run a replicate, compare 5 rows against 5), `push` to a directory and `pull`
-into an empty store ending in `store matches the lock`. 37 unit tests cover identity and
+into an empty store ending in `store matches the lock`. 35 unit tests cover identity and
 replicates, sealing and tamper detection, noisy-column comparison, the lock, and push/pull.
 
 Not built yet: claim checks in `verify` (an analysis pipeline that fails when a claim fails is
