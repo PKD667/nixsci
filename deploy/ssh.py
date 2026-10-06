@@ -353,7 +353,7 @@ class SSH(Backend):
 
     def alive(self, handle: Mapping[str, Any]) -> bool:
         pid, pgid, start = int(handle["pid"]), int(handle["pgid"]), str(handle["start_time"])
-        command = f"test \"$(sed 's/.*) //' /proc/{pid}/stat | awk '{{print $3}}'\" = {pgid} && test \"$(sed 's/.*) //' /proc/{pid}/stat | awk '{{print $20}}'\" = {shlex.quote(start)} && kill -0 -- -{pgid}"
+        command = f"test \"$(sed 's/.*) //' /proc/{pid}/stat | awk '{{print $3}}')\" = {pgid} && test \"$(sed 's/.*) //' /proc/{pid}/stat | awk '{{print $20}}')\" = {shlex.quote(start)} && kill -0 -- -{pgid}"
         return self._remote(command, check=False).returncode == 0
 
     def stop(self, handle: Mapping[str, Any]) -> None:
