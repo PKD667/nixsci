@@ -54,12 +54,16 @@ training fields.
 A native target declares either the existing `/nix/store` or an explicit
 rootless store. These modes are not selected by fallback. Rootless targets
 require a locally hash-verified static Nix bootstrap. SSH stages that exact
-bootstrap at the declared target path, copies the full closure through a
-controller-created zstd-compressed Nix binary cache, verifies every remote NAR hash, then
-starts the payload through upstream `nix shell --offline`. Compression selects
-transport bytes only: uncompressed NAR identities remain the admission boundary.
-The default xz export dominated staging a CUDA closure on camarade; zstd avoids
-making source compression the prerequisite for a small bounded GPU run. The SSH client is
+bootstrap at the declared target path, queries registered target paths and ships only absent paths through upstream
+`nix-store --export`/`--import`, verifies every remote NAR hash, then starts the
+payload through upstream `nix shell --offline`. A framed export carries path,
+reference and NAR metadata without demanding that reused dependencies also
+exist in a temporary binary cache. This avoids recompressing/transferring an
+already staged multi-GB CUDA/model closure. Full recursive content verification
+and the resolved NAR-map comparison still precede launch, including when no
+transfer was needed. Presence alone never admits execution. Binary-cache export
+for callers that need it uses zstd; transport never changes uncompressed NAR
+identity. The SSH client is
 backgrounded after authentication while the remote script remains foreground;
 there is no detached `cd && background` command whose inherited channel can
 block the launch.

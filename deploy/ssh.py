@@ -166,28 +166,34 @@ class SSH(Backend):
         self._admit(closure)
         self._wait_ready()
         self._ship_bootstrap()
-        token = closure.path.rsplit("/", 1)[-1].split("-", 1)[0]
-        with tempfile.TemporaryDirectory(prefix="nix-deploy-cache-") as temp:
-            cache = str(Path(temp) / "nar-cache")
-            nix.copy_to_cache(self.nix, cache, closure.path)
-            parent = f"/tmp/nix-deploy-cache-{token}"
-            self._remote(f"rm -rf -- {shlex.quote(parent)}; mkdir -m 700 -p {shlex.quote(parent)}")
-            result = subprocess.run(
-                [*self._scp, "-r", cache, f"{self.host}:{parent}/"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            if result.returncode:
-                raise RuntimeError(
-                    f"cannot ship closure cache: {result.stderr.decode(errors='replace')[-2000:]}"
-                )
-            remote_cache = f"{parent}/{Path(cache).name}"
-            try:
-                self._remote_nix(
-                    "copy", "--no-check-sigs", "--from", f"file://{remote_cache}", closure.path
-                )
-            finally:
-                self._remote(f"rm -rf -- {shlex.quote(parent)}")
+        present = set(self._remote_nix("path-info", "--all").stdout.decode().splitlines())
+        missing = [path for path in closure.closure if path not in present]
+        if missing:
+            token = closure.path.rsplit("/", 1)[-1].split("-", 1)[0]
+            with tempfile.TemporaryDirectory(prefix="nix-deploy-export-") as temp:
+                archive = Path(temp) / "closure.export"
+                with archive.open("xb") as output:
+                    subprocess.run(["nix-store", "--export", *missing], executable=self.nix,
+                                   stdout=output, check=True)
+                parent = f"/tmp/nix-deploy-export-{token}"
+                self._remote(f"mkdir -m 700 -p {shlex.quote(parent)}")
+                try:
+                    result = subprocess.run(
+                        [*self._scp, str(archive), f"{self.host}:{parent}/"],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    )
+                    if result.returncode:
+                        raise RuntimeError(
+                            f"cannot ship closure export: {result.stderr.decode(errors='replace')[-2000:]}"
+                        )
+                    args = ["exec", "-a", "nix-store", self.remote_bootstrap]
+                    if self.rootless:
+                        args.extend(["--store", self.store])
+                    args.append("--import")
+                    command = shlex.join(args) + " < " + shlex.quote(f"{parent}/{archive.name}")
+                    self._remote("bash -c " + shlex.quote(command))
+                finally:
+                    self._remote(f"rm -rf -- {shlex.quote(parent)}")
         self._verify(closure)
         return {"path": closure.path, "closure": dict(closure.closure), "system": closure.system}
 
