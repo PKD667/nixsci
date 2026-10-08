@@ -192,7 +192,7 @@ def copy_to(nix, destination, root):
 
 def copy_to_cache(nix, cache, root):
     Path(cache).mkdir(parents=True, exist_ok=False)
-    copy_to(nix, f"file://{cache}", root)
+    copy_to(nix, f"file://{cache}?compression=zstd", root)
 
 
 def command(nix, store, *args):

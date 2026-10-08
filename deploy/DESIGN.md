@@ -55,8 +55,11 @@ A native target declares either the existing `/nix/store` or an explicit
 rootless store. These modes are not selected by fallback. Rootless targets
 require a locally hash-verified static Nix bootstrap. SSH stages that exact
 bootstrap at the declared target path, copies the full closure through a
-controller-created Nix binary cache, verifies every remote NAR hash, then
-starts the payload through upstream `nix shell --offline`. The SSH client is
+controller-created zstd-compressed Nix binary cache, verifies every remote NAR hash, then
+starts the payload through upstream `nix shell --offline`. Compression selects
+transport bytes only: uncompressed NAR identities remain the admission boundary.
+The default xz export dominated staging a CUDA closure on camarade; zstd avoids
+making source compression the prerequisite for a small bounded GPU run. The SSH client is
 backgrounded after authentication while the remote script remains foreground;
 there is no detached `cd && background` command whose inherited channel can
 block the launch.
