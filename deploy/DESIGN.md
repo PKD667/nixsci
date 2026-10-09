@@ -55,11 +55,11 @@ Every target uses an explicit user-owned private store and a private
 mount-namespace root at canonical `/nix/store`. Only the controller uses its
 global store to resolve a closure; compute targets never read or mount it. The
 Nix-built `nixsci` package carries the static Nix 2.34.8 helper pinned by this
-flake. The helper requires unprivileged user and mount namespaces, maps
-namespace UID/GID 0 to the caller's host IDs, drops setup capabilities and sets
-`no_new_privs` before exec, then makes mounts private and uses `pivot_root`.
-Nested user namespaces can map through UID/GID 0 without gaining host identity
-or capabilities. The helper never falls back to host-store execution or a
+flake. The helper requires unprivileged user and mount namespaces, maps the caller's UID/GID to the same host IDs, makes mounts private,
+binds the target store at `/nix/store`, and uses `pivot_root`. The target
+process retains its unprivileged host identity with zero effective setup
+capabilities. Nested namespaces remain the candidate sandbox; the store view is
+not a security boundary. The helper never falls back to host-store execution or a
 mount-only namespace.
 
 SSH first verifies the bootstrap hash, then imports only absent closure paths
