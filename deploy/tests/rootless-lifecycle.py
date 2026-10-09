@@ -18,6 +18,7 @@ def local_host_snapshot():
     store = Path("/nix/store")
     result = {
         "uid": os.getuid(),
+        "gid": os.getgid(),
         "mount_namespace": os.readlink("/proc/self/ns/mnt"),
         "mountinfo_sha256": hashlib.sha256(Path("/proc/self/mountinfo").read_bytes()).hexdigest(),
         "host_store_exists": store.exists(),
@@ -31,6 +32,7 @@ def local_host_snapshot():
 def remote_host_snapshot(backend):
     result = backend._remote(
         "printf 'uid=%s\\n' \"$(id -u)\"; "
+        "printf 'gid=%s\\n' \"$(id -g)\"; "
         "printf 'mount_namespace=%s\\n' \"$(readlink /proc/self/ns/mnt)\"; "
         "printf 'mountinfo_sha256=%s\\n' \"$(sha256sum /proc/self/mountinfo | cut -d' ' -f1)\"; "
         "if test -e /nix/store; then printf 'host_store_exists=true\\n'; "
@@ -40,6 +42,7 @@ def remote_host_snapshot(backend):
     values = dict(line.split("=", 1) for line in result)
     snapshot = {
         "uid": int(values["uid"]),
+        "gid": int(values["gid"]),
         "mount_namespace": values["mount_namespace"],
         "mountinfo_sha256": values["mountinfo_sha256"],
         "host_store_exists": values["host_store_exists"] == "true",
@@ -55,7 +58,7 @@ def elapsed(call):
     return value, time.monotonic() - started
 
 
-def launch_clean_environment(backend, closure, run_id, argv=()):
+def launch_clean_environment(backend, closure, run_id, expected_uid, expected_gid, argv=()):
     name = "NIXSCI_UNDECLARED_CANARY"
     if name in os.environ:
         raise RuntimeError(f"controller already defines {name}")
@@ -65,7 +68,11 @@ def launch_clean_environment(backend, closure, run_id, argv=()):
             closure,
             run_id=run_id,
             argv=argv,
-            env={"NIXSCI_DECLARED_VALUE": "rootless-declared-value"},
+            env={
+                "NIXSCI_DECLARED_VALUE": "rootless-declared-value",
+                "NIXSCI_EXPECTED_HOST_UID": str(expected_uid),
+                "NIXSCI_EXPECTED_HOST_GID": str(expected_gid),
+            },
         )
     finally:
         del os.environ[name]
@@ -183,7 +190,9 @@ def main():
     ordinary_remove_attempted = False
     try:
         ordinary, ordinary_launch_seconds = elapsed(
-            lambda: launch_clean_environment(backend, tiny_closure, tiny_id)
+            lambda: launch_clean_environment(
+                backend, tiny_closure, tiny_id, before["uid"], before["gid"]
+            )
         )
         ordinary_dead, ordinary_runtime_seconds = wait_until_dead(backend, ordinary, 60)
         if not ordinary_dead:
@@ -263,7 +272,9 @@ def main():
     held_remove_attempted = False
     try:
         held, launch_seconds = elapsed(
-            lambda: launch_clean_environment(backend, closure, hold_id, ("--hold",))
+            lambda: launch_clean_environment(
+                backend, closure, hold_id, before["uid"], before["gid"], ("--hold",)
+            )
         )
         metrics["hold_launch_seconds"] = launch_seconds
         proof = wait_for_proof(backend, held, 120)
@@ -306,7 +317,9 @@ def main():
     complete_remove_attempted = False
     try:
         complete, launch_seconds = elapsed(
-            lambda: launch_clean_environment(backend, closure, complete_id)
+            lambda: launch_clean_environment(
+                backend, closure, complete_id, before["uid"], before["gid"]
+            )
         )
         metrics["complete_launch_seconds"] = launch_seconds
         complete_proof = wait_for_proof(backend, complete, 120)
