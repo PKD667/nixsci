@@ -172,15 +172,6 @@ def invoke(prefix, command, cwd, timeout=5):
         }
 
 
-def process_status(pid):
-    fields = {}
-    for line in Path(f"/proc/{pid}/status").read_text().splitlines():
-        if ":" in line:
-            name, value = line.split(":", 1)
-            fields[name] = value.strip()
-    return fields
-
-
 def process_start_time(pid):
     return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
 
@@ -218,16 +209,31 @@ def find_sandbox_command(root_pid, python, token, timeout):
     raise TimeoutError("bwrap info PID tree did not contain the declared Python candidate")
 
 
-def inspect_nested_host_identity(prefix, python, cwd, expected_uid, expected_gid):
+def inspect_nested_host_identity(prefix, python, cwd):
     reader, writer = os.pipe()
     if not prefix or prefix[-1] != "--":
         raise RuntimeError("grader sandbox prefix lacks its command separator")
     separator = len(prefix) - 1
     command = prefix[:separator] + ["--info-fd", str(writer)] + prefix[separator:]
     token = f"nixsci-host-identity-{os.getpid()}-{time.time_ns():x}"
-    code = f"import time; time.sleep(4); print({token!r}, flush=True)"
+    candidate_file = cwd / f"nested-candidate-{os.getpid()}.json"
+    code = (
+        "import json,os,pathlib,time;"
+        "lines=pathlib.Path('/proc/self/status').read_text().splitlines();"
+        "fields={line.split(':',1)[0]:line.split(':',1)[1].strip() for line in lines if ':' in line};"
+        "value={'uid':os.getuid(),'gid':os.getgid(),"
+        "'uid_map':pathlib.Path('/proc/self/uid_map').read_text().strip(),"
+        "'gid_map':pathlib.Path('/proc/self/gid_map').read_text().strip(),"
+        "'cap_eff':fields['CapEff'],'cap_bnd':fields['CapBnd'],"
+        "'no_new_privs':fields['NoNewPrivs'],"
+        "'userns':os.readlink('/proc/self/ns/user'),"
+        "'mntns':os.readlink('/proc/self/ns/mnt')};"
+        f"pathlib.Path({str(candidate_file)!r}).write_text(json.dumps(value)+chr(10));"
+        f"print({token!r},flush=True);time.sleep(60)"
+    )
     command.extend([python, "-c", code])
     process = None
+    completed = False
     with tempfile.TemporaryFile(dir=cwd) as out, tempfile.TemporaryFile(dir=cwd) as err:
         try:
             process = subprocess.Popen(
@@ -245,31 +251,30 @@ def inspect_nested_host_identity(prefix, python, cwd, expected_uid, expected_gid
             info = json.loads(os.read(reader, 65536).decode())
             container_pid = int(info["child-pid"])
             host_pid, start = find_sandbox_command(container_pid, python, token, 5)
-            fields = process_status(host_pid)
-            uid = [int(value) for value in fields["Uid"].split()]
-            gid = [int(value) for value in fields["Gid"].split()]
-            capabilities = fields["CapEff"]
-            if uid != [expected_uid] * 4 or gid != [expected_gid] * 4:
-                raise RuntimeError(f"nested candidate host credentials changed: uid={uid!r} gid={gid!r}")
-            if int(capabilities, 16) != 0:
-                raise RuntimeError(f"nested candidate host CapEff is not zero: {capabilities}")
+            started = time.monotonic()
+            while not candidate_file.exists():
+                if process.poll() is not None:
+                    raise RuntimeError("nested identity candidate exited before publishing its data")
+                if time.monotonic() - started >= 5:
+                    raise TimeoutError("nested identity candidate did not publish its data")
+                time.sleep(0.05)
+            candidate = json.loads(candidate_file.read_text())
+            if int(candidate["cap_eff"], 16) != 0:
+                raise RuntimeError(f"nested candidate retained effective capabilities: {candidate!r}")
+            candidate_file.unlink()
             if process_start_time(host_pid) != start:
                 raise RuntimeError(f"sandbox PID {host_pid} changed identity while being inspected")
-            if process.wait(timeout=5) != 0:
-                raise RuntimeError("nested PID probe exited nonzero")
+            completed = True
             return {
                 "bwrap_info": info,
                 "container_pid": container_pid,
                 "host_pid": host_pid,
                 "start_time": start,
-                "uid": uid,
-                "gid": gid,
-                "cap_eff": capabilities,
-                "cap_bnd": fields["CapBnd"],
-                "no_new_privs": fields["NoNewPrivs"],
-            }
+                "exe": str(Path(python).resolve()),
+                "inside": candidate,
+            }, process
         finally:
-            if process is not None and process.poll() is None:
+            if not completed and process is not None and process.poll() is None:
                 process.kill()
                 process.wait(timeout=5)
             if writer >= 0:
@@ -435,8 +440,8 @@ def main():
             mapped = [int(value) for value in nested["uid_map"].split()]
             if len(mapped) != 3 or mapped[0] != int(nested["uid"]) or mapped[2] != 1:
                 raise RuntimeError(f"nested namespace has an unexpected UID map: {nested!r}; outer={outer!r}")
-            nested_host_identity = inspect_nested_host_identity(
-                prefix, tools["python3"], cwd, expected_uid, expected_gid
+            nested_host_identity, nested_candidate_process = inspect_nested_host_identity(
+                prefix, tools["python3"], cwd
             )
 
             output = invoke(prefix, [str(binary), "output"], cwd)
