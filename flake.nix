@@ -87,8 +87,8 @@
           let
             run = pkgs.writeShellApplication {
               name = "namespace-proof";
-              runtimeInputs = [ pkgs.python3 pkgs.bubblewrap pkgs.util-linux pkgs.coreutils pkgs.gcc ];
-              text = ''exec ${pkgs.python3}/bin/python ${./deploy/tests/rootless-proof.py}'';
+              runtimeInputs = [ pkgs.python3Minimal pkgs.bubblewrap pkgs.util-linuxMinimal pkgs.coreutils pkgs.tinycc ];
+              text = ''exec ${pkgs.python3Minimal}/bin/python3 ${./deploy/tests/rootless-proof.py}'';
             };
           in pkgs.runCommand "namespace-proof" { } ''
             mkdir -p "$out"
@@ -104,6 +104,8 @@
                 echo "hello from $(hostname) arch=$(uname -m) workdir=$NIX_DEPLOY_WORKDIR"
                 echo "home: ''${HOME:-unset}"
                 echo "enter: ''${NIX_DEPLOY_ENTER:-unset}"
+                echo "declared: ''${NIXSCI_DECLARED_VALUE:-unset}"
+                echo "undeclared: ''${NIXSCI_UNDECLARED_CANARY+present}"
                 echo "hosts: ''${NIX_DEPLOY_HOSTFILE:+$(tr '\n' ' ' < "$NIX_DEPLOY_HOSTFILE")}"
                 if [ -n "''${NIX_DEPLOY_HOSTFILE:-}" ]; then
                   first=1
@@ -152,6 +154,16 @@
       apps = forAll (pkgs: {
         default = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nixsci"; };
         demo = self.lab.${pkgs.system}.experiments.demo.run;
+        rootless-lifecycle =
+          let
+            run = pkgs.writeShellApplication {
+              name = "rootless-lifecycle";
+              runtimeInputs = [ self.packages.${pkgs.system}.python pkgs.nix pkgs.openssh ];
+              text = ''
+                exec ${self.packages.${pkgs.system}.python}/bin/python ${./deploy/tests/rootless-lifecycle.py} "$@"
+              '';
+            };
+          in { type = "app"; program = "${run}/bin/rootless-lifecycle"; };
       });
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
