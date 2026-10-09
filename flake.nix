@@ -88,7 +88,7 @@
             run = pkgs.writeShellApplication {
               name = "namespace-proof";
               runtimeInputs = [ pkgs.python3Minimal pkgs.bubblewrap pkgs.util-linuxMinimal pkgs.coreutils pkgs.tinycc ];
-              text = ''exec ${pkgs.python3Minimal}/bin/python3 ${./deploy/tests/rootless-proof.py}'';
+              text = ''exec ${pkgs.python3Minimal}/bin/python3 ${./deploy/tests/rootless-proof.py} "$@"'';
             };
           in pkgs.runCommand "namespace-proof" { } ''
             mkdir -p "$out"
