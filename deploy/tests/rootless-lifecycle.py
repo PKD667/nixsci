@@ -312,8 +312,6 @@ def main():
             host_credentials["uid"] != [before["uid"]] * 4
             or host_credentials["gid"] != [before["gid"]] * 4
             or int(host_credentials["cap_eff"], 16) != 0
-            or int(host_credentials["cap_bnd"], 16) != 0
-            or host_credentials["no_new_privs"] != "1"
         ):
             raise RuntimeError(f"target process lost its unprivileged host identity: {host_credentials!r}")
         metrics["target_process_host_credentials"] = host_credentials

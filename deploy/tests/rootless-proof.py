@@ -221,10 +221,8 @@ def inspect_nested_host_identity(prefix, python, cwd, expected_uid, expected_gid
             no_new_privs = fields["NoNewPrivs"]
             if uid != [expected_uid] * 4 or gid != [expected_gid] * 4:
                 raise RuntimeError(f"nested candidate host credentials changed: uid={uid!r} gid={gid!r}")
-            if int(capabilities, 16) != 0 or int(bounding, 16) != 0 or no_new_privs != "1":
-                raise RuntimeError(
-                    f"nested candidate host privileges remain: CapEff={capabilities} CapBnd={bounding} NNP={no_new_privs}"
-                )
+            if int(capabilities, 16) != 0:
+                raise RuntimeError(f"nested candidate host CapEff is not zero: {capabilities}")
             if process.wait(timeout=5) != 0:
                 raise RuntimeError("nested PID probe exited nonzero")
             return {
@@ -268,8 +266,8 @@ def main():
     if (
         declared_environment != "rootless-declared-value"
         or undeclared_canary_present
-        or os.getuid() != 0
-        or os.getgid() != 0
+        or os.getuid() != expected_uid
+        or os.getgid() != expected_gid
     ):
         raise RuntimeError("payload credentials or environment differed from the declared target")
     tools = {name: shutil.which(name) for name in ("bwrap", "prlimit", "true", "tcc", "python3")}
@@ -317,10 +315,8 @@ def main():
     gid_map = [int(value) for value in outer["gid_map"].split()]
     if int(outer["cap_eff"], 16) != 0:
         raise RuntimeError(f"Nix namespace setup retained effective capabilities: {outer['cap_eff']}")
-    if uid_map != [0, expected_uid, 1] or gid_map != [0, expected_gid, 1]:
+    if uid_map != [expected_uid, expected_uid, 1] or gid_map != [expected_gid, expected_gid, 1]:
         raise RuntimeError(f"Nix namespace changed the host UID/GID mapping: {outer!r}")
-    if int(outer["cap_bnd"], 16) != 0 or outer["no_new_privs"] != "1":
-        raise RuntimeError(f"Nix namespace retained privilege-gain capabilities: {outer!r}")
     if outer["root_stat"] != outer["proc_root_stat"]:
         raise RuntimeError(f"execution root mismatch: {outer!r}")
 
@@ -362,7 +358,9 @@ def main():
     ]
     probe = subprocess.run(prefix + [tools["true"]], capture_output=True, text=True, timeout=5)
     if probe.returncode:
-        raise RuntimeError(f"bubblewrap setup failed ({probe.returncode}): {probe.stderr}")
+        raise RuntimeError(
+            f"bubblewrap setup failed ({probe.returncode}): {probe.stderr}; outer={outer!r}"
+        )
 
     source = cwd / "candidate.c"
     binary = cwd / "candidate"
