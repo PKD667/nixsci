@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import signal
 import socket
+import sys
 import subprocess
 import tempfile
 import time
@@ -180,7 +181,11 @@ def leftover_time_probe(token):
 
 def main():
     cwd = Path.cwd()
-    tools = {name: shutil.which(name) for name in ("bwrap", "prlimit", "true", "gcc", "python3")}
+    declared_environment = os.environ.get("NIXSCI_DECLARED_VALUE")
+    undeclared_canary_present = "NIXSCI_UNDECLARED_CANARY" in os.environ
+    if declared_environment != "rootless-declared-value" or undeclared_canary_present:
+        raise RuntimeError("payload environment was not limited to declared values")
+    tools = {name: shutil.which(name) for name in ("bwrap", "prlimit", "true", "tcc", "python3")}
     for name, path in tools.items():
         if path is None or not path.startswith("/nix/store/"):
             raise RuntimeError(f"rootless grading requires Nix-provisioned {name}: {path!r}")
@@ -189,14 +194,24 @@ def main():
     for line in Path("/proc/self/mountinfo").read_text().splitlines():
         fields = line.split(" - ", 1)[0].split()
         if fields[4] == "/":
-            root_mount = {"mount_root": fields[3], "mount_point": fields[4], "device": fields[2], "options": fields[5]}
+            root_mount = {
+                "mount_root": fields[3],
+                "mount_point": fields[4],
+                "device": fields[2],
+                "options": fields[5],
+                "propagation": fields[6:],
+            }
             break
     if root_mount is None or root_mount["mount_root"] == "/":
         raise RuntimeError(f"execution root is not a pivoted mount root: {root_mount!r}")
+    if any(item.startswith(("shared:", "master:", "propagate_from:")) for item in root_mount["propagation"]):
+        raise RuntimeError(f"execution root mount propagation is not private: {root_mount!r}")
 
     outer = {
         "uid": os.getuid(),
         "gid": os.getgid(),
+        "declared_environment_value": declared_environment,
+        "undeclared_controller_canary_present": undeclared_canary_present,
         "uid_map": Path("/proc/self/uid_map").read_text().strip(),
         "gid_map": Path("/proc/self/gid_map").read_text().strip(),
         "cap_eff": status_value("CapEff"),
@@ -259,16 +274,16 @@ def main():
     source = cwd / "candidate.c"
     binary = cwd / "candidate"
     source.write_text(CANDIDATE)
-    compile_result = invoke(prefix, [tools["gcc"], "-O2", "-o", str(binary), str(source)], cwd)
+    compile_result = invoke(prefix, [tools["tcc"], "-O2", "-o", str(binary), str(source)], cwd)
     if compile_result["returncode"] != 0:
         raise RuntimeError(f"compiler fixture failed in grader sandbox: {compile_result!r}")
 
     fd, canary_name = tempfile.mkstemp(prefix=f"nixsci-rootless-canary-{os.getuid()}-")
     canary = Path(canary_name)
-    os.write(fd, b"undeclared-host-canary")
-    os.close(fd)
     marker = None
     try:
+        with os.fdopen(fd, "wb") as secret:
+            secret.write(b"undeclared-host-canary")
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             listener.listen(1)
@@ -309,10 +324,16 @@ def main():
             for line in Path("/proc/self/mountinfo").read_text().splitlines():
                 fields = line.split(" - ", 1)[0].split()
                 if fields[4] == "/nix/store":
-                    store_mount = {"mount_root": fields[3], "device": fields[2]}
+                    store_mount = {
+                        "mount_root": fields[3],
+                        "device": fields[2],
+                        "propagation": fields[6:],
+                    }
                     break
             if store_mount is None or not store_mount["mount_root"].endswith("store/nix/store"):
                 raise RuntimeError(f"/nix/store is not backed by the declared private store: {store_mount!r}")
+            if any(item.startswith(("shared:", "master:", "propagate_from:")) for item in store_mount["propagation"]):
+                raise RuntimeError(f"private store mount propagation is not private: {store_mount!r}")
             evidence = {
                 "status": "pass",
                 "declared_store_root": declared_store,
@@ -336,8 +357,12 @@ def main():
             canary.unlink()
         if marker is not None and marker.exists():
             marker.unlink()
-    (cwd / "rootless-proof.json").write_text(json.dumps(evidence, sort_keys=True, indent=2) + "\n")
-    print(json.dumps(evidence, sort_keys=True))
+    pending = cwd / f"rootless-proof-{os.getpid()}.tmp"
+    pending.write_text(json.dumps(evidence, sort_keys=True, indent=2) + "\n")
+    os.replace(pending, cwd / "rootless-proof.json")
+    print(json.dumps(evidence, sort_keys=True), flush=True)
+    if "--hold" in sys.argv[1:]:
+        time.sleep(30)
 
 
 if __name__ == "__main__":
