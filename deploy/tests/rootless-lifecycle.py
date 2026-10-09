@@ -131,7 +131,7 @@ def main():
             "proof": closure.as_dict(),
         }
         target = Path(args.closure_json)
-        target.write_text(json.dumps(record, sort_keys=True, indent=2) + "\\n")
+        target.write_text(json.dumps(record, sort_keys=True, indent=2) + "\n")
         target.chmod(0o644)
         print(json.dumps({"status": "resolved", "path": str(target), "source": closure.source}, sort_keys=True))
         return
