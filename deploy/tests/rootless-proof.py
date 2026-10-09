@@ -32,6 +32,12 @@ CANDIDATE = r'''
 #include <sys/wait.h>
 #include <unistd.h>
 
+#define CPU_SECONDS @CPU_SECONDS@
+#define ADDRESS_SPACE @ADDRESS_SPACE@
+#define FILE_SIZE @FILE_SIZE@
+#define PROCESS_COUNT @PROCESS_COUNT@
+#define OPEN_FILES @OPEN_FILES@
+
 static int limit_is(int which, rlim_t expected) {
     struct rlimit value;
     return getrlimit(which, &value) == 0 && value.rlim_cur == expected;
@@ -273,7 +279,16 @@ def main():
 
     source = cwd / "candidate.c"
     binary = cwd / "candidate"
-    source.write_text(CANDIDATE)
+    candidate_source = CANDIDATE
+    for name, value in (
+        ("CPU_SECONDS", CPU_SECONDS),
+        ("ADDRESS_SPACE", ADDRESS_SPACE),
+        ("FILE_SIZE", FILE_SIZE),
+        ("PROCESS_COUNT", PROCESS_COUNT),
+        ("OPEN_FILES", OPEN_FILES),
+    ):
+        candidate_source = candidate_source.replace(f"@{name}@", str(value))
+    source.write_text(candidate_source)
     compile_result = invoke(prefix, [tools["tcc"], "-O2", "-o", str(binary), str(source)], cwd)
     if compile_result["returncode"] != 0:
         raise RuntimeError(f"compiler fixture failed in grader sandbox: {compile_result!r}")
