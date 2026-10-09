@@ -298,6 +298,9 @@ def leftover_time_probe(token):
 
 def main():
     cwd = Path.cwd()
+    declared_workdir = Path(os.environ["NIX_DEPLOY_WORKDIR"])
+    if cwd != declared_workdir:
+        raise RuntimeError(f"payload cwd differs from its declared workdir: {cwd} != {declared_workdir}")
     declared_environment = os.environ.get("NIXSCI_DECLARED_VALUE")
     expected_uid = int(os.environ["NIXSCI_EXPECTED_HOST_UID"])
     expected_gid = int(os.environ["NIXSCI_EXPECTED_HOST_GID"])
@@ -334,6 +337,8 @@ def main():
     outer = {
         "uid": os.getuid(),
         "gid": os.getgid(),
+        "cwd": str(cwd),
+        "declared_workdir": str(declared_workdir),
         "uid_status": status_value("Uid"),
         "gid_status": status_value("Gid"),
         "cap_bnd": status_value("CapBnd"),
@@ -500,9 +505,9 @@ def main():
             canary.unlink()
         if marker is not None and marker.exists():
             marker.unlink()
-    pending = cwd / f"rootless-proof-{os.getpid()}.tmp"
+    pending = declared_workdir / f"rootless-proof-{os.getpid()}.tmp"
     pending.write_text(json.dumps(evidence, sort_keys=True, indent=2) + "\n")
-    os.replace(pending, cwd / "rootless-proof.json")
+    os.replace(pending, declared_workdir / "rootless-proof.json")
     print(json.dumps(evidence, sort_keys=True), flush=True)
     if "--hold" in sys.argv[1:]:
         time.sleep(30)
