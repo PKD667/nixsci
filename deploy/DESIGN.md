@@ -51,13 +51,15 @@ the training layer; it performs one selected installable lookup, never attr fall
 `env`, and `resources` are deployment values; deployment does not interpret
 training fields.
 
-Every target uses an explicit user-owned private store. No target reads or
-mounts the host `/nix/store`; the controller's store is only the source of an
-already resolved closure. The Nix-built `nixsci` package carries the static
-Nix 2.34.8 helper patched and pinned by this flake. On each launch it requires
-unprivileged user and mount namespaces, makes mount propagation private, binds
-the target store at `/nix/store`, and uses `pivot_root` to make that view the
-mount-namespace root. It never falls back to host-store execution or a
+Every target uses an explicit user-owned private store and a private
+mount-namespace root at canonical `/nix/store`. Only the controller uses its
+global store to resolve a closure; compute targets never read or mount it. The
+Nix-built `nixsci` package carries the static Nix 2.34.8 helper pinned by this
+flake. The helper requires unprivileged user and mount namespaces, maps
+namespace UID/GID 0 to the caller's host IDs, drops setup capabilities and sets
+`no_new_privs` before exec, then makes mounts private and uses `pivot_root`.
+Nested user namespaces can map through UID/GID 0 without gaining host identity
+or capabilities. The helper never falls back to host-store execution or a
 mount-only namespace.
 
 SSH first verifies the bootstrap hash, then imports only absent closure paths

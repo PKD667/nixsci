@@ -167,6 +167,9 @@ class SSH(Backend):
     def stage(self, closure: Closure) -> dict[str, Any]:
         self._admit(closure)
         self._wait_ready()
+        remote_uid = self._remote("id -u").stdout.decode().strip()
+        if not remote_uid.isdecimal() or int(remote_uid) == 0:
+            raise RuntimeError(f"rootless SSH targets require a non-root host user, got {remote_uid!r}")
         for target_path in (self.store, self.run_root, self.remote_bootstrap):
             resolved = self._remote(
                 f"realpath -m -- {shlex.quote(target_path)}"
