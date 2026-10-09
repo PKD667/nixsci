@@ -30,6 +30,23 @@ class StaticHosts(unittest.TestCase):
     def test_there_is_no_scheduler(self):
         self.assertEqual(sorted(providers._BUILTIN), ["local", "static"])
 
+    def test_local_target_declares_a_private_store(self):
+        target = providers.Local().acquire(providers.Resources(), {}).targets[0]
+        self.assertTrue(target["rootless"])
+        self.assertNotEqual(target["store"], "/nix/store")
+
+    def test_global_store_and_non_rootless_modes_are_rejected(self):
+        for store, rootless in (("/tmp/private-store", False), ("/nix/store", True)):
+            with self.subTest(store=store, rootless=rootless), self.assertRaises(ValueError):
+                SSH(
+                    host="me@a",
+                    system="x86_64-linux",
+                    store=store,
+                    run_root="/tmp/runs",
+                    remote_bootstrap="/tmp/bin/nix",
+                    rootless=rootless,
+                )
+
 
 class Bootstrap(unittest.TestCase):
     def test_a_wrong_pinned_hash_for_a_reference_is_refused(self):

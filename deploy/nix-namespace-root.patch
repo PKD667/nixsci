@@ -1,0 +1,106 @@
+--- a/run.cc
++++ b/run.cc
+@@ -19,0 +20 @@
++#  include <sys/syscall.h>
+@@ -198,52 +199,49 @@
+-        /* Try with just CLONE_NEWNS in case user namespaces are
+-           specifically disabled. */
+-        if (unshare(CLONE_NEWNS) == -1)
+-            throw SysError("setting up a private mount namespace");
+-
+-    /* Bind-mount realStoreDir on /nix/store. If the latter mount
+-       point doesn't already exists, we have to create a chroot
+-       environment containing the mount point and bind mounts for the
+-       children of /.
+-       Overlayfs for user namespaces is fixed in Linux since ac519625ed
+-       (v5.11, 14 February 2021) */
+-    if (!pathExists(storeDir)) {
+-        // FIXME: Use overlayfs?
+-
+-        std::filesystem::path tmpDir = createTempDir();
+-
+-        createDirs(tmpDir + storeDir);
+-
+-        if (mount(realStoreDir.c_str(), (tmpDir + storeDir).c_str(), "", MS_BIND, 0) == -1)
+-            throw SysError("mounting '%s' on '%s'", realStoreDir, storeDir);
+-
+-        for (const auto & entry : DirectoryIterator{"/"}) {
+-            checkInterrupt();
+-            const auto & src = entry.path();
+-            std::filesystem::path dst = tmpDir / entry.path().filename();
+-            if (pathExists(dst))
+-                continue;
+-            auto st = entry.symlink_status();
+-            if (std::filesystem::is_directory(st)) {
+-                if (mkdir(dst.c_str(), 0700) == -1)
+-                    throw SysError("creating directory %s", PathFmt(dst));
+-                if (mount(src.c_str(), dst.c_str(), "", MS_BIND | MS_REC, 0) == -1)
+-                    throw SysError("mounting %s on %s", PathFmt(src), PathFmt(dst));
+-            } else if (std::filesystem::is_symlink(st))
+-                createSymlink(readLink(src), dst);
+-        }
+-
+-        char * cwd = getcwd(0, 0);
+-        if (!cwd)
+-            throw SysError("getting current directory");
+-        Finally freeCwd([&]() { free(cwd); });
+-
+-        if (chroot(tmpDir.c_str()) == -1)
+-            throw SysError("chrooting into %s", PathFmt(tmpDir));
+-
+-        if (chdir(cwd) == -1)
+-            throw SysError("chdir to '%s' in chroot", cwd);
+-    } else if (
+-        mount("overlay", storeDir.c_str(), "overlay", MS_MGC_VAL, fmt("lowerdir=%s:%s", storeDir, realStoreDir).c_str())
+-        == -1)
+-        if (mount(realStoreDir.c_str(), storeDir.c_str(), "", MS_BIND, 0) == -1)
+-            throw SysError("mounting '%s' on '%s'", realStoreDir, storeDir);
++        throw SysError("creating private user and mount namespaces; unprivileged user namespaces must be enabled");
++
++    if (mount(nullptr, "/", nullptr, MS_REC | MS_PRIVATE, nullptr) == -1)
++        throw SysError("making the execution mount namespace private");
++
++    /* Always expose the private store from a new mount-namespace root.
++       The host's logical store path is neither a prerequisite nor an input. */
++    std::filesystem::path tmpDir = createTempDir();
++
++    createDirs(tmpDir + storeDir);
++
++    if (mount(realStoreDir.c_str(), (tmpDir + storeDir).c_str(), "", MS_BIND, 0) == -1)
++        throw SysError("mounting '%s' on '%s'", realStoreDir, storeDir);
++
++    for (const auto & entry : DirectoryIterator{"/"}) {
++        checkInterrupt();
++        const auto & src = entry.path();
++        std::filesystem::path dst = tmpDir / entry.path().filename();
++        if (pathExists(dst))
++            continue;
++        auto st = entry.symlink_status();
++        if (std::filesystem::is_directory(st)) {
++            if (mkdir(dst.c_str(), 0700) == -1)
++                throw SysError("creating directory %s", PathFmt(dst));
++            if (mount(src.c_str(), dst.c_str(), "", MS_BIND | MS_REC, 0) == -1)
++                throw SysError("mounting %s on %s", PathFmt(src), PathFmt(dst));
++        } else if (std::filesystem::is_symlink(st))
++            createSymlink(readLink(src), dst);
++    }
++
++    char * cwd = getcwd(0, 0);
++    if (!cwd)
++        throw SysError("getting current directory");
++    Finally freeCwd([&]() { free(cwd); });
++
++    if (mount(tmpDir.c_str(), tmpDir.c_str(), nullptr, MS_BIND, nullptr) == -1)
++        throw SysError("mounting execution root %s", PathFmt(tmpDir));
++    auto oldRoot = tmpDir / ".old-root";
++    if (mkdir(oldRoot.c_str(), 0700) == -1)
++        throw SysError("creating old execution root");
++    if (syscall(SYS_pivot_root, tmpDir.c_str(), oldRoot.c_str()) == -1)
++        throw SysError("pivoting execution root %s", PathFmt(tmpDir));
++    if (chdir("/") == -1 || umount2("/.old-root", MNT_DETACH) == -1)
++        throw SysError("detaching old execution root");
++    if (rmdir("/.old-root") == -1)
++        throw SysError("removing old execution root mountpoint");
++
++    if (chdir(cwd) == -1)
++        throw SysError("chdir to '%s' in execution root", cwd);

@@ -8,8 +8,10 @@
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAll = f: nixpkgs.lib.genAttrs systems (s: f nixpkgs.legacyPackages.${s});
 
-      # The python library and its one executable, `nixsci`.
-      library = py: {
+      rootlessBootstrap = pkgs: import ./deploy/nix-bootstrap.nix { inherit pkgs; };
+
+      # The Python library ships the pinned Nix helper used by every compute target.
+      library = pkgs: py: {
         nixsci = py.buildPythonPackage {
           pname = "nixsci";
           version = "0.1.0";
@@ -20,6 +22,11 @@
           pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" ];
           # A store path is immutable: bytecode written into one changes its hash and Nix then refuses it.
           makeWrapperArgs = [ "--set" "PYTHONDONTWRITEBYTECODE" "1" ];
+          postInstall = ''
+            bootstrap=$out/${pkgs.python3.sitePackages}/nixsci/deploy/_bootstrap
+            mkdir -p "$bootstrap"
+            ln -s "${rootlessBootstrap pkgs}/bin/nix" "$bootstrap/nix"
+          '';
           meta.mainProgram = "nixsci";
         };
       };
@@ -27,12 +34,13 @@
       # `pkgs.python3.withPackages (p: [ p.nixsci ])` in any consumer that applies this.
       overlays.default = final: prev: {
         pythonPackagesExtensions = prev.pythonPackagesExtensions ++ [
-          (pyfinal: pyprev: library pyfinal)
+          (pyfinal: pyprev: library final pyfinal)
         ];
       };
 
       # Wrap a program so it becomes a nixsci experiment closure.
       #   mkExperiment pkgs { name = "x"; program = "${drv}/bin/x"; metadata = {...}; }
+      lib.rootlessBootstrap = { pkgs }: rootlessBootstrap pkgs;
       lib.mkExperiment = pkgs: import ./lab/nix/mk-experiment.nix { inherit pkgs; };
       # Experiments and analyses as Nix values. `project` is the calling flake's `self`.
       #   lab = nixsci.lib.lab { inherit pkgs; project = self; };
@@ -45,11 +53,12 @@
         };
 
       packages = forAll (pkgs:
-        let pp = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).pkgs; in rec {
+        let pp = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pkgs pyfinal; }).pkgs; in rec {
           default = nixsci;
+          nix-rootless = self.lib.rootlessBootstrap { inherit pkgs; };
           nixsci = pp.nixsci;
           # The interpreter that has nixsci, for derivations that run its modules.
-          python = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).withPackages (p: [ p.nixsci ]);
+          python = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pkgs pyfinal; }).withPackages (p: [ p.nixsci ]);
           # An analysis is a derivation: `nix build .#demo-curves`.
           demo-curves = self.lab.${pkgs.stdenv.hostPlatform.system}.analyses.demo-curves;
           # `from nixsci import lab` with no dependencies: safe to put in any experiment closure.
@@ -73,6 +82,18 @@
         });
 
       experiments = forAll (pkgs: {
+        # This fixture qualifies the patched namespace root before a candidate enters bwrap.
+        namespace-proof =
+          let
+            run = pkgs.writeShellApplication {
+              name = "namespace-proof";
+              runtimeInputs = [ pkgs.python3 pkgs.bubblewrap pkgs.util-linux pkgs.coreutils pkgs.gcc ];
+              text = ''exec ${pkgs.python3}/bin/python ${./deploy/tests/rootless-proof.py}'';
+            };
+          in pkgs.runCommand "namespace-proof" { } ''
+            mkdir -p "$out"
+            printf '%s\\n' '{"program": "${run}/bin/namespace-proof"}' > "$out/experiment.json"
+          '';
         # Self-test fixture: a closure that reports where it ran, to exercise any target end to end.
         hello =
           let
@@ -134,8 +155,7 @@
       });
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.python3 pkgs.python3Packages.pytest pkgs.python3Packages.hypothesis pkgs.python3Packages.pyarrow pkgs.git ];
-          shellHook = ''export PYTHONPATH="$(dirname "$PWD"):$PYTHONPATH"'';
+          packages = [ self.packages.${pkgs.system}.python pkgs.python3Packages.pytest pkgs.python3Packages.hypothesis pkgs.python3Packages.pyarrow pkgs.git ];
         };
       });
     };

@@ -85,8 +85,8 @@ pkgs.writeText "providers.json" (builtins.toJSON { providers.lab = {
   use = "static";                  # hosts you reserved yourself, reached over ssh
   user = "me";
   jump = "me@gateway";             # ProxyJump chain, optional
-  # workdir defaults to /tmp/<user>-nix-deploy: rootless store, runs and shipped nix live there
-  # bootstrap defaults to "nixpkgs#nixStatic" (see below): no binary path, no hash to maintain
+  # workdir defaults to /tmp/<user>-nix-deploy: private store, runs and shipped nix live there
+  # the patched static Nix helper is embedded in the Nix-built nixsci package
   ssh_options = [ "-o" "StrictHostKeyChecking=accept-new" ];
   ready_timeout = 180;             # hosts that just booted may refuse ssh for a while
   # ssh_command = [ "oarsh" ];     # a site's own ssh wrapper; scp_command, rsh likewise
@@ -101,10 +101,11 @@ with a shared-credential broker, the same name can instead say
 A machine-wide file, `/etc/nixsci/providers.json`, has the same format and
 fills in names the user's own file does not set; the user's file wins.
 
-**The shipped Nix is a flake reference.** Hosts that have no Nix get a static `nix` binary.
-`bootstrap` is a flake reference (default `nixpkgs#nixStatic`): nixsci.deploy builds it on the
-controller, hashes it itself, and the flake lock is what pins it. A plain file path still
-works, but then it must come with its `bootstrap_sha256`.
+**The shipped Nix belongs to nixsci.** Hosts that have no Nix get the static Nix 2.34.8
+binary embedded in the Nix-built `nixsci` package. Its source revision is fixed by
+`flake.lock`, and its namespace-root patch is in `deploy/nix-namespace-root.patch`.
+The controller hashes that binary before shipping it; any explicit bootstrap path must
+match the embedded binary byte for byte.
 
 **The ssh layer is configuration, not code.** Per target (or per provider default):
 `ssh_command` and `scp_command` (default `ssh` and `scp -q`), `ssh_options` (extra
@@ -147,18 +148,17 @@ The file is `builtins.toJSON` of a value like this one:
   backend = "ssh";
   host = "user@host";
   system = "x86_64-linux";
-  store = "/tmp/user/store";         # rootless store on the host
+  store = "/tmp/user/store";         # private store root on the host
   run_root = "/tmp/user/runs";
-  rootless = true;
-  bootstrap = "/local/path/to/nix-static";
-  bootstrap_sha256 = "...";
+  rootless = true;                    # required; false is rejected
   remote_bootstrap = "/tmp/user/bin/nix";
   ssh_options = [ "-o" "ProxyJump=user@jump" ];
 }; }
 ```
 
-`backend = "native"` runs on the controller's own store (`rootless = false`,
-`store = "/nix/store"`).
+`backend = "native"` also uses a private store. The `local` provider places it
+beside the run directories under the user's state directory; `/nix/store` is never
+a compute-target store.
 
 ## Python API
 
@@ -221,33 +221,8 @@ saw, and its `NIX_DEPLOY_ENTER`. The tree must be committed first.
 
 ## Status
 
-Verified end to end:
-
-- `local` provider and `native` backend, on a laptop and on a server.
-- The refactored design (no scheduler code, flake-reference bootstrap `nixpkgs#nixStatic`, `static`
-  provider with a gateway `jump`) end to end on 2 hand-reserved Grid'5000 nodes at Lille: group
-  launch, node-to-node ssh through `NIX_DEPLOY_RSH`, command in the peer's store view through
-  `NIX_DEPLOY_ENTER`, job released afterwards.
-- The `ssh` backend on real Grid'5000 nodes (1 and 2 Lille nodes, reserved by hand, reached
-  through the site gateway): ship a static Nix, ship and verify the closure by NAR hash
-  under a rootless store, run it inside that store view, read its log, fetch results.
-- Multi-host: `group.launch` stages the closure on both nodes and starts the program on
-  the first; from there the program reached the second node with `$NIX_DEPLOY_RSH` and ran
-  a command inside that node's store view with `$NIX_DEPLOY_ENTER`. The hostfile reached
-  the job through the ssh backend's `put` path.
-- Persistent leases through the CLI, option validation, walltime expiry, `put`.
-
-Not verified on real machines: `tunnel(handle, port, host=NODE)` to a second host (it is
-a plain `ssh -L`), and the ssh-layer settings `ssh_command`/`scp_command`/`jump` against a
-real site wrapper (unit-tested for command assembly).
-
-Learned on real nodes: a scheduler may report a job `Running` before every node accepts
-the user's key, hence `ready_timeout`; and inside a rootless store the program runs in a
-user namespace where root-owned `/etc` files look owned by `nobody`, so ssh refuses the
-system config, which is why the default `NIX_DEPLOY_RSH` is `ssh -F /dev/null ...`.
-
-Limits to know: the ssh backend needs unprivileged user namespaces on the target
-(`nix --store` with a local root; present on Grid'5000 nodes); a bare static Nix has no
-config, so every invocation passes `--extra-experimental-features nix-command` itself;
-`x86_64-linux` and `aarch64-linux` only; GPU toolchains are the experiment's business,
-not nixsci.deploy's.
+Earlier runs exercised transfer and lifecycle behavior but did not test the
+namespace-root and nested-user-namespace contract in this branch. They do not
+establish this claim. `.tmp/rootless-experiments/REPORT.md` records the branch's
+host results; a pass requires the NAR map, namespace evidence, denial checks, and
+teardown, not merely a successful command exit.
