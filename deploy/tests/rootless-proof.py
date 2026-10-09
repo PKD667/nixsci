@@ -183,7 +183,9 @@ def process_status(pid):
 
 def inspect_nested_host_identity(prefix, python, cwd, expected_uid, expected_gid):
     reader, writer = os.pipe()
-    separator = prefix.rindex("--")
+    if not prefix or prefix[-1] != "--":
+        raise RuntimeError("grader sandbox prefix lacks its command separator")
+    separator = len(prefix) - 1
     command = prefix[:separator] + ["--info-fd", str(writer)] + prefix[separator:]
     command.extend([python, "-c", "import time; time.sleep(2)"])
     process = None
