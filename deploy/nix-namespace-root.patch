@@ -90,7 +90,7 @@
 +        throw SysError("getting current directory");
 +    Finally freeCwd([&]() { free(cwd); });
 +
-+    if (mount(tmpDir.c_str(), tmpDir.c_str(), nullptr, MS_BIND, nullptr) == -1)
++    if (mount(tmpDir.c_str(), tmpDir.c_str(), nullptr, MS_BIND | MS_REC, nullptr) == -1)
 +        throw SysError("mounting execution root %s", PathFmt(tmpDir));
 +    auto oldRoot = tmpDir / ".old-root";
 +    if (mkdir(oldRoot.c_str(), 0700) == -1)
