@@ -181,13 +181,52 @@ def process_status(pid):
     return fields
 
 
+def process_start_time(pid):
+    return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19]
+
+
+def process_children(pid):
+    try:
+        raw = Path(f"/proc/{pid}/task/{pid}/children").read_text().split()
+    except (FileNotFoundError, ProcessLookupError):
+        return []
+    return [int(child) for child in raw]
+
+
+def find_sandbox_command(root_pid, python, token, timeout):
+    expected_exe = str(Path(python).resolve())
+    started = time.monotonic()
+    while time.monotonic() - started < timeout:
+        pending, visited = [root_pid], set()
+        while pending:
+            pid = pending.pop()
+            if pid in visited:
+                continue
+            visited.add(pid)
+            try:
+                exe = os.readlink(f"/proc/{pid}/exe")
+                cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode()
+                start = process_start_time(pid)
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            if exe == expected_exe and token in cmdline:
+                if process_start_time(pid) != start:
+                    raise RuntimeError(f"sandbox PID {pid} changed identity while being inspected")
+                return pid, start
+            pending.extend(process_children(pid))
+        time.sleep(0.05)
+    raise TimeoutError("bwrap info PID tree did not contain the declared Python candidate")
+
+
 def inspect_nested_host_identity(prefix, python, cwd, expected_uid, expected_gid):
     reader, writer = os.pipe()
     if not prefix or prefix[-1] != "--":
         raise RuntimeError("grader sandbox prefix lacks its command separator")
     separator = len(prefix) - 1
     command = prefix[:separator] + ["--info-fd", str(writer)] + prefix[separator:]
-    command.extend([python, "-c", "import time; time.sleep(2)"])
+    token = f"nixsci-host-identity-{os.getpid()}-{time.time_ns():x}"
+    code = f"import time; time.sleep(4); print({token!r}, flush=True)"
+    command.extend([python, "-c", code])
     process = None
     with tempfile.TemporaryFile(dir=cwd) as out, tempfile.TemporaryFile(dir=cwd) as err:
         try:
@@ -204,37 +243,30 @@ def inspect_nested_host_identity(prefix, python, cwd, expected_uid, expected_gid
             if not ready:
                 raise TimeoutError("bubblewrap did not publish its outer-PID identity")
             info = json.loads(os.read(reader, 65536).decode())
-            host_pid = int(info["child-pid"])
-            started = time.monotonic()
+            container_pid = int(info["child-pid"])
+            host_pid, start = find_sandbox_command(container_pid, python, token, 5)
             fields = process_status(host_pid)
-            command_line = (Path(f"/proc/{host_pid}/cmdline").read_bytes().replace(b"\\0", b" ").decode())
-            while python not in command_line:
-                if process.poll() is not None:
-                    raise RuntimeError("bubblewrap child exited before its host identity could be read")
-                if time.monotonic() - started >= 5:
-                    raise TimeoutError("bubblewrap child did not exec the declared probe within 5 seconds")
-                time.sleep(0.05)
-                fields = process_status(host_pid)
-                command_line = (Path(f"/proc/{host_pid}/cmdline").read_bytes().replace(b"\\0", b" ").decode())
             uid = [int(value) for value in fields["Uid"].split()]
             gid = [int(value) for value in fields["Gid"].split()]
             capabilities = fields["CapEff"]
-            bounding = fields["CapBnd"]
-            no_new_privs = fields["NoNewPrivs"]
             if uid != [expected_uid] * 4 or gid != [expected_gid] * 4:
                 raise RuntimeError(f"nested candidate host credentials changed: uid={uid!r} gid={gid!r}")
             if int(capabilities, 16) != 0:
                 raise RuntimeError(f"nested candidate host CapEff is not zero: {capabilities}")
+            if process_start_time(host_pid) != start:
+                raise RuntimeError(f"sandbox PID {host_pid} changed identity while being inspected")
             if process.wait(timeout=5) != 0:
                 raise RuntimeError("nested PID probe exited nonzero")
             return {
                 "bwrap_info": info,
+                "container_pid": container_pid,
                 "host_pid": host_pid,
+                "start_time": start,
                 "uid": uid,
                 "gid": gid,
                 "cap_eff": capabilities,
-                "cap_bnd": bounding,
-                "no_new_privs": no_new_privs,
+                "cap_bnd": fields["CapBnd"],
+                "no_new_privs": fields["NoNewPrivs"],
             }
         finally:
             if process is not None and process.poll() is None:
