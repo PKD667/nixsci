@@ -92,7 +92,7 @@
             };
           in pkgs.runCommand "namespace-proof" { } ''
             mkdir -p "$out"
-            printf '%s\\n' '{"program": "${run}/bin/namespace-proof"}' > "$out/experiment.json"
+            printf '%s\n' '{"program": "${run}/bin/namespace-proof"}' > "$out/experiment.json"
           '';
         # Self-test fixture: a closure that reports where it ran, to exercise any target end to end.
         hello =
