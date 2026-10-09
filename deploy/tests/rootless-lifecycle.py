@@ -52,24 +52,65 @@ def remote_host_snapshot(backend):
     return snapshot
 
 
-def target_process_credentials(backend, handle):
-    pid = int(handle["pid"])
+def target_process_exists(backend, pid):
     if isinstance(backend, SSH):
-        text = backend._remote(f"cat /proc/{pid}/status").stdout.decode()
+        result = backend._remote(f"test -r /proc/{pid}/stat", check=False)
+        if result.returncode == 1:
+            return False
+        if result.returncode != 0:
+            raise RuntimeError(f"cannot inspect target PID {pid}: exit {result.returncode}")
+        return True
+    return Path(f"/proc/{pid}/stat").exists()
+
+
+def target_process_record(backend, pid):
+    if isinstance(backend, SSH):
+        status = backend._remote(f"cat /proc/{pid}/status").stdout.decode()
+        stat = backend._remote(f"cat /proc/{pid}/stat").stdout.decode()
+        exe = backend._remote(f"readlink /proc/{pid}/exe").stdout.decode().strip()
     else:
-        text = Path(f"/proc/{pid}/status").read_text()
+        status = Path(f"/proc/{pid}/status").read_text()
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        exe = os.readlink(f"/proc/{pid}/exe")
     fields = {}
-    for line in text.splitlines():
+    for line in status.splitlines():
         if ":" in line:
             name, value = line.split(":", 1)
             fields[name] = value.strip()
+    rest = stat.rsplit(")", 1)[1].split()
     return {
+        "pid": pid,
+        "state": rest[0],
+        "start_time": rest[19],
+        "exe": exe,
         "uid": [int(value) for value in fields["Uid"].split()],
         "gid": [int(value) for value in fields["Gid"].split()],
         "cap_eff": fields["CapEff"],
         "cap_bnd": fields["CapBnd"],
         "no_new_privs": fields["NoNewPrivs"],
     }
+
+
+def target_process_credentials(backend, handle):
+    record = target_process_record(backend, int(handle["pid"]))
+    if record["start_time"] != str(handle["start_time"]):
+        raise RuntimeError(f"target PID {handle['pid']} changed identity")
+    return record
+
+
+def wait_until_target_dead(backend, pid, start_time, timeout):
+    started = time.monotonic()
+    while True:
+        if not target_process_exists(backend, pid):
+            return True, time.monotonic() - started
+        record = target_process_record(backend, pid)
+        if record["start_time"] != str(start_time):
+            raise RuntimeError(f"target PID {pid} was reused before teardown")
+        if record["state"] == "Z":
+            return True, time.monotonic() - started
+        if time.monotonic() - started >= timeout:
+            return False, time.monotonic() - started
+        time.sleep(0.1)
 
 
 def elapsed(call):
@@ -121,6 +162,20 @@ def wait_for_proof(backend, handle, timeout):
 def wait_until_dead(backend, handle, timeout):
     started = time.monotonic()
     while backend.alive(handle):
+        if time.monotonic() - started >= timeout:
+            return False, time.monotonic() - started
+        time.sleep(0.1)
+    return True, time.monotonic() - started
+
+
+def wait_until_target_pid_dead(backend, pid, start_time, timeout):
+    started = time.monotonic()
+    while target_process_exists(backend, pid):
+        record = target_process_record(backend, pid)
+        if record["start_time"] != str(start_time):
+            raise RuntimeError(f"nested PID {pid} was reused before teardown")
+        if record["state"] == "Z":
+            return True, time.monotonic() - started
         if time.monotonic() - started >= timeout:
             return False, time.monotonic() - started
         time.sleep(0.1)
@@ -288,6 +343,8 @@ def main():
 
     hold_id = f"hold-{time.time_ns():x}"
     held = None
+    nested_identity = None
+    nested_dead = False
     stop_attempted = False
     held_remove_attempted = False
     try:
@@ -302,6 +359,16 @@ def main():
         if fetched_proof != proof:
             raise RuntimeError("fetched proof differs from the target proof")
         metrics["fetched_proof_sha256"] = fetched_hash
+        nested_identity = proof["sandbox"]["candidate_host_identity"]
+        nested_host_credentials = target_process_record(backend, nested_identity["host_pid"])
+        if (
+            nested_host_credentials["start_time"] != nested_identity["start_time"]
+            or nested_host_credentials["exe"] != nested_identity["exe"]
+            or nested_host_credentials["uid"] != [before["uid"]] * 4
+            or nested_host_credentials["gid"] != [before["gid"]] * 4
+        ):
+            raise RuntimeError(f"nested candidate host identity changed: {nested_host_credentials!r}")
+        metrics["nested_candidate_host_identity"] = nested_host_credentials
         metrics["process_identity"] = {
             "pid": held["pid"],
             "pgid": held["pgid"],
@@ -320,6 +387,12 @@ def main():
         dead, termination_seconds = wait_until_dead(backend, held, 10)
         if not dead:
             raise TimeoutError("SIGTERM did not terminate the held process group within 10 seconds")
+        nested_dead, nested_termination_seconds = wait_until_target_pid_dead(
+            backend, nested_identity["host_pid"], nested_identity["start_time"], 10
+        )
+        if not nested_dead:
+            raise TimeoutError("bwrap child survived its parent within 10 seconds")
+        metrics["nested_termination_seconds"] = nested_termination_seconds
         held_remove_attempted = True
         backend.remove(held)
         if backend.exists(held, "."):
@@ -335,12 +408,21 @@ def main():
                 dead, _ = wait_until_dead(backend, held, 35)
                 if not dead:
                     raise TimeoutError("owned proof process remained alive during teardown")
+            if nested_identity is not None and not nested_dead:
+                nested_dead, _ = wait_until_target_pid_dead(
+                    backend, nested_identity["host_pid"], nested_identity["start_time"], 35
+                )
+                if not nested_dead:
+                    raise TimeoutError("owned bwrap child remained alive during teardown")
             if not held_remove_attempted:
                 held_remove_attempted = True
                 backend.remove(held)
 
     complete_id = f"complete-{time.time_ns():x}"
     complete = None
+    complete_proof = None
+    complete_nested = None
+    complete_nested_dead = False
     complete_stop_attempted = False
     complete_remove_attempted = False
     try:
@@ -351,9 +433,16 @@ def main():
         )
         metrics["complete_launch_seconds"] = launch_seconds
         complete_proof = wait_for_proof(backend, complete, 120)
+        complete_nested = complete_proof["sandbox"]["candidate_host_identity"]
         dead, runtime_seconds = wait_until_dead(backend, complete, 120)
         if not dead:
             raise TimeoutError("completed proof process remained alive")
+        complete_nested_dead, nested_runtime = wait_until_target_pid_dead(
+            backend, complete_nested["host_pid"], complete_nested["start_time"], 10
+        )
+        if not complete_nested_dead:
+            raise TimeoutError("completed bwrap child remained alive after its parent exited")
+        metrics["complete_nested_termination_seconds"] = nested_runtime
         log = backend.read_file(complete, "process.log")
         if log is None or "\"status\": \"pass\"" not in log:
             raise RuntimeError(f"completed proof log lacks its pass record: {log!r}")
@@ -380,6 +469,12 @@ def main():
                 dead, _ = wait_until_dead(backend, complete, 35)
                 if not dead:
                     raise TimeoutError("owned completed proof process remained alive during teardown")
+            if complete_nested is not None and not complete_nested_dead:
+                complete_nested_dead, _ = wait_until_target_pid_dead(
+                    backend, complete_nested["host_pid"], complete_nested["start_time"], 35
+                )
+                if not complete_nested_dead:
+                    raise TimeoutError("owned completed bwrap child remained alive during teardown")
             if not complete_remove_attempted:
                 complete_remove_attempted = True
                 backend.remove(complete)
