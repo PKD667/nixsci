@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import signal
 import socket
+import select
 import sys
 import subprocess
 import tempfile
@@ -86,28 +87,6 @@ static int cap_eff(char *value, size_t size) {
 }
 
 int main(int argc, char **argv) {
-    if (argc == 3 && strcmp(argv[1], "identity") == 0) {
-        FILE *status = fopen("/proc/self/status", "r");
-        char line[256];
-        long host_pid = -1;
-        if (!status) return 40;
-        while (fgets(line, sizeof(line), status)) {
-            if (strncmp(line, "NSpid:", 6) == 0) {
-                char *p = line + 6;
-                while (*p == ' ' || *p == '\t') p++;
-                host_pid = strtol(p, NULL, 10);
-                break;
-            }
-        }
-        fclose(status);
-        if (host_pid <= 0) return 41;
-        FILE *marker = fopen(argv[2], "w");
-        if (!marker) return 42;
-        fprintf(marker, "%ld\n", host_pid);
-        fclose(marker);
-        sleep(2);
-        return 0;
-    }
     if (argc == 2 && strcmp(argv[1], "output") == 0) {
         char block[65536] = {0};
         for (int i = 0; i < 128; i++) {
@@ -202,41 +181,68 @@ def process_status(pid):
     return fields
 
 
-def inspect_nested_host_identity(prefix, binary, cwd, expected_uid, expected_gid):
-    marker = cwd / f"nested-host-pid-{os.getpid()}"
+def inspect_nested_host_identity(prefix, python, cwd, expected_uid, expected_gid):
+    reader, writer = os.pipe()
+    separator = prefix.rindex("--")
+    command = prefix[:separator] + ["--info-fd", str(writer)] + prefix[separator:]
+    command.extend([python, "-c", "import time; time.sleep(2)"])
+    process = None
     with tempfile.TemporaryFile(dir=cwd) as out, tempfile.TemporaryFile(dir=cwd) as err:
-        process = subprocess.Popen(
-            prefix + [str(binary), "identity", str(marker)],
-            cwd=cwd,
-            stdout=out,
-            stderr=err,
-        )
-        started = time.monotonic()
         try:
-            while not marker.exists():
-                if process.poll() is not None:
-                    raise RuntimeError("nested PID probe exited before publishing its host PID")
-                if time.monotonic() - started >= 5:
-                    raise TimeoutError("nested PID probe did not publish its host PID within 5 seconds")
-                time.sleep(0.05)
-            host_pid = int(marker.read_text())
+            process = subprocess.Popen(
+                command,
+                cwd=cwd,
+                stdout=out,
+                stderr=err,
+                pass_fds=(writer,),
+            )
+            os.close(writer)
+            writer = -1
+            ready, _, _ = select.select([reader], [], [], 5)
+            if not ready:
+                raise TimeoutError("bubblewrap did not publish its outer-PID identity")
+            info = json.loads(os.read(reader, 65536).decode())
+            host_pid = int(info["child-pid"])
+            started = time.monotonic()
             fields = process_status(host_pid)
+            command_line = (Path(f"/proc/{host_pid}/cmdline").read_bytes().replace(b"\\0", b" ").decode())
+            while python not in command_line:
+                if process.poll() is not None:
+                    raise RuntimeError("bubblewrap child exited before its host identity could be read")
+                if time.monotonic() - started >= 5:
+                    raise TimeoutError("bubblewrap child did not exec the declared probe within 5 seconds")
+                time.sleep(0.05)
+                fields = process_status(host_pid)
+                command_line = (Path(f"/proc/{host_pid}/cmdline").read_bytes().replace(b"\\0", b" ").decode())
             uid = [int(value) for value in fields["Uid"].split()]
             gid = [int(value) for value in fields["Gid"].split()]
             capabilities = fields["CapEff"]
+            bounding = fields["CapBnd"]
+            no_new_privs = fields["NoNewPrivs"]
             if uid != [expected_uid] * 4 or gid != [expected_gid] * 4:
                 raise RuntimeError(f"nested candidate host credentials changed: uid={uid!r} gid={gid!r}")
-            if int(capabilities, 16) != 0:
-                raise RuntimeError(f"nested candidate host CapEff is not zero: {capabilities}")
+            if int(capabilities, 16) != 0 or int(bounding, 16) != 0 or no_new_privs != "1":
+                raise RuntimeError(
+                    f"nested candidate host privileges remain: CapEff={capabilities} CapBnd={bounding} NNP={no_new_privs}"
+                )
             if process.wait(timeout=5) != 0:
                 raise RuntimeError("nested PID probe exited nonzero")
-            return {"host_pid": host_pid, "uid": uid, "gid": gid, "cap_eff": capabilities}
+            return {
+                "bwrap_info": info,
+                "host_pid": host_pid,
+                "uid": uid,
+                "gid": gid,
+                "cap_eff": capabilities,
+                "cap_bnd": bounding,
+                "no_new_privs": no_new_privs,
+            }
         finally:
-            if process.poll() is None:
+            if process is not None and process.poll() is None:
                 process.kill()
                 process.wait(timeout=5)
-            if marker.exists():
-                marker.unlink()
+            if writer >= 0:
+                os.close(writer)
+            os.close(reader)
 
 
 def leftover_time_probe(token):
@@ -262,8 +268,8 @@ def main():
     if (
         declared_environment != "rootless-declared-value"
         or undeclared_canary_present
-        or os.getuid() != expected_uid
-        or os.getgid() != expected_gid
+        or os.getuid() != 0
+        or os.getgid() != 0
     ):
         raise RuntimeError("payload credentials or environment differed from the declared target")
     tools = {name: shutil.which(name) for name in ("bwrap", "prlimit", "true", "tcc", "python3")}
@@ -293,6 +299,8 @@ def main():
         "gid": os.getgid(),
         "uid_status": status_value("Uid"),
         "gid_status": status_value("Gid"),
+        "cap_bnd": status_value("CapBnd"),
+        "no_new_privs": status_value("NoNewPrivs"),
         "declared_environment_value": declared_environment,
         "undeclared_controller_canary_present": undeclared_canary_present,
         "uid_map": Path("/proc/self/uid_map").read_text().strip(),
@@ -309,8 +317,10 @@ def main():
     gid_map = [int(value) for value in outer["gid_map"].split()]
     if int(outer["cap_eff"], 16) != 0:
         raise RuntimeError(f"Nix namespace setup retained effective capabilities: {outer['cap_eff']}")
-    if uid_map != [os.getuid(), os.getuid(), 1] or gid_map != [os.getgid(), os.getgid(), 1]:
+    if uid_map != [0, expected_uid, 1] or gid_map != [0, expected_gid, 1]:
         raise RuntimeError(f"Nix namespace changed the host UID/GID mapping: {outer!r}")
+    if int(outer["cap_bnd"], 16) != 0 or outer["no_new_privs"] != "1":
+        raise RuntimeError(f"Nix namespace retained privilege-gain capabilities: {outer!r}")
     if outer["root_stat"] != outer["proc_root_stat"]:
         raise RuntimeError(f"execution root mismatch: {outer!r}")
 
@@ -394,7 +404,7 @@ def main():
             if len(mapped) != 3 or mapped[0] != int(nested["uid"]) or mapped[2] != 1:
                 raise RuntimeError(f"nested namespace has an unexpected UID map: {nested!r}; outer={outer!r}")
             nested_host_identity = inspect_nested_host_identity(
-                prefix, binary, cwd, expected_uid, expected_gid
+                prefix, tools["python3"], cwd, expected_uid, expected_gid
             )
 
             output = invoke(prefix, [str(binary), "output"], cwd)

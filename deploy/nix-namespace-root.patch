@@ -1,8 +1,11 @@
 --- a/run.cc
 +++ b/run.cc
-@@ -19,0 +20 @@
+@@ -19,0 +20,4 @@
++#  include <linux/capability.h>
++#  include <linux/securebits.h>
++#  include <sys/prctl.h>
 +#  include <sys/syscall.h>
-@@ -198,52 +199,49 @@
+@@ -198,35 +202,67 @@
 -        /* Try with just CLONE_NEWNS in case user namespaces are
 -           specifically disabled. */
 -        if (unshare(CLONE_NEWNS) == -1)
@@ -38,23 +41,6 @@
 -                    throw SysError("mounting %s on %s", PathFmt(src), PathFmt(dst));
 -            } else if (std::filesystem::is_symlink(st))
 -                createSymlink(readLink(src), dst);
--        }
--
--        char * cwd = getcwd(0, 0);
--        if (!cwd)
--            throw SysError("getting current directory");
--        Finally freeCwd([&]() { free(cwd); });
--
--        if (chroot(tmpDir.c_str()) == -1)
--            throw SysError("chrooting into %s", PathFmt(tmpDir));
--
--        if (chdir(cwd) == -1)
--            throw SysError("chdir to '%s' in chroot", cwd);
--    } else if (
--        mount("overlay", storeDir.c_str(), "overlay", MS_MGC_VAL, fmt("lowerdir=%s:%s", storeDir, realStoreDir).c_str())
--        == -1)
--        if (mount(realStoreDir.c_str(), storeDir.c_str(), "", MS_BIND, 0) == -1)
--            throw SysError("mounting '%s' on '%s'", realStoreDir, storeDir);
 +        throw SysError("creating private user and mount namespaces; unprivileged user namespaces must be enabled");
 +
 +    if (mount(nullptr, "/", nullptr, MS_REC | MS_PRIVATE, nullptr) == -1)
@@ -104,3 +90,55 @@
 +
 +    if (chdir(cwd) == -1)
 +        throw SysError("chdir to '%s' in execution root", cwd);
++
++    writeFile(std::filesystem::path{"/proc/self/setgroups"}, "deny");
++    writeFile(std::filesystem::path{"/proc/self/uid_map"}, fmt("%d %d %d", 0, uid, 1));
++    writeFile(std::filesystem::path{"/proc/self/gid_map"}, fmt("%d %d %d", 0, gid, 1));
++
++    /* A root ID inside this namespace maps only to the caller. Nested
++       sandboxes can map through it; remove every setup capability before exec. */
++    auto securebits = SECBIT_NOROOT | SECBIT_NOROOT_LOCKED | SECBIT_NO_SETUID_FIXUP
++        | SECBIT_NO_SETUID_FIXUP_LOCKED | SECBIT_NO_CAP_AMBIENT_RAISE
++        | SECBIT_NO_CAP_AMBIENT_RAISE_LOCKED;
++    if (prctl(PR_SET_SECUREBITS, securebits, 0, 0, 0) == -1)
++        throw SysError("locking unprivileged execution capabilities");
++    for (unsigned int capability = 0; capability <= CAP_LAST_CAP; ++capability) {
++        auto present = prctl(PR_CAPBSET_READ, capability, 0, 0, 0);
++        if (present == -1) {
++            if (errno == EINVAL)
++                break;
++            throw SysError("reading capability bounding set");
+@@ -234,20 +270,13 @@
+-
+-        char * cwd = getcwd(0, 0);
+-        if (!cwd)
+-            throw SysError("getting current directory");
+-        Finally freeCwd([&]() { free(cwd); });
+-
+-        if (chroot(tmpDir.c_str()) == -1)
+-            throw SysError("chrooting into %s", PathFmt(tmpDir));
+-
+-        if (chdir(cwd) == -1)
+-            throw SysError("chdir to '%s' in chroot", cwd);
+-    } else if (
+-        mount("overlay", storeDir.c_str(), "overlay", MS_MGC_VAL, fmt("lowerdir=%s:%s", storeDir, realStoreDir).c_str())
+-        == -1)
+-        if (mount(realStoreDir.c_str(), storeDir.c_str(), "", MS_BIND, 0) == -1)
+-            throw SysError("mounting '%s' on '%s'", realStoreDir, storeDir);
+-
+-    writeFile(std::filesystem::path{"/proc/self/setgroups"}, "deny");
+-    writeFile(std::filesystem::path{"/proc/self/uid_map"}, fmt("%d %d %d", uid, uid, 1));
+-    writeFile(std::filesystem::path{"/proc/self/gid_map"}, fmt("%d %d %d", gid, gid, 1));
++        if (present && prctl(PR_CAPBSET_DROP, capability, 0, 0, 0) == -1)
++            throw SysError("dropping capability %d from bounding set", capability);
++    }
++    if (prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0) == -1)
++        throw SysError("clearing ambient capabilities");
++    struct __user_cap_header_struct capHeader{};
++    capHeader.version = _LINUX_CAPABILITY_VERSION_3;
++    struct __user_cap_data_struct capData[2]{};
++    if (syscall(SYS_capset, &capHeader, capData) == -1)
++        throw SysError("dropping setup capabilities");
++    if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1)
++        throw SysError("preventing privilege gain on exec");
++

@@ -52,6 +52,26 @@ def remote_host_snapshot(backend):
     return snapshot
 
 
+def target_process_credentials(backend, handle):
+    pid = int(handle["pid"])
+    if isinstance(backend, SSH):
+        text = backend._remote(f"cat /proc/{pid}/status").stdout.decode()
+    else:
+        text = Path(f"/proc/{pid}/status").read_text()
+    fields = {}
+    for line in text.splitlines():
+        if ":" in line:
+            name, value = line.split(":", 1)
+            fields[name] = value.strip()
+    return {
+        "uid": [int(value) for value in fields["Uid"].split()],
+        "gid": [int(value) for value in fields["Gid"].split()],
+        "cap_eff": fields["CapEff"],
+        "cap_bnd": fields["CapBnd"],
+        "no_new_privs": fields["NoNewPrivs"],
+    }
+
+
 def elapsed(call):
     started = time.monotonic()
     value = call()
@@ -287,6 +307,16 @@ def main():
             "pgid": held["pgid"],
             "start_time": held["start_time"],
         }
+        host_credentials = target_process_credentials(backend, held)
+        if (
+            host_credentials["uid"] != [before["uid"]] * 4
+            or host_credentials["gid"] != [before["gid"]] * 4
+            or int(host_credentials["cap_eff"], 16) != 0
+            or int(host_credentials["cap_bnd"], 16) != 0
+            or host_credentials["no_new_privs"] != "1"
+        ):
+            raise RuntimeError(f"target process lost its unprivileged host identity: {host_credentials!r}")
+        metrics["target_process_host_credentials"] = host_credentials
         stop_attempted = True
         _, stop_seconds = elapsed(lambda: backend.stop(held))
         dead, termination_seconds = wait_until_dead(backend, held, 10)

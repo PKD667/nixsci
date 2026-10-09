@@ -12,6 +12,7 @@ from hypothesis import strategies as st
 from nixsci.deploy import providers
 from nixsci.deploy.backend import Backend
 from nixsci.deploy.model import Closure
+from nixsci.deploy.native import Native
 from nixsci.deploy.ssh import SSH
 
 HOST = st.from_regex(r"[a-z][a-z0-9-]{0,15}", fullmatch=True)
@@ -45,6 +46,15 @@ class StaticHosts(unittest.TestCase):
                     run_root="/tmp/runs",
                     remote_bootstrap="/tmp/bin/nix",
                     rootless=rootless,
+                )
+
+    def test_native_rejects_host_root(self):
+        with unittest.mock.patch("nixsci.deploy.native.os.getuid", return_value=0):
+            with self.assertRaisesRegex(ValueError, "unprivileged host user"):
+                Native(
+                    system="x86_64-linux",
+                    store="/tmp/private-store",
+                    run_root="/tmp/runs",
                 )
 
 

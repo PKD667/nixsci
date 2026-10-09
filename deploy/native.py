@@ -21,6 +21,8 @@ class Native(Backend):
         driver: str | None = None,
         profiles: tuple[str, ...] = (),
     ):
+        if os.getuid() == 0:
+            raise ValueError("rootless native targets require an unprivileged host user")
         if store is None:
             store = run_root.rstrip("/") + "-store"
         super().__init__(
