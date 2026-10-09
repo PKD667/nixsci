@@ -75,7 +75,10 @@ def wait_for_proof(backend, handle, timeout):
     started = time.monotonic()
     while not backend.exists(handle, "rootless-proof.json"):
         if not backend.alive(handle):
-            raise RuntimeError(f"proof process exited before publishing evidence: {handle!r}")
+            log = backend.read_file(handle, "process.log")
+            raise RuntimeError(
+                f"proof process exited before publishing evidence: {handle!r}; process.log={log!r}"
+            )
         if time.monotonic() - started >= timeout:
             raise TimeoutError(f"proof did not finish within {timeout} seconds")
         time.sleep(0.1)
