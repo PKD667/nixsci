@@ -51,22 +51,22 @@ the training layer; it performs one selected installable lookup, never attr fall
 `env`, and `resources` are deployment values; deployment does not interpret
 training fields.
 
-A native target declares either the existing `/nix/store` or an explicit
-rootless store. These modes are not selected by fallback. Rootless targets
-require a locally hash-verified static Nix bootstrap. SSH stages that exact
-bootstrap at the declared target path, queries registered target paths and ships only absent paths through upstream
-`nix-store --export`/`--import`, verifies every remote NAR hash, then starts the
-payload through upstream `nix shell --offline`. A framed export carries path,
-reference and NAR metadata without demanding that reused dependencies also
-exist in a temporary binary cache. This avoids recompressing/transferring an
-already staged multi-GB CUDA/model closure. Full recursive content verification
-and the resolved NAR-map comparison still precede launch, including when no
-transfer was needed. Presence alone never admits execution. Binary-cache export
-for callers that need it uses zstd; transport never changes uncompressed NAR
-identity. The SSH client is
-backgrounded after authentication while the remote script remains foreground;
-there is no detached `cd && background` command whose inherited channel can
-block the launch.
+Every target uses an explicit user-owned private store. No target reads or
+mounts the host `/nix/store`; the controller's store is only the source of an
+already resolved closure. The Nix-built `nixsci` package carries the static
+Nix 2.34.8 helper patched and pinned by this flake. On each launch it requires
+unprivileged user and mount namespaces, makes mount propagation private, binds
+the target store at `/nix/store`, and uses `pivot_root` to make that view the
+mount-namespace root. It never falls back to host-store execution or a
+mount-only namespace.
+
+SSH first verifies the bootstrap hash, then imports only absent closure paths
+into the declared store. Nix verifies the recursive NAR contents and the target
+path-to-NAR map after staging and again before launch. A framed export carries
+path, reference and NAR metadata without a temporary binary cache. Transport
+never changes uncompressed NAR identity. The SSH client is backgrounded after
+authentication while the remote script remains foreground; there is no detached
+`cd && background` command whose inherited channel can block the launch.
 
 The public interface is `python -m nixsci.deploy` (the `run`, `status`, `stop`,
 and `fetch` commands). Handles are JSON, mode 600, and contain enough

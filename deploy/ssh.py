@@ -37,6 +37,8 @@ class SSH(Backend):
     ):
         if not remote_bootstrap.startswith("/"):
             raise ValueError("remote_bootstrap must be an absolute declared target path")
+        if remote_bootstrap == "/nix" or remote_bootstrap.startswith("/nix/"):
+            raise ValueError("remote_bootstrap must not use the host /nix tree")
         super().__init__(
             system=system,
             store=store,
@@ -107,7 +109,7 @@ class SSH(Backend):
         if self._bootstrap_shipped:
             return
         parent = str(Path(self.remote_bootstrap).parent)
-        self._remote(f"mkdir -m 700 -p {shlex.quote(parent)}")
+        self._remote(f"umask 077; mkdir -m 700 -p {shlex.quote(parent)}")
         result = subprocess.run(
             [*self._scp, self.nix, f"{self.host}:{self.remote_bootstrap}"],
             stdout=subprocess.PIPE,
@@ -165,7 +167,19 @@ class SSH(Backend):
     def stage(self, closure: Closure) -> dict[str, Any]:
         self._admit(closure)
         self._wait_ready()
+        for target_path in (self.store, self.run_root, self.remote_bootstrap):
+            resolved = self._remote(
+                f"realpath -m -- {shlex.quote(target_path)}"
+            ).stdout.decode().strip()
+            if resolved == "/nix" or resolved.startswith("/nix/"):
+                raise RuntimeError(f"private target path resolves inside the host /nix tree: {resolved}")
         self._ship_bootstrap()
+        self._remote(f"umask 077; mkdir -m 700 -p {shlex.quote(self.store)}")
+        identity = self._remote(
+            f"stat -c '%u %a' {shlex.quote(self.store)}; id -u"
+        ).stdout.decode().splitlines()
+        if len(identity) != 2 or identity[0] != identity[1] + " 700":
+            raise RuntimeError(f"remote private store root is not owned mode 700: {identity!r}")
         present = set(self._remote_nix("path-info", "--all").stdout.decode().splitlines())
         missing = [path for path in closure.closure if path not in present]
         if missing:
@@ -186,10 +200,8 @@ class SSH(Backend):
                         raise RuntimeError(
                             f"cannot ship closure export: {result.stderr.decode(errors='replace')[-2000:]}"
                         )
-                    args = ["exec", "-a", "nix-store", self.remote_bootstrap]
-                    if self.rootless:
-                        args.extend(["--store", self.store])
-                    args.append("--import")
+                    args = ["exec", "-a", "nix-store", self.remote_bootstrap,
+                            "--store", self.store, "--import"]
                     command = shlex.join(args) + " < " + shlex.quote(f"{parent}/{archive.name}")
                     self._remote("bash -c " + shlex.quote(command))
                 finally:

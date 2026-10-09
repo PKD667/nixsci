@@ -133,9 +133,8 @@ def _relative(path: str) -> str:
     return path
 
 
-#: The static Nix shipped to hosts that have none: built here from this flake reference, so the
-#: flake lock (not a hand-copied file and hash) pins it.
-DEFAULT_BOOTSTRAP = "nixpkgs#nixStatic"
+#: The static Nix built from locked, patched source and shipped in the Nix package.
+DEFAULT_BOOTSTRAP = str(Path(__file__).with_name("_bootstrap") / "nix")
 _BOOTSTRAPS: dict[str, str] = {}
 
 
@@ -168,10 +167,12 @@ class Backend:
     ):
         if not store.startswith("/") or not run_root.startswith("/"):
             raise ValueError("store and run_root must be absolute target paths")
-        if rootless and not bootstrap:
+        if not rootless:
+            raise ValueError("compute targets must use the private rootless store")
+        if any(path == "/nix" or path.startswith("/nix/") for path in (store, run_root)):
+            raise ValueError("private store and run roots must not use the host /nix tree")
+        if not bootstrap:
             bootstrap = DEFAULT_BOOTSTRAP
-        if not rootless and store != "/nix/store":
-            raise ValueError("existing-store targets must declare /nix/store")
         self.system, self.store, self.run_root, self.nix, self.rootless = (
             system,
             store,
@@ -201,17 +202,23 @@ class Backend:
         file = Path(path)
         if not file.is_file() or not os.access(file, os.X_OK):
             raise ValueError(f"Nix bootstrap is not executable: {path}")
-        if (
-            not expected
-            or not re.fullmatch(r"[0-9a-f]{64}", expected)
-            or _hash_path(file) != expected
+        actual = _hash_path(file)
+        if expected is not None and (
+            not re.fullmatch(r"[0-9a-f]{64}", expected) or actual != expected
         ):
             raise ValueError(f"Nix bootstrap hash mismatch: {path}")
-        self.nix = str(file)
-        self.bootstrap_sha256 = expected
+        owned = Path(DEFAULT_BOOTSTRAP)
+        if not owned.is_file() or not os.access(owned, os.X_OK):
+            raise ValueError(f"nixsci-pinned Nix bootstrap is not packaged: {owned}")
+        owned_hash = _hash_path(owned)
+        if actual != owned_hash:
+            raise ValueError("Nix bootstrap does not match the nixsci-pinned namespace implementation")
+        self.nix = str(owned)
+        self.bootstrap = str(owned)
+        self.bootstrap_sha256 = owned_hash
 
-    def _target_store(self) -> str | None:
-        return self.store if self.rootless else None
+    def _target_store(self) -> str:
+        return self.store
 
     def _verify(self, closure: Closure) -> None:
         from .nix import verify
