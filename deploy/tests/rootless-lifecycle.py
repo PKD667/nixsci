@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import time
 
+from nixsci.deploy.model import Closure
 from nixsci.deploy.native import Native
 from nixsci.deploy.resolver import resolve
 from nixsci.deploy.ssh import SSH
@@ -106,10 +107,12 @@ def fetch_json(backend, handle, name):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--backend", choices=("native", "ssh"), required=True)
+    parser.add_argument("--backend", choices=("native", "ssh"))
     parser.add_argument("--system", default="x86_64-linux")
-    parser.add_argument("--store", required=True, help="private store root on the target")
-    parser.add_argument("--run-root", required=True, help="private run root on the target")
+    parser.add_argument("--store", help="private store root on the target")
+    parser.add_argument("--run-root", help="private run root on the target")
+    parser.add_argument("--resolve-only", action="store_true")
+    parser.add_argument("--closure-json", help="controller-resolved tiny and proof closures")
     parser.add_argument("--host")
     parser.add_argument("--remote-bootstrap")
     parser.add_argument("--ssh-option", action="append", default=[])
@@ -118,8 +121,29 @@ def main():
     args = parser.parse_args()
 
     ignore = (".tmp/rootless-experiments/*",)
-    tiny_closure = resolve(".", "hello", args.system, ignore=ignore)
-    closure = resolve(".", "namespace-proof", args.system, ignore=ignore)
+    if args.resolve_only:
+        if not args.closure_json:
+            parser.error("--resolve-only requires --closure-json")
+        tiny_closure = resolve(".", "hello", args.system, ignore=ignore)
+        closure = resolve(".", "namespace-proof", args.system, ignore=ignore)
+        record = {
+            "tiny": tiny_closure.as_dict(),
+            "proof": closure.as_dict(),
+        }
+        target = Path(args.closure_json)
+        target.write_text(json.dumps(record, sort_keys=True, indent=2) + "\\n")
+        target.chmod(0o644)
+        print(json.dumps({"status": "resolved", "path": str(target), "source": closure.source}, sort_keys=True))
+        return
+    if not args.backend or not args.store or not args.run_root:
+        parser.error("target runs require --backend, --store and --run-root")
+    if args.closure_json:
+        record = json.loads(Path(args.closure_json).read_text())
+        tiny_closure = Closure.from_dict(record["tiny"])
+        closure = Closure.from_dict(record["proof"])
+    else:
+        tiny_closure = resolve(".", "hello", args.system, ignore=ignore)
+        closure = resolve(".", "namespace-proof", args.system, ignore=ignore)
     if args.backend == "native":
         backend = Native(
             system=args.system,
