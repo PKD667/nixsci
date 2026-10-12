@@ -31,7 +31,9 @@ controller and, for non-Nix hosts, an ssh client.
 
 The resolving machine (the *controller*) does the `nix build`. Targets never
 evaluate or build anything: they only receive the verified closure. Heavy builds
-therefore belong on a machine meant for it, not on a laptop.
+therefore belong on a machine meant for it, not on a laptop. SSH closure-transfer
+caches are private temporary directories under the declared `run_root`, not
+`/tmp`: choose a disk-backed workdir when the closure is larger than tmpfs.
 
 ## The experiment contract
 

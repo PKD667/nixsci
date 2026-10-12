@@ -170,19 +170,27 @@ class SSH(Backend):
         with tempfile.TemporaryDirectory(prefix="nix-deploy-cache-") as temp:
             cache = str(Path(temp) / "nar-cache")
             nix.copy_to_cache(self.nix, cache, closure.path)
-            parent = f"/tmp/nix-deploy-cache-{token}"
-            self._remote(f"rm -rf -- {shlex.quote(parent)}; mkdir -m 700 -p {shlex.quote(parent)}")
-            result = subprocess.run(
-                [*self._scp, "-r", cache, f"{self.host}:{parent}/"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            if result.returncode:
-                raise RuntimeError(
-                    f"cannot ship closure cache: {result.stderr.decode(errors='replace')[-2000:]}"
-                )
-            remote_cache = f"{parent}/{Path(cache).name}"
+            # Stage on the declared target disk, not /tmp (often small tmpfs).
+            # Each invocation owns a unique directory: concurrent staging of
+            # the same closure must not remove another invocation's cache.
+            stage_root = f"{self.run_root}/.stage"
+            parent = self._remote(
+                f"umask 077; mkdir -p {shlex.quote(stage_root)}; "
+                f"mktemp -d {shlex.quote(stage_root + '/nar-' + token + '-XXXXXXXX')}"
+            ).stdout.decode().strip()
+            if not re.fullmatch(re.escape(stage_root + "/nar-" + token + "-") + r"[A-Za-z0-9]{8,}", parent):
+                raise RuntimeError("remote staging directory is outside the declared run root")
             try:
+                result = subprocess.run(
+                    [*self._scp, "-r", cache, f"{self.host}:{parent}/"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                if result.returncode:
+                    raise RuntimeError(
+                        f"cannot ship closure cache: {result.stderr.decode(errors='replace')[-2000:]}"
+                    )
+                remote_cache = f"{parent}/{Path(cache).name}"
                 self._remote_nix(
                     "copy", "--no-check-sigs", "--from", f"file://{remote_cache}", closure.path
                 )
