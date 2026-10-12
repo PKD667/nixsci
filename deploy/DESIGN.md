@@ -59,7 +59,10 @@ controller-created Nix binary cache, verifies every remote NAR hash, then
 starts the payload through upstream `nix shell --offline`. The SSH client is
 backgrounded after authentication while the remote script remains foreground;
 there is no detached `cd && background` command whose inherited channel can
-block the launch.
+block the launch. Site backends may wrap the verified target command through
+`SSH._spawn_command`, so supervision does not require a second SSH launcher.
+The default returns the unchanged command; closure admission, NAR verification,
+transport and process-identity recording remain in the common lifecycle.
 
 The public interface is `python -m nixsci.deploy` (the `run`, `status`, `stop`,
 and `fetch` commands). Handles are JSON, mode 600, and contain enough
