@@ -73,6 +73,6 @@ HPC-focused survey: [arXiv:2402.07530](https://arxiv.org/pdf/2402.07530).
 
 - Garbage collection of the store (by lock roots, like Nix): not built.
 - Whether the lock should also pin pipeline *outputs* by hash (figures) so a paper build can
-  fetch them: likely yes; blocked on nix-science's builder shape.
+  fetch them: likely yes. `out.document` takes `include` paths from analysis derivations, so the figures are pinned by the derivation graph; pinning them in the lock is still open.
 - Artifact (array) records are not compared by `verify`.
 - Cross-machine replicate analysis (confidence intervals over replicates): a helper in the `nixsci` R package.

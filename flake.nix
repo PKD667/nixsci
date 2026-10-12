@@ -17,7 +17,7 @@
           pyproject = true;
           build-system = [ py.setuptools ];
           dependencies = [ py.pyarrow ];
-          pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" ];
+          pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" "nixsci.out" ];
           # A store path is immutable: bytecode written into one changes its hash and Nix then refuses it.
           makeWrapperArgs = [ "--set" "PYTHONDONTWRITEBYTECODE" "1" ];
           meta.mainProgram = "nixsci";
@@ -44,6 +44,16 @@
           rEnv = self.packages.${pkgs.stdenv.hostPlatform.system}.r-env;
         };
 
+      # Documents: `out = nixsci.lib.out { inherit pkgs; }; out.document { ... }` (see out/nix/out.nix).
+      lib.out = { pkgs }: import ./out/nix/out.nix { inherit pkgs; crateTool = self.packages.${pkgs.stdenv.hostPlatform.system}.crate-python; };
+
+      # `nix flake init -t github:PKD667/nixsci#paper` (or #slides, #poster).
+      templates = {
+        paper = { path = ./out/templates/paper; description = "A paper: LaTeX source, PDF and RO-Crate from one flake"; };
+        slides = { path = ./out/templates/slides; description = "Beamer slides"; };
+        poster = { path = ./out/templates/poster; description = "A tikzposter poster"; };
+      };
+
       packages = forAll (pkgs:
         let pp = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).pkgs; in rec {
           default = nixsci;
@@ -59,6 +69,31 @@
             mkdir $site/lab
             cp ${./lab}/*.py $site/lab/
           '';
+          # The Python that writes a document's RO-Crate (rocrate is not in nixpkgs).
+          crate-python =
+            let
+              py = pkgs.python3.pkgs;
+              arcp = py.buildPythonPackage {
+                pname = "arcp"; version = "0.2.1"; pyproject = true; doCheck = false;
+                src = pkgs.fetchPypi { pname = "arcp"; version = "0.2.1"; hash = "sha256-XBeseXLJ74KXnMLK8rOofBrv0/7+mtuKXdcoraV3Fd0="; };
+                build-system = [ py.setuptools ];
+              };
+              rocrate = py.buildPythonPackage {
+                pname = "rocrate"; version = "0.15.1"; pyproject = true; doCheck = false;
+                src = pkgs.fetchPypi { pname = "rocrate"; version = "0.15.1"; hash = "sha256-T0z27qZlWbqp2bjxCuBuBhG6E+s2RO3Hg7333QBy/O0="; };
+                build-system = [ py.setuptools ];
+                dependencies = with py; [ requests arcp jinja2 python-dateutil click ];
+              };
+            in pkgs.python3.withPackages (_: [ rocrate ]);
+          # Self-test fixture: the paper template with one included file, to exercise the document build.
+          example-paper =
+            let out = self.lib.out { inherit pkgs; };
+            in (out.document {
+              name = "example";
+              template = out.templates.paper;
+              src = ./out/templates/paper/tex;
+              include."gen/answer.tex" = pkgs.writeText "answer.tex" "42\n";
+            }).pdf;
           # R package for analysis scripts: use("alias"), runs(), params(), out().
           nixsci-r = pkgs.rPackages.buildRPackage {
             pname = "nixsci";
