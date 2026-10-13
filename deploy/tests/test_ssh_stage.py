@@ -5,6 +5,8 @@ CUDA behavior. The real CBP run separately tests namespace and driver access.
 """
 import base64
 import subprocess
+import tempfile
+from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 
@@ -15,6 +17,17 @@ from nixsci.deploy.ssh import SSH
 STORE = "/nix/store/" + "a" * 32 + "-experiment"
 STAGE = "/local/me/nixsci/runs/.stage"
 PREFIX = STAGE + "/nar-" + "a" * 32 + "-"
+
+
+class CacheEncoding(unittest.TestCase):
+    def test_transfer_uses_zstd_without_changing_the_closure_root(self):
+        from nixsci.deploy.nix import copy_to_cache
+        with tempfile.TemporaryDirectory() as directory:
+            cache = str(Path(directory) / "cache")
+            with patch("nixsci.deploy.nix.copy_to") as copy:
+                copy_to_cache("/pinned/nix", cache, STORE)
+            copy.assert_called_once_with("/pinned/nix", "file://" + cache + "?compression=zstd", STORE)
+            self.assertTrue(Path(cache).is_dir())
 
 
 class StageCache(unittest.TestCase):

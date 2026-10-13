@@ -192,7 +192,9 @@ def copy_to(nix, destination, root):
 
 def copy_to_cache(nix, cache, root):
     Path(cache).mkdir(parents=True, exist_ok=False)
-    copy_to(nix, f"file://{cache}", root)
+    # GPU wheels contain large compressed binaries: xz spends disproportionate
+    # controller time here. Encoding is independent of verified NAR identity.
+    copy_to(nix, f"file://{cache}?compression=zstd", root)
 
 
 def command(nix, store, *args):
