@@ -190,11 +190,15 @@ def copy_to(nix, destination, root):
     run(nix, None, "copy", "--no-check-sigs", "--to", destination, root)
 
 
-def copy_to_cache(nix, cache, root):
+def copy_to_cache(nix, cache, *paths, recursive=True):
+    if not paths:
+        raise ValueError("cache export requires at least one store path")
     Path(cache).mkdir(parents=True, exist_ok=False)
     # GPU wheels contain large compressed binaries: xz spends disproportionate
     # controller time here. Encoding is independent of verified NAR identity.
-    copy_to(nix, f"file://{cache}?compression=zstd", root)
+    run(nix, None, "copy", "--no-check-sigs",
+        *([] if recursive else ["--no-recursive"]),
+        "--to", f"file://{cache}?compression=zstd", *paths)
 
 
 def command(nix, store, *args):
