@@ -201,6 +201,21 @@ def copy_to_cache(nix, cache, *paths, recursive=True):
         "--to", f"file://{cache}?compression=zstd", *paths)
 
 
+def export_paths(nix, destination, *paths):
+    """Native export accepts a partial graph; unlike a binary cache, its
+    references need not be present in the transport directory. Import checks
+    those references against the destination store before registration.
+    """
+    if not paths:
+        raise ValueError("native export requires at least one store path")
+    with Path(destination).open("xb") as stream:
+        result = subprocess.run(["nix-store", "--export", *paths], executable=nix,
+                                stdout=stream, stderr=subprocess.PIPE)
+    if result.returncode:
+        raise NixError(f"Nix native export failed ({result.returncode}): "
+                       + result.stderr.decode("utf-8", "replace")[-3000:])
+
+
 def command(nix, store, *args):
     return _command(nix, store, *args)
 
@@ -212,6 +227,7 @@ __all__ = [
     "command",
     "copy_to",
     "copy_to_cache",
+    "export_paths",
     "manifest",
     "path_hashes",
     "run",
