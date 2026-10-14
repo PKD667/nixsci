@@ -183,11 +183,11 @@ class SSH(Backend):
             return {"path": closure.path, "closure": dict(closure.closure), "system": closure.system}
         token = closure.path.rsplit("/", 1)[-1].split("-", 1)[0]
         with tempfile.TemporaryDirectory(prefix="nix-deploy-cache-") as temp:
-            cache = str(Path(temp) / "nar-cache")
-            # Dependencies already verified by identity above must not be
-            # re-exported recursively. Final verification still reads every
-            # target NAR and compares the complete closure identity map.
-            nix.copy_to_cache(self.nix, cache, *missing, recursive=False)
+            archive = str(Path(temp) / "closure.export")
+            # Native export supports a partial graph. A file binary cache does
+            # not: it refuses paths whose already-cached references are absent
+            # from that cache. Never invent narinfo records to bypass that check.
+            nix.export_paths(self.nix, archive, *missing)
             # Stage on the declared target disk, not /tmp (often small tmpfs).
             # Each invocation owns a unique directory: concurrent staging of
             # the same closure must not remove another invocation's cache.
@@ -200,7 +200,7 @@ class SSH(Backend):
                 raise RuntimeError("remote staging directory is outside the declared run root")
             try:
                 result = subprocess.run(
-                    [*self._scp, "-r", cache, f"{self.host}:{parent}/"],
+                    [*self._scp, "-C", archive, f"{self.host}:{parent}/"],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
@@ -208,10 +208,13 @@ class SSH(Backend):
                     raise RuntimeError(
                         f"cannot ship closure cache: {result.stderr.decode(errors='replace')[-2000:]}"
                     )
-                remote_cache = f"{parent}/{Path(cache).name}"
-                self._remote_nix(
-                    "copy", "--no-recursive", "--no-check-sigs", "--from", f"file://{remote_cache}", *missing
-                )
+                # argv[0] selects the static Nix binary's legacy import frontend.
+                # This alias lives only inside this invocation's private stage.
+                importer = f"{parent}/nix-store"
+                self._remote(f"ln -s {shlex.quote(self.remote_bootstrap)} {shlex.quote(importer)}")
+                command = nix.command(importer, self.store, "--import")
+                self._remote(shlex.join(command) + " < "
+                             + shlex.quote(f"{parent}/{Path(archive).name}"))
             finally:
                 self._remote(f"rm -rf -- {shlex.quote(parent)}")
         self._verify(closure)

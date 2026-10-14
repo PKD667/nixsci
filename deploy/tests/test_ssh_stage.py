@@ -59,6 +59,8 @@ class StageCache(unittest.TestCase):
         self.backend.run_root = "/local/me/nixsci/runs"
         self.backend.host = "me@node"
         self.backend.nix = "/pinned/nix"
+        self.backend.remote_bootstrap = "/remote/bin/nix"
+        self.backend.store = "/local/me/nixsci/store"
         self.backend._scp = ("scp", "-q")
         self.backend._admit = Mock()
         self.backend._wait_ready = Mock()
@@ -78,10 +80,12 @@ class StageCache(unittest.TestCase):
         self.remote_output = None
         def remote(command):
             self.commands.append(command)
+            if "--import" in command and self.import_error:
+                raise RuntimeError(self.import_error)
             output = self.remote_output if self.remote_output is not None else next(self.parents) if "mktemp" in command else ""
             return subprocess.CompletedProcess([], 0, (output + "\n").encode(), b"")
         self.backend._remote = remote
-        self.cache = patch("nixsci.deploy.ssh.nix.copy_to_cache")
+        self.cache = patch("nixsci.deploy.ssh.nix.export_paths")
         self.export = self.cache.start()
         self.addCleanup(self.cache.stop)
 
@@ -113,9 +117,10 @@ class StageCache(unittest.TestCase):
         with patch("nixsci.deploy.ssh.subprocess.run", return_value=subprocess.CompletedProcess([], 0, b"", b"")):
             self.backend.stage(self.closure)
         self.assertEqual(self.export.call_args.args[2:], (STORE,))
-        self.assertEqual(self.export.call_args.kwargs, {"recursive": False})
-        self.backend._remote_nix.assert_called_with("copy", "--no-recursive", "--no-check-sigs", "--from",
-                                                 "file://" + PREFIX + "AAAAAAAA/nar-cache", STORE)
+        self.assertEqual(self.export.call_args.kwargs, {})
+        self.assertTrue(any("--import < " + PREFIX + "AAAAAAAA/closure.export" in c
+                            for c in self.commands))
+        self.backend._remote_nix.assert_called_once_with("path-info", "--all", "--json")
         self.backend._verify.assert_called_once_with(self.closure)
 
     def test_empty_cache_exports_every_explicit_path_without_recursion(self):
@@ -123,9 +128,10 @@ class StageCache(unittest.TestCase):
         with patch("nixsci.deploy.ssh.subprocess.run", return_value=subprocess.CompletedProcess([], 0, b"", b"")):
             self.backend.stage(self.closure)
         self.assertEqual(self.export.call_args.args[2:], (STORE, DEP))
-        self.assertEqual(self.export.call_args.kwargs, {"recursive": False})
-        self.backend._remote_nix.assert_called_with("copy", "--no-recursive", "--no-check-sigs", "--from",
-                                                 "file://" + PREFIX + "AAAAAAAA/nar-cache", STORE, DEP)
+        self.assertEqual(self.export.call_args.kwargs, {})
+        self.assertTrue(any("--import < " + PREFIX + "AAAAAAAA/closure.export" in c
+                            for c in self.commands))
+        self.backend._remote_nix.assert_called_once_with("path-info", "--all", "--json")
 
     def test_preexisting_hash_mismatch_is_fatal_without_repair_or_export(self):
         self.valid = {STORE: {"narHash": "sha256-wrong"}}
