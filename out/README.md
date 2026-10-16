@@ -28,6 +28,8 @@ doc = out.document {
 # doc.pdf  doc.publish  doc.refusals  doc.source  doc.crate  doc.zip  doc.shell  doc.apps  doc.unclean
 ```
 
+`doc.publish` builds a directory containing `doc.pdf`, `doc-latex.zip`, `doc-artifact.zip`, and `SHA256SUMS`. The LaTeX archive includes the dereferenced source tree, compiled figures, and a README with its compile command and TeX Live package requirements. The artifact archive contains the RO-Crate plus analysis views available through project outputs; these views are not full raw experiment runs. The checksum file covers the three sibling deliverables. No upload occurs.
+
 ## Figures
 
 Each figure is compiled in its own build, with the `standalone` class, the project's style and the template's `figure` settings (`width`, `size`, `preamble`, `packages`). In that build, `\datadir` holds the declared data as `<key>.<ext>`, `\figwidth` is the requested width, and the project's files are at `p/<key>`. The PDF is placed at `p/<figure>.pdf` in the document's tree.
@@ -42,7 +44,7 @@ Each `values` entry is a JSON file. Its scalars become `\val{p/<entry>.<path>}`,
 
 ## Provenance
 
-`unclean` lists every input marked `static`, and every lab analysis that is not clean. If the list is not empty, each page of the PDF gets a DRAFT line. `publish` is the RO-Crate: its build fails with `refusals` when `unclean` is not empty, when `source` is missing, or when the flake has uncommitted changes.
+`unclean` lists every input marked `static`, and every lab analysis that is not clean. If the list is not empty, each page of the PDF gets a DRAFT line. `crate` is the RO-Crate; `publish` is the four-file directory above. Its build fails with `refusals` when `unclean` is not empty, when `source` is missing, or when the flake has uncommitted changes. `zip` remains the LaTeX source archive.
 
 ## Editing
 
