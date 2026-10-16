@@ -97,7 +97,7 @@
             site=$out/${pkgs.python3.sitePackages}/nixsci
             mkdir -p $site
             mkdir $site/lab
-            ${pkgs.lib.concatMapStringsSep "\n" (f: "cp ${f} $site/lab/")
+            ${pkgs.lib.concatMapStringsSep "\n" (f: "cp ${f} $site/lab/${baseNameOf f}")
               [ ./lab/__init__.py ./lab/schema.py ./lab/run.py ./lab/home.py ]}
           '';
           # The Python that writes a document's RO-Crate (rocrate is not in nixpkgs).
@@ -172,6 +172,18 @@
 
       # `nix flake check`: the fixtures build, and a draft cannot be published.
       checks = forAll (pkgs: {
+        recorder = pkgs.runCommand "nixsci-recorder-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          export PYTHONPATH="${self.packages.${pkgs.stdenv.hostPlatform.system}.lab-py}/${pkgs.python3.sitePackages}"
+          export NIX_LAB_DIR=$TMPDIR/records
+          python - <<'PYTHON'
+          from nixsci import lab
+          import os
+          lab.record("sample", {"ok": True})
+          assert lab.load(os.environ["NIX_LAB_DIR"])[0]["data"] == {"ok": True}
+          PYTHON
+          touch $out
+        '';
+
         unit = pkgs.runCommand "nixsci-unit-tests" {
           nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.pytest p.hypothesis p.pyarrow ]))
             pkgs.coreutils pkgs.bash pkgs.procps pkgs.git ];
