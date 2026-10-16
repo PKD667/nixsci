@@ -73,10 +73,10 @@ rec {
 
   # One file of a derivation's output, keeping the derivation's provenance and, for a lab analysis,
   # its view (the tables and run records the analysis read).
-  output = drv: file: { path = "${drv}/${file}"; unclean = drv.unclean or [ ]; view = drv.view or null; };
+  output = drv: file: { path = "${drv}/${file}"; inherit drv file; unclean = drv.unclean or [ ]; view = drv.view or null; };
 
   project =
-    { name
+    args@{ name
     , style ? null
     , packages ? (_: [ ])
     , files ? { }
@@ -99,6 +99,11 @@ rec {
       tagged = kind: set: lib.concatLists (lib.mapAttrsToList (k: e: map (why: "${name}/${kind}/${k}: ${why}") e.unclean) set);
       files' = lib.mapAttrs (_: entry) files;
       values' = lib.mapAttrs (_: entry) values;
+      replaceOutput = replacements: e:
+        let e' = entry e; key = toString (e'.drv or null);
+        in if (e'.drv or null) != null && replacements ? ${key}
+          then output replacements.${key} e'.file
+          else e;
     in
     {
       inherit name style packages bib;
@@ -108,6 +113,12 @@ rec {
       values = values';
       unclean = tagged "files" files' ++ tagged "data" data' ++ tagged "values" values';
       analyses = analysesOf name [ files' data' values' ];
+      withAnalyses = replacements:
+        project ((args // {
+          files = lib.mapAttrs (_: e: replaceOutput replacements e) (args.files or { });
+          data = lib.mapAttrs (_: e: replaceOutput replacements e) (args.data or { });
+          values = lib.mapAttrs (_: e: replaceOutput replacements e) (args.values or { });
+        }));
     };
 
   # files: a directory whose entries land at the root of the tree, or a list of files.
@@ -140,7 +151,7 @@ rec {
   };
 
   document =
-    { name
+    args@{ name
     , src
     , entry ? "main.tex"
     , template ? templates.plain
@@ -150,6 +161,7 @@ rec {
     , packages ? (_: [ ])
     , source ? null
     , srcDir ? null
+    , _remeasurement ? null
     }:
     let
       t = template;
@@ -204,6 +216,17 @@ rec {
       '';
 
       unclean = lib.concatMap (p: p.unclean) projects;
+      analysisEntries = lib.concatMap (p: lib.concatLists (map (set: lib.attrValues set)
+        [ p.files p.data p.values ])) projects;
+      analysisDrvs = lib.foldl' (acc: e:
+        if (e.drv or null) == null || !(e.drv ? withLock) || acc ? ${toString e.drv}
+        then acc else acc // { ${toString e.drv} = e.drv; }) { } analysisEntries;
+      measurementPlan = pkgs.writeText "${name}-measurement-plan.json" (builtins.toJSON
+        (lib.concatMap (drv: map (item: item // { analysis = toString drv; })
+          (lib.attrValues drv.remeasureSpec)) (lib.attrValues analysisDrvs)));
+
+      remeasurementTex = if _remeasurement == null then null else
+        pkgs.writeText "${name}-remeasurement.tex" "\\nixsci@remeasure{${_remeasurement}}";
 
       # metadata, values and the draft mark, read by nixsci.sty
       generated = pkgs.runCommand "${name}-generated" { nativeBuildInputs = [ pkgs.jq ]; } ''
@@ -216,6 +239,7 @@ rec {
               ${e.path}
           '') p.values)) projects}
           ${lib.optionalString (unclean != [ ]) "echo '\\nixsci@draft{${toString (lib.length unclean)}}'"}
+          ${lib.optionalString (remeasurementTex != null) "cat ${remeasurementTex}"}
         } > $out
       '';
 
@@ -263,7 +287,7 @@ rec {
 
       # FORCE_SOURCE_DATE: the PDF carries the sandbox's fixed date, not the build time. The receipt
       # is written after latexmk returned, so it records a compile that happened.
-      pdf = pkgs.runCommand "${name}-pdf" { nativeBuildInputs = [ texEnv' pkgs.jq ]; FORCE_SOURCE_DATE = "1"; } ''
+      pdfBase = pkgs.runCommand "${name}-pdf" { nativeBuildInputs = [ texEnv' pkgs.jq ]; FORCE_SOURCE_DATE = "1"; } ''
         ${engineHome t.engine}
         cp -RL --no-preserve=mode ${sourceTree}/. .
         ${lib.escapeShellArgs command}
@@ -277,7 +301,7 @@ rec {
 
       crate = pkgs.runCommand "${name}-ro-crate" { nativeBuildInputs = [ crateTool ]; } ''
         python ${../crate.py} --name ${lib.escapeShellArg name} --source ${sourceTree} \
-          --pdf ${pdf}/${name}.pdf --receipt ${pdf}/receipt.json --includes ${pkgs.writeText "none.json" "{}"} \
+          --pdf ${pdfBase}/${name}.pdf --receipt ${pdfBase}/receipt.json --includes ${pkgs.writeText "none.json" "{}"} \
           --origins ${tree}/origins.tsv --out $out
       '';
 
@@ -321,7 +345,7 @@ rec {
       # publish: the document, its LaTeX project, and the reproduction artifact, with SHA256SUMS.
       publishDir = pkgs.runCommand "${name}-publish" { nativeBuildInputs = [ pkgs.zip ]; } ''
         mkdir -p $out art
-        cp ${pdf}/${name}.pdf $out/${name}.pdf
+        cp ${pdfBase}/${name}.pdf $out/${name}.pdf
         cp ${zip}/${name}.zip $out/${name}-latex.zip
         cp -RL --no-preserve=mode ${crate}/. art/
         cat > art/ARTIFACT-README.txt <<'EOF'
@@ -378,12 +402,21 @@ rec {
       openApp = pkgs.writeShellApplication {
         name = "${name}-open";
         runtimeInputs = [ pkgs.xdg-utils ];
-        text = "exec xdg-open ${pdf}/${name}.pdf";
+        text = "exec xdg-open ${pdfBase}/${name}.pdf";
       };
     in
     assert lib.assertMsg (unknownFigures == [ ]) "out: ${name}: ${lib.concatStringsSep "; " unknownFigures}";
     {
-      inherit pdf publish refusals crate zip shell unclean;
+      pdf = pdfBase // {
+        measurementPlan = measurementPlan;
+        remeasureViews = { locks, level ? 0.95 }:
+          lib.mapAttrs (key: drv: (drv.withLock locks.${key} level).view) analysisDrvs;
+        withMeasurements = { locks, level ? 0.95, remeasurement ? null }:
+          let replacements = lib.mapAttrs (key: drv: drv.withLock locks.${key} level) analysisDrvs;
+              measuredProjects = map (p: p.withAnalyses replacements) projects;
+          in (document (args // { projects = measuredProjects; _remeasurement = remeasurement; })).pdf;
+      };
+      inherit publish refusals crate zip shell unclean;
       meta = meta';
       source = sourceTree;
       apps = {
