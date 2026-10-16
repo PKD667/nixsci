@@ -44,6 +44,9 @@ def compact_run(run: str | Path, out: str | Path) -> list[Path]:
 
     run, out = Path(run), Path(out)
     manifest = json.loads((run / "manifest.json").read_text())
+    version = str(manifest.get("format", "1.0")).split(".")[0]
+    if version not in ("1", "2"):
+        raise ValueError(f"unsupported run format {manifest.get('format')!r}")
     if manifest.get("state") != "ok":
         raise ValueError(f"run {manifest.get('run')}: only a finished (ok) run can be compacted")
     records = _records(run)
@@ -84,10 +87,15 @@ def compact_run(run: str | Path, out: str | Path) -> list[Path]:
     return written
 
 
-def compact_runs(out: str | Path, runs: list[str | Path]) -> None:
+def compact_runs(out: str | Path, runs: list[str | Path], expected: dict | None = None) -> None:
     """Compact every run into `out` and write their rows, in run order, to `out/runs.json`."""
     out, rows = Path(out), []
     for run in runs:
+        manifest = json.loads((Path(run) / "manifest.json").read_text())
+        if expected is not None and manifest["run"] in expected:
+            from .publish import facts
+            if facts(manifest) != expected[manifest["run"]]:
+                raise ValueError(f"run {manifest['run']}: lock facts differ from the sealed manifest")
         compact_run(run, out)
         rows.append(json.loads((out / "row.json").read_text()))
     (out / "row.json").unlink(missing_ok=True)
@@ -96,4 +104,10 @@ def compact_runs(out: str | Path, runs: list[str | Path]) -> None:
 
 
 if __name__ == "__main__":
-    compact_runs(sys.argv[1], sys.argv[2:])
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("out")
+    parser.add_argument("runs", nargs="+")
+    parser.add_argument("--expect", type=Path)
+    args = parser.parse_args()
+    compact_runs(args.out, args.runs, json.loads(args.expect.read_text()) if args.expect else None)

@@ -19,7 +19,11 @@ let
     n;
 
   lockFile = project + "/lab.lock";
-  locked = if builtins.pathExists lockFile then builtins.fromJSON (builtins.readFile lockFile) else { };
+  rawLock = if builtins.pathExists lockFile then builtins.fromJSON (builtins.readFile lockFile) else { };
+  locked = if rawLock ? format then
+    assert lib.assertMsg (lib.head (lib.splitString "." rawLock.format) == "2") "unsupported lab.lock format ${rawLock.format}";
+    rawLock.runs else rawLock;
+  fetchRun = import ./fetch-run.nix { inherit pkgs; };
 
   # The runs of an experiment that its lock names, each checked by the hash of its contents and
   # against the experiment as it is now. A run of another closure measured other code: stale. A
@@ -36,13 +40,15 @@ let
     map
       (r:
         let
-          path = builtins.path { inherit (r) path sha256 name; };
-          m = builtins.fromJSON (builtins.readFile "${path}/manifest.json");
+          path = fetchRun r;
+          # v2 facts are checked against the sealed manifest during compaction. v1 locks have no
+          # facts: fetch the old run once to read its manifest (legacy import-from-derivation).
+          m = r.facts or (builtins.fromJSON (builtins.readFile "${path}/manifest.json"));
           closure = m.closure or null;
           job = { seed = m.seed or null; params = m.params or { }; };
         in
         {
-          inherit (r) name; inherit path job;
+          inherit (r) name; inherit path job; facts = r.facts or null;
           traced = closure != null;
           stale = closure != null && !(builtins.elem closure current);
           orphan = closure != null && !(builtins.elem job jobs);
@@ -66,7 +72,9 @@ let
   # One derivation per experiment, not per run: see compact.py for the cost that avoids.
   compactRuns = exp: runs:
     pkgs.runCommand "data-${exp.name}" { nativeBuildInputs = [ python ]; } ''
-      python -m nixsci.lab.compact $out ${lib.concatMapStringsSep " " (r: "${r.path}") runs}
+      python -m nixsci.lab.compact $out ${lib.concatMapStringsSep " " (r: "${r.path}") runs} \
+        --expect ${pkgs.writeText "${exp.name}-expected.json" (builtins.toJSON (builtins.listToAttrs
+          (map (r: { name = r.name; value = r.facts; }) (lib.filter (r: r.facts != null) runs))))}
     '';
 
   # The experiment's derivations, as a dependency of the view: the .drv, not its output, so the
@@ -109,7 +117,7 @@ rec {
   # every job of the spec has its runs, and nothing was recorded by hand. Anything else fails
   # evaluation unless `draft = true`, which builds with a warning. `clean` and the four lists are
   # on the result, for a publish step to refuse.
-  analysis = { name, use, pipelines, draft ? false }:
+  analysis = { name, use, pipelines, draft ? false, claims ? { }, confidence ? 0.95 }:
     let
       n = name' "analysis" name;
       runs = lib.mapAttrs (_: runsOf) use;
@@ -146,22 +154,37 @@ rec {
           '') use)}
       '';
       runPipeline = pname: p:
-        pkgs.runCommand "${n}-${pname}" { nativeBuildInputs = [ rEnv ]; } ''
+        let
+          language = p.language or (if lib.hasSuffix ".py" (toString p.script) then "python" else "r");
+          runner = if language == "r" then "Rscript" else if language == "python" then "python"
+            else throw "analysis ${n}/${pname}: language must be r or python";
+          environment = if language == "r" then rEnv else python;
+        in pkgs.runCommand "${n}-${pname}" { nativeBuildInputs = [ environment ] ++ (p.packages or [ ]); } ''
           export HOME=$TMPDIR NIX_LAB_VIEW=${view} NIX_LAB_OUT=$out
+          export NIXSCI_VIEW=$NIX_LAB_VIEW NIXSCI_OUT=$NIX_LAB_OUT
           mkdir $out
           cd $out
-          Rscript ${p.script}
+          ${runner} ${p.script}
         '';
+      claimFile = pkgs.writeText "${n}-claims.json" (builtins.toJSON claims);
+      claimReport = pkgs.runCommand "${n}-claims" { nativeBuildInputs = [ python ]; } ''
+        mkdir $out
+        cp ${claimFile} $out/claims.json
+        # A report is data, not a build gate: unsupported/inconclusive claims must remain visible.
+        python -m nixsci.stats.claims ${claimFile} --view ${view} --level ${toString confidence} \
+          --json $out/claims-report.json || { rc=$?; [ "$rc" = 1 ] || [ "$rc" = 3 ]; }
+      '';
       built = lib.mapAttrs runPipeline pipelines;
-      result = (pkgs.symlinkJoin { name = n; paths = lib.attrValues built; })
+      result = (pkgs.symlinkJoin { name = n; paths = lib.attrValues built ++ lib.optional (claims != { }) claimReport; })
         // {
-          inherit view clean stale orphan missing untraced;
+          inherit view clean stale orphan missing untraced claimFile claimReport;
           pipelines = built;
           # What nixsci out reads: one list, each entry saying why.
           unclean = map (r: "${r}: older code") stale ++ map (r: "${r}: no job of the spec") orphan
             ++ map (j: "${j}: no run") missing ++ map (r: "${r}: recorded by hand") untraced;
         };
     in
+    assert lib.assertMsg (confidence > 0.5 && confidence < 1.0) "confidence must lie between 0.5 and 1";
     if clean then result
     else if draft then lib.warn "${report}; built as a draft." result
     else throw "${report}, or pass draft = true.";

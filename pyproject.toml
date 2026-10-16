@@ -22,7 +22,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["nixsci.cli", "nixsci.deploy", "nixsci.lab", "nixsci.out"]
+packages = ["nixsci.cli", "nixsci.deploy", "nixsci.lab", "nixsci.out", "nixsci.stats"]
 
 # The repository directory is the `nixsci` namespace: nixsci/deploy is deploy/, and so on.
 [tool.setuptools.package-dir]

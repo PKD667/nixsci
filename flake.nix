@@ -17,7 +17,7 @@
           pyproject = true;
           build-system = [ py.setuptools ];
           dependencies = [ py.pyarrow ];
-          pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" "nixsci.out" ];
+          pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" "nixsci.out" "nixsci.stats" ];
           # A store path is immutable: bytecode written into one changes its hash and Nix then refuses it.
           makeWrapperArgs = [ "--set" "PYTHONDONTWRITEBYTECODE" "1" ];
           meta.mainProgram = "nixsci";
@@ -60,6 +60,7 @@
       lib.mkExperiment = pkgs: import ./lab/nix/mk-experiment.nix { inherit pkgs; };
       # Experiments and analyses as Nix values. `project` is the calling flake's `self`.
       #   lab = nixsci.lib.lab { inherit pkgs; project = self; };
+      lib.fetchRun = pkgs: import ./lab/nix/fetch-run.nix { inherit pkgs; };
       lib.lab = { pkgs, project }:
         import ./lab/nix/lab.nix {
           inherit pkgs project;
@@ -92,7 +93,8 @@
             site=$out/${pkgs.python3.sitePackages}/nixsci
             mkdir -p $site
             mkdir $site/lab
-            cp ${./lab}/*.py $site/lab/
+            ${pkgs.lib.concatMapStringsSep "\n" (f: "cp ${f} $site/lab/")
+              [ ./lab/__init__.py ./lab/schema.py ./lab/run.py ./lab/home.py ]}
           '';
           # The Python that writes a document's RO-Crate (rocrate is not in nixpkgs).
           crate-python =

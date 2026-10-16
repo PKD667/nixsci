@@ -33,7 +33,7 @@ HPC-focused survey: [arXiv:2402.07530](https://arxiv.org/pdf/2402.07530).
 | **Sumatra** ([repo](https://github.com/open-research/sumatra)) | records code version, parameters, platform; `smt repeat` checks out the version, reruns, compares outputs | **Taken**: this is `repro`/`verify`. Its limits (local filesystem only, comparison of outputs) are the gaps we fill. |
 | **Sacred / MLflow** ([observers](https://sacred.readthedocs.io/en/stable/observers.html), [tracking](https://mlflow.org/docs/latest/tracking/)) | run records in MongoDB / SQL / a tracking server, plus an artifact store | **Not taken**: a database or server is the thing to avoid. Both started file-based; we stay there. |
 | **targets** ([data and metadata](https://books.ropensci.org/targets-design/data.html), [gittargets](https://github.com/ropensci/gittargets)) | hash-based "up to date" detection, a store with centralised metadata, git snapshots of the store | **Taken**: the `fingerprint` skip in `analyze` follows the same idea. |
-| **Nix / Guix** ([Guix for research](https://www.nature.com/articles/s41597-022-01720-9)) | pure builds; bit-for-bit as a foundation to isolate what changed, "not a goal in itself" | **Taken**: input-addressing. We hash *inputs*; outputs of a noisy experiment cannot be content-addressed. |
+| **Nix / Guix** ([Guix for research](https://www.nature.com/articles/s41597-022-01720-9)) | pure builds; bit-for-bit as a foundation to isolate what changed, "not a goal in itself" | **Taken**: input-addressing. We hash *inputs*; noisy outputs cannot be predicted from their inputs; once sealed, their bytes are content-addressed. |
 | **Workflow Run RO-Crate** ([arXiv:2312.07852](https://arxiv.org/abs/2312.07852)) | machine-actionable, PROV-aligned record of a run, including re-execution | **Planned**: export a run as a crate. The manifest stays minimal and maps onto it; we do not replace it. |
 | **Popper / Aver** ([convention](http://alumni.soe.ucsc.edu/~msevilla/papers/jimenez-ipdpsw17.pdf), [validation](https://dl.acm.org/doi/10.1145/3184407.3184422)) | experiment as a DevOps project; declarative assertions that a *claim* holds on every re-execution | **Taken** as the answer for noisy results: verify claims, not rows (see below). |
 | **Hoefler & Belli** ([SC15](https://dl.acm.org/doi/10.1145/2807591.2807644)) | report whether data is deterministic; confidence intervals for non-deterministic data; document the setup | **Taken**: `noisy` columns, `replicates`, the machine record. |
@@ -58,8 +58,7 @@ HPC-focused survey: [arXiv:2402.07530](https://arxiv.org/pdf/2402.07530).
    when the claim fails is already a claim check. Planned: `verify --claims` runs the declared
    pipelines on original + replicates.
 6. **Where data lives** (decided with the user's constraints: no central storage, no `<repo>/data`):
-   - a **per-project store**, `<project>/.nixsci/` (override with `NIXSCI_STORE`); outputs are not
-     shareable data, so they stay with their project; runs are write-once and addressed by `input_id`.
+   - a **per-project store**, `<project>/.nixsci/` (override with `NIXSCI_STORE`); runs are shared by their sealed content hashes; runs are write-once and addressed by `input_id`.
      Inputs (datasets and models) are the shared part and live in a separate store, per grid;
    - **`lab.lock`** next to the flake, committed to git: the finished runs of each experiment, as
      Nix store paths with their hashes. Analyses are derivations over exactly those paths, so a
@@ -71,7 +70,7 @@ HPC-focused survey: [arXiv:2402.07530](https://arxiv.org/pdf/2402.07530).
 
 ## Open questions
 
-- Garbage collection of the store (by lock roots, like Nix): not built.
+- GC roots are created when runs enter a store; automatic expiry is not built.
 - Whether the lock should also pin pipeline *outputs* by hash (figures) so a paper build can
   fetch them: likely yes. `out.document` takes `include` paths from analysis derivations, so the figures are pinned by the derivation graph; pinning them in the lock is still open.
 - Artifact (array) records are not compared by `verify`.
