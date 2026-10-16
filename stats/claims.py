@@ -66,7 +66,7 @@ def samples(view: str | Path, sel: dict[str, Any], *, raw: bool = False) -> list
             missing = [k for k in where if k not in row]
             if missing:
                 raise ValueError(f"{sel['use']}/{sel['dataset']} has no column(s) {missing} for `where`")
-            if all(row[k] == v for k, v in where.items()) and row[column] is not None:
+            if all(row[k] == v for k, v in where.items()) and (raw or row[column] is not None):
                 per_run.setdefault(row["run"], []).append(row[column])
     if not per_run:
         raise ValueError(f"selection {json.dumps(sel, sort_keys=True)} matches no row")
@@ -128,7 +128,7 @@ def judge(claims: dict[str, Any], view: str | Path, reproduction: str | Path | N
     stats._check_level(level)
     if not isinstance(claims, dict) or not claims:
         raise ValueError("declare at least one claim")
-    report: dict[str, Any] = {"level": level, "scope": "per-claim; no multiplicity correction", "claims": {}}
+    report: dict[str, Any] = {"level": level, "scope": "per-claim; no multiplicity correction", "formalVerification": "not-performed", "claims": {}}
     for name in sorted(claims):
         entry: dict[str, Any] = {"claim": claims[name], "original": evaluate(claims[name], view, level)}
         if reproduction is not None:
