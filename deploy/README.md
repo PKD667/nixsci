@@ -48,7 +48,7 @@ manifests remain readable; unknown format versions are rejected.
   "program": "/nix/store/...-thing/bin/worker", "args": [],
   "runtime": [], "env": {}, "resources": {}, "commands": {},
   "walltime": null,
-  "restart": {"policy": "no", "max": null, "delay": 0},
+  "restart": {"policy": "no", "max": null, "delay": 5},
   "metadata": {}
 }
 ```
@@ -56,7 +56,15 @@ manifests remain readable; unknown format versions are rejected.
 `walltime` is finite, positive minutes or `null` (persistent); it caps the
 whole restart loop. Restart policy is `no`, `on-failure`, or `always`; `max`
 counts additional attempts (`null` is unlimited), and `delay` is finite,
-nonnegative seconds. `program` and commands must be files inside the closure.
+nonnegative seconds (default 5). `program` names the closure's `bin/run`
+policy wrapper; the original program and fixed arguments are retained as
+metadata, while manifest `args` is empty so the backend cannot pass them twice. `program` and commands must be files inside the closure.
+
+`hardware` is an optional pin: any subset of `cpu`, `arch`, and `cores` may be
+requested. The target checks exact `/proc/cpuinfo` model name, `uname -m`, and
+`nproc` output before starting the program; a mismatch prints an error and exits
+78. Unknown keys and wrong types are rejected while evaluating the Nix
+constructor. It is empty by default and does not affect recorded lab statistics.
 The target wrapper records one JSON line per attempt in
 `$NIX_DEPLOY_WORKDIR/attempts.jsonl`; TERM stops the child and prevents another
 attempt. Restart is only while the target process lives: there is no reboot
