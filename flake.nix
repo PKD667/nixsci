@@ -17,7 +17,7 @@
           pyproject = true;
           build-system = [ py.setuptools ];
           dependencies = [ py.pyarrow ];
-          pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" "nixsci.out" "nixsci.stats" ];
+          pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" "nixsci.doc" "nixsci.stats" ];
           # A store path is immutable: bytecode written into one changes its hash and Nix then refuses it.
           makeWrapperArgs = [ "--set" "PYTHONDONTWRITEBYTECODE" "1" ];
           meta.mainProgram = "nixsci";
@@ -28,21 +28,21 @@
       # same data as a static file, so it is a draft and its `publish` is refused.
       exampleDocument = pkgs: { static }:
         let
-          out = self.lib.out { inherit pkgs; };
-          curve = pkgs.runCommand "demo-curve" { } "mkdir $out; cp ${./out/examples/demo/curve.tsv} $out/curve.tsv";
+          doc = self.lib.doc { inherit pkgs; };
+          curve = pkgs.runCommand "demo-curve" { } "mkdir $out; cp ${./doc/examples/demo/curve.tsv} $out/curve.tsv";
           values = pkgs.writeText "curve.json" (builtins.toJSON { final = 0.3; epochs = 3; });
-          demo = out.project {
+          demo = doc.project {
             name = "demo";
-            style = ./out/examples/demo/demo.sty;
+            style = ./doc/examples/demo/demo.sty;
             packages = ps: [ ps.pgfplots ];
-            data.curve = if static then out.static ./out/examples/demo/curve.tsv else out.output curve "curve.tsv";
-            figures.curve = { src = ./out/examples/demo/curve.tex; data = [ "curve" ]; };
+            data.curve = if static then doc.static ./doc/examples/demo/curve.tsv else doc.output curve "curve.tsv";
+            figures.curve = { src = ./doc/examples/demo/curve.tex; data = [ "curve" ]; };
             values.curve = values;
           };
         in
-        out.document {
+        doc.document {
           name = if static then "example-draft" else "example";
-          src = ./out/examples/demo/tex;
+          src = ./doc/examples/demo/tex;
           projects = [ demo ];
           figures.demo.curve-small = { from = "curve"; width = "6cm"; };
           source = self;
@@ -71,14 +71,16 @@
           rEnv = self.packages.${pkgs.stdenv.hostPlatform.system}.r-env;
         };
 
-      # Documents: `out = nixsci.lib.out { inherit pkgs; }; out.document { ... }` (see out/nix/out.nix).
-      lib.out = { pkgs }: import ./out/nix/out.nix { inherit pkgs; crateTool = self.packages.${pkgs.stdenv.hostPlatform.system}.crate-python; };
+      # Documents: `doc = nixsci.lib.doc { inherit pkgs; }; doc.document { ... }` (see doc/nix/doc.nix).
+      lib.doc = { pkgs }: import ./doc/nix/doc.nix { inherit pkgs; crateTool = self.packages.${pkgs.stdenv.hostPlatform.system}.crate-python; };
+      # Compatibility for flakes pinned before the module was named doc.
+      lib.out = self.lib.doc;
 
       # `nix flake init -t github:PKD667/nixsci#paper` (or #slides, #poster).
       templates = {
-        paper = { path = ./out/templates/paper; description = "A paper: LaTeX source, PDF and RO-Crate from one flake"; };
-        slides = { path = ./out/templates/slides; description = "Beamer slides"; };
-        poster = { path = ./out/templates/poster; description = "A tikzposter poster"; };
+        paper = { path = ./doc/templates/paper; description = "A paper: LaTeX source, PDF and RO-Crate from one flake"; };
+        slides = { path = ./doc/templates/slides; description = "Beamer slides"; };
+        poster = { path = ./doc/templates/poster; description = "A tikzposter poster"; };
       };
 
       packages = forAll (pkgs:

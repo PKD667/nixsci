@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from nixsci.out import remeasure
+from nixsci.doc import remeasure
 
 
 def test_build_plan_freezes_flake(monkeypatch, tmp_path):

@@ -52,7 +52,7 @@ def main(argv):
         from .remeasure import main as remeasure
         return remeasure(argv[1:])
     if not argv:
-        print("usage: nixsci out <file.tex|dir> ...", file=sys.stderr)
+        print("usage: nixsci doc <file.tex|dir> ...", file=sys.stderr)
         return 2
     count = 0
     for arg in argv:

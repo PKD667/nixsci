@@ -33,7 +33,7 @@ def _build_plan(ref: str, doc: str) -> tuple[Path, str]:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(prog="nixsci out remeasure")
+    ap = argparse.ArgumentParser(prog="nixsci doc remeasure")
     ap.add_argument("flake_doc", help="FLAKE#DOC, where DOC is an exported package PDF")
     ap.add_argument("--level", type=float, default=0.95)
     ap.add_argument("--output", type=Path, default=Path("remeasure"))
@@ -113,7 +113,7 @@ def main(argv=None) -> int:
         (reports / "summary.json").write_text(json.dumps({"level": args.level, **summaries,
             "formalVerification": "not-performed", "confidenceScope": "per-claim; no joint guarantee"}, indent=2, sort_keys=True) + "\n")
         if any(summaries.values()):
-            print("nixsci out remeasure: WARNING: " + note, file=sys.stderr)
+            print("nixsci doc remeasure: WARNING: " + note, file=sys.stderr)
         expression = prefix + "in p.withMeasurements { inherit locks; level = " + str(args.level) + "; remeasurement = " + json.dumps(note) + "; }"
         pdf = _run(["nix", "build", "--impure", "--no-link", "--print-out-paths", "--expr", expression])
         source_pdf = Path(pdf) / f"{doc}.pdf"
@@ -129,7 +129,7 @@ def main(argv=None) -> int:
         diagnostics = output / "diagnostics"
         if work.exists():
             shutil.copytree(work, diagnostics, dirs_exist_ok=True)
-        print(f"nixsci out remeasure: {error}", file=sys.stderr)
+        print(f"nixsci doc remeasure: {error}", file=sys.stderr)
         print(f"diagnostics retained at {output}", file=sys.stderr)
         return 1
     finally:
