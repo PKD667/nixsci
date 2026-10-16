@@ -48,7 +48,7 @@ def compact_run(run: str | Path, out: str | Path) -> list[Path]:
         raise ValueError(f"run {manifest.get('run')}: only a finished (ok) run can be compacted")
     records = _records(run)
     expected = manifest.get("records_sha256")
-    if expected and records is not None and sha256_file(records) != expected:
+    if expected and (records is None or sha256_file(records) != expected):
         raise ValueError(
             f"run {manifest['run']}: records.jsonl does not match the hash sealed in its "
             "manifest (the data changed after the run)"

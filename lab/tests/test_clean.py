@@ -2,6 +2,9 @@
 
 import json
 import os
+import signal
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -92,13 +95,20 @@ class Interrupted(unittest.TestCase):
         self.assertFalse((self.runs / "r1").exists())
         self.assertFalse(self.backend.clear("r1"))
 
-        pgid, start = self.backend._identity(os.getpid())
-        (self.runs / "r2").mkdir()
-        (self.runs / "r2" / "handle.json").write_text(
-            json.dumps({"pid": os.getpid(), "pgid": pgid, "start_time": start, "workdir": str(self.runs / "r2")})
-        )
-        with self.assertRaises(RuntimeError):
-            self.backend.clear("r2")
+        # A deployment owns its process group. The test runner's inherited group can live outside
+        # a Nix sandbox's PID namespace, so give the test child the same session boundary.
+        child = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(30)"], start_new_session=True)
+        try:
+            pgid, start = self.backend._identity(child.pid)
+            (self.runs / "r2").mkdir()
+            (self.runs / "r2" / "handle.json").write_text(
+                json.dumps({"pid": child.pid, "pgid": pgid, "start_time": start, "workdir": str(self.runs / "r2")})
+            )
+            with self.assertRaises(RuntimeError):
+                self.backend.clear("r2")
+        finally:
+            os.killpg(child.pid, signal.SIGTERM)
+            child.wait()
         self.assertTrue((self.runs / "r2").exists())
 
 

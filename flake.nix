@@ -135,43 +135,7 @@
           program = "${pkgs.writeShellScript "hello" ''echo \"hello from $(hostname) workdir=$NIX_DEPLOY_WORKDIR\"''}";
           runtime = [ pkgs.coreutils pkgs.hostname ];
         };
-        demo = (self.lib.mkDeployment pkgs) {
-          name = "demo";
-          program = "${pkgs.python3}/bin/python";
-          args = [ "${./lab/examples/demo.py}" ];
-          env.PYTHONPATH = "${self.packages.${pkgs.system}.lab-py}/${pkgs.python3.sitePackages}";
-        };
-      });
-
-      # Legacy lab-facing experiment outputs remain available; deployment resolution prefers deployments.
-      experiments = forAll (pkgs: {
-        # Self-test fixture: a closure that reports where it ran, to exercise any target end to end.
-        hello =
-          let
-            run = pkgs.writeShellApplication {
-              name = "hello";
-              runtimeInputs = [ pkgs.coreutils pkgs.hostname ];
-              text = ''
-                echo "hello from $(hostname) arch=$(uname -m) workdir=$NIX_DEPLOY_WORKDIR"
-                echo "home: ''${HOME:-unset}"
-                echo "enter: ''${NIX_DEPLOY_ENTER:-unset}"
-                echo "hosts: ''${NIX_DEPLOY_HOSTFILE:+$(tr '\n' ' ' < "$NIX_DEPLOY_HOSTFILE")}"
-                if [ -n "''${NIX_DEPLOY_HOSTFILE:-}" ]; then
-                  first=1
-                  while read -r host; do
-                    if [ "$first" = 1 ]; then first=0; continue; fi
-                    # shellcheck disable=SC2086
-                    echo "peer $host: $(''${NIX_DEPLOY_RSH:-ssh} "$host" "$NIX_DEPLOY_ENTER" hostname 2>&1 | tail -n 1)"
-                  done < "$NIX_DEPLOY_HOSTFILE"
-                fi
-              '';
-            };
-          in pkgs.runCommand "hello-experiment" { } ''
-            mkdir $out
-            echo '{"program": "${run}/bin/hello"}' > $out/experiment.json
-          '';
-        # Typed loss rows, one curve per run (see `lab.<system>.experiments.demo` below).
-        demo = (import ./lab/nix/mk-experiment.nix { inherit pkgs; }) {
+        demo = (self.lib.mkExperiment pkgs) {
           name = "demo";
           program = "${pkgs.python3}/bin/python";
           args = [ "${./lab/examples/demo.py}" ];
@@ -187,7 +151,7 @@
         in rec {
           experiments.demo = l.experiment {
             name = "demo";
-            closures.${system} = self.experiments.${system}.demo;
+            closures.${system} = self.deployments.${system}.demo;
             seeds = [ 0 1 ];
             sweep.epsilon = [ 0.1 0.3 ];
             resources = { provider = "local"; hosts = 2; };
@@ -206,6 +170,20 @@
 
       # `nix flake check`: the fixtures build, and a draft cannot be published.
       checks = forAll (pkgs: {
+        unit = pkgs.runCommand "nixsci-unit-tests" {
+          nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.pytest p.hypothesis p.pyarrow ]))
+            pkgs.coreutils pkgs.bash pkgs.procps pkgs.git ];
+        } ''
+          cp -R ${./.} nixsci
+          chmod -R u+w nixsci
+          export PYTHONPATH=$PWD HOME=$TMPDIR/home
+          mkdir -p "$HOME"
+          cd nixsci
+          # Wrapper builds and isolated-store smoke tests run outside the sandbox separately.
+          pytest -q deploy/tests lab/tests stats/tests --ignore=deploy/tests/test_wrapper.py --ignore=deploy/tests/test_source.py
+          touch $out
+        '';
+
         example-paper = self.packages.${pkgs.stdenv.hostPlatform.system}.example-paper;
         example-draft = self.packages.${pkgs.stdenv.hostPlatform.system}.example-draft;
         publish-refuses-draft =
