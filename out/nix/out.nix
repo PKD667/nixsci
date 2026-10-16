@@ -24,7 +24,8 @@
 #   talk.pdf  talk.publish  talk.source  talk.crate  talk.zip  talk.shell  talk.apps  talk.unclean
 #
 # A figure is compiled on its own (standalone class, the project's style, the template's fonts) at
-# the width the document asks for, and included at its natural size. Nothing from the document
+# the width the document asks for. It reads its declared data at \datadir/<key>, and the project's
+# files where a document sees them, <project>/<key>. Nothing from the document
 # leaks into it and nothing in it needs patching to move between a paper and a slide.
 #
 # Provenance travels as `unclean`, a list of what a reader could not trace to code and locked
@@ -166,8 +167,9 @@ rec {
       compile = p: v: pkgs.runCommand "${p.name}-${v.key}-${t.name}"
         { nativeBuildInputs = [ figureEnv ]; FORCE_SOURCE_DATE = "1"; } ''
         ${engineHome t.engine}
-        mkdir -p data
+        mkdir -p data ${p.name}
         ${lib.concatMapStrings (d: "cp ${p.data.${d}.path} data/${d}${extension p.data.${d}.path}\n") v.fig.data}
+        ${lib.concatStrings (lib.mapAttrsToList (k: e: "cp -RL --no-preserve=mode ${e.path} ${p.name}/${k}${extension e.path}\n") p.files)}
         ${lib.optionalString (p.style != null) "cp ${p.style} ${p.name}.sty"}
         cp ${v.fig.src} figure.tex
         cat > wrapper.tex <<'EOF'
