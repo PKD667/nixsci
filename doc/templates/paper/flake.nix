@@ -6,11 +6,11 @@
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
-      out = nixsci.lib.out { inherit pkgs; };
+      doc = nixsci.lib.doc { inherit pkgs; };
       # lab = nixsci.lib.lab { inherit pkgs; project = self; };  # when the figures are computed
-      paper = out.document {
+      paper = doc.document {
         name = "paper";
-        template = out.templates.paper;
+        template = doc.templates.paper;
         src = ./tex;
         # include."gen/curve.pdf" = "${lab.analyses.curves}/curve.pdf";
       };

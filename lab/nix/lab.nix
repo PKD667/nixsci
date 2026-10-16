@@ -187,7 +187,7 @@ rec {
             inherit claimFile;
             view = toString view;
           }) use;
-          # What nixsci out reads: one list, each entry saying why.
+          # What nixsci doc reads: one list, each entry saying why.
           unclean = map (r: "${r}: older code") stale ++ map (r: "${r}: no job of the spec") orphan
             ++ map (j: "${j}: no run") missing ++ map (r: "${r}: recorded by hand") untraced;
         };

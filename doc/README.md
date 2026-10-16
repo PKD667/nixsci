@@ -1,25 +1,25 @@
-# nixsci out
+# nixsci doc
 
-`nixsci.lib.out { inherit pkgs; }` returns `project`, `template`, `templates`, `document`, `static` and `output`. The full signatures are in `nix/out.nix`.
+`nixsci.lib.doc { inherit pkgs; }` returns `project`, `template`, `templates`, `document`, `static` and `output`. The full signatures are in `nix/doc.nix`.
 
 ```nix
-out = nixsci.lib.out { inherit pkgs; };
+doc = nixsci.lib.doc { inherit pkgs; };
 
-p = out.project {
+p = doc.project {
   name = "p";
   style = ./p.sty;                                   # \usepackage{p}
   packages = ps: [ ps.pgfplots ];                    # TeX packages the style and figures need
   files.assets = ./assets;                           # p/assets/...
-  data.band = out.static ./data/band.tsv;            # read by figures; static = untraced
+  data.band = doc.static ./data/band.tsv;            # read by figures; static = untraced
   figures.band = { src = ./figures/band.tex; data = [ "band" ]; };   # p/band.pdf
-  values.band = out.output analysis "band.json";     # \val{p/band.median}
+  values.band = doc.output analysis "band.json";     # \val{p/band.median}
   bib = ./references.bib;                            # \bibliography{p}
 };
 
-doc = out.document {
+doc = doc.document {
   name = "doc";
   src = ./doc;                     # holds main.tex, which names its class
-  template = out.templates.plain;  # or a template from out.template
+  template = doc.templates.plain;  # or a template from doc.template
   meta = { };                      # checked against the template's slots
   projects = [ p ];
   figures.p.band = "8.6cm";        # width for this document; { from; width; options; } adds a variant
@@ -40,7 +40,7 @@ Each `values` entry is a JSON file. Its scalars become `\val{p/<entry>.<path>}`,
 
 ## Templates
 
-`out.template { name; files; packages; engine; meta; render; figure; }`. `meta` maps each slot to `"required"` or `"optional"`; `meta = null` accepts any slots. `render` turns the document's `meta` into TeX, which `nixsci.sty` reads when it loads. A template's class must load `nixsci` after defining what `render` sets. `out.templates` has `plain`, `paper`, `slides` and `poster`.
+`doc.template { name; files; packages; engine; meta; render; figure; }`. `meta` maps each slot to `"required"` or `"optional"`; `meta = null` accepts any slots. `render` turns the document's `meta` into TeX, which `nixsci.sty` reads when it loads. A template's class must load `nixsci` after defining what `render` sets. `doc.templates` has `plain`, `paper`, `slides` and `poster`.
 
 ## Provenance
 
@@ -48,12 +48,12 @@ Each `values` entry is a JSON file. Its scalars become `\val{p/<entry>.<path>}`,
 
 ## Editing
 
-`nix run .#<doc>` links the assembled tree (template files, `nixsci.sty`, projects, compiled figures) to `.nixsci/out/<doc>`, puts it on `TEXINPUTS`, `BIBINPUTS` and `BSTINPUTS`, exports `NIXSCI_TREE`, and runs `latexmk -pvc` in `srcDir`. After editing a figure source, run `nix run` again.
+`nix run .#<doc>` links the assembled tree (template files, `nixsci.sty`, projects, compiled figures) to `.nixsci/doc/<doc>`, puts it on `TEXINPUTS`, `BIBINPUTS` and `BSTINPUTS`, exports `NIXSCI_TREE`, and runs `latexmk -pvc` in `srcDir`. After editing a figure source, run `nix run` again.
 
-`nixsci out <dir>` prints prose warnings (WRITING.md budgets and deny-list). It always exits 0.
+`nixsci doc <dir>` prints prose warnings (WRITING.md budgets and deny-list). It always exits 0.
 
 ## Remeasure
 
-An exported PDF package exposes `measurementPlan` and `withMeasurements`. Run `nixsci out remeasure FLAKE#DOC --level 0.95 --output DIR` to execute every job in its original experiment specs with the original closures, in isolated empty stores, and build a fresh PDF from those locks. The output directory must be empty; failed runs retain diagnostics but cannot leave a stale PDF looking successful. `reports/` contains each claim comparison and `summary.json`; the PDF marks every page with the contradicted, inconclusive and unsupported counts. Confidence is a two-sided interval at the requested per-claim level, not a joint guarantee. No machine-hardware comparison is made. `formalVerification: not-performed` in statistical reports means provenance checks are not proofs.
+An exported PDF package exposes `measurementPlan` and `withMeasurements`. Run `nixsci doc remeasure FLAKE#DOC --level 0.95 --output DIR` to execute every job in its original experiment specs with the original closures, in isolated empty stores, and build a fresh PDF from those locks. The output directory must be empty; failed runs retain diagnostics but cannot leave a stale PDF looking successful. `reports/` contains each claim comparison and `summary.json`; the PDF marks every page with the contradicted, inconclusive and unsupported counts. Confidence is a two-sided interval at the requested per-claim level, not a joint guarantee. No machine-hardware comparison is made. `formalVerification: not-performed` in statistical reports means provenance checks are not proofs.
 
 The remeasurement path changes only lock inputs and analysis outputs. It does not override the code flake, make temporary commits, or modify the source checkout.

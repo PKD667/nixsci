@@ -15,14 +15,14 @@ nixsci = "nixsci.cli:main"
 [project.entry-points."nixsci.commands"]
 deploy = "nixsci.deploy.cli:main"
 lab = "nixsci.lab.cli:main"
-out = "nixsci.out.check:main"
+doc = "nixsci.doc.check:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["nixsci.cli", "nixsci.deploy", "nixsci.lab", "nixsci.out", "nixsci.stats"]
+packages = ["nixsci.cli", "nixsci.deploy", "nixsci.lab", "nixsci.doc", "nixsci.stats"]
 
 # The repository directory is the `nixsci` namespace: nixsci/deploy is deploy/, and so on.
 [tool.setuptools.package-dir]
