@@ -150,14 +150,15 @@ rec {
         (p: fs: if byName ? ${p} then [ ] else [ "project ${p} is not among this document's projects" ]) figures);
 
       # Every figure of every project, at the template's width unless this document names another,
-      # plus the variants it adds with `from`.
+      # plus the variants it adds with `from` (and TeX `options` set before the figure is read).
       variants = p:
         let
           asked = figures.${p.name} or { };
           spec = key: v:
             let v' = if lib.isString v then { width = v; } else v; from = v'.from or key;
             in
-            if p.figures ? ${from} then { inherit key; fig = p.figures.${from}; width = v'.width or t.figure.width; }
+            if p.figures ? ${from}
+            then { inherit key; fig = p.figures.${from} // lib.optionalAttrs (v' ? options) { inherit (v') options; }; width = v'.width or t.figure.width; }
             else throw "out: ${name}: figure ${p.name}/${from} is not a figure of ${p.name}";
         in
         lib.mapAttrsToList (key: _: spec key (asked.${key} or t.figure.width)) p.figures
