@@ -168,6 +168,12 @@ def main(argv=None) -> int:
     from nixsci.deploy import resolver
 
     source = json.loads(args.source)
+    # A run must name a commit: that commit rebuilds the closure, and the closure is the code that
+    # ran. A dirty tree has no commit to name, so its runs could not be rebuilt by anyone else.
+    rev = source.get("rev")
+    if not isinstance(rev, str) or not rev or rev.endswith("-dirty"):
+        _err(f"nixsci lab: refusing to run from uncommitted code (rev {rev!r}): commit, then run again")
+        return 2
     closures = {}
     for item in args.closure:
         system, _, path = item.partition("=")

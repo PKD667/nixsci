@@ -21,18 +21,37 @@ let
   lockFile = project + "/lab.lock";
   locked = if builtins.pathExists lockFile then builtins.fromJSON (builtins.readFile lockFile) else { };
 
-  # The runs of an experiment that its lock names, each checked by the hash of its contents.
+  # The runs of an experiment that its lock names, each checked by the hash of its contents and
+  # against the code. A run whose closure is not one of the experiment's closures now measured
+  # other code: it is stale. A run with no closure was recorded by hand: it is untraced.
   runsOf = exp:
-    let entries = locked.${exp.name} or [ ];
-    in assert lib.assertMsg (entries != [ ])
+    let
+      entries = locked.${exp.name} or [ ];
+      current = map toString (lib.attrValues exp.closures);
+    in
+    assert lib.assertMsg (entries != [ ])
       "experiment ${exp.name} has no locked runs: run it (nix run .#${exp.name}) and commit lab.lock";
-    map (r: { inherit (r) name; path = builtins.path { inherit (r) path sha256 name; }; }) entries;
+    map
+      (r:
+        let
+          path = builtins.path { inherit (r) path sha256 name; };
+          closure = (builtins.fromJSON (builtins.readFile "${path}/manifest.json")).closure or null;
+        in
+        { inherit (r) name; inherit path; traced = closure != null; stale = closure != null && !(builtins.elem closure current); })
+      entries;
 
-  # One run as the Parquet tables it declared, plus its manifest row.
-  compactRun = run:
-    pkgs.runCommand "data-${run.name}" { nativeBuildInputs = [ python ]; } ''
-      python -m nixsci.lab.compact ${run.path} $out
+  # Every locked run of one experiment as the Parquet tables it declared, plus `runs.json`.
+  # One derivation per experiment, not per run: see compact.py for the cost that avoids.
+  compactRuns = exp: runs:
+    pkgs.runCommand "data-${exp.name}" { nativeBuildInputs = [ python ]; } ''
+      python -m nixsci.lab.compact $out ${lib.concatMapStringsSep " " (r: "${r.path}") runs}
     '';
+
+  # The experiment's derivations, as a dependency of the view: the .drv, not its output, so the
+  # code that produced the runs is in the analysis's derivation graph and nothing is rebuilt.
+  codeOf = exp: builtins.toJSON (lib.mapAttrs
+    (_: c: if c ? drvPath then builtins.unsafeDiscardOutputDependency c.drvPath else toString c)
+    exp.closures);
 in
 rec {
   experiment =
@@ -64,23 +83,32 @@ rec {
       };
     };
 
-  analysis = { name, use, pipelines }:
+  # `allowStale = true` builds over stale runs with a warning: a draft. Publishing refuses it, and
+  # refuses untraced runs; both lists are on the result.
+  analysis = { name, use, pipelines, allowStale ? false }:
     let
       n = name' "analysis" name;
-      view = pkgs.runCommand "view-${n}" { nativeBuildInputs = [ pkgs.jq ]; } ''
+      runs = lib.mapAttrs (_: runsOf) use;
+      named = pick: lib.concatLists (lib.mapAttrsToList
+        (alias: rs: map (r: "${alias}/${r.name}") (lib.filter pick rs)) runs);
+      stale = named (r: r.stale);
+      untraced = named (r: !r.traced);
+      staleMsg = "analysis ${n}: ${toString (lib.length stale)} locked run(s) measured code that is "
+        + "not the experiment's closure any more: ${lib.concatStringsSep ", " stale}. "
+        + "Run the experiment again and commit lab.lock";
+      view = pkgs.runCommand "view-${n}" { } ''
         shopt -s nullglob
         mkdir $out
         ${lib.concatStrings (lib.mapAttrsToList (alias: exp:
-          let tables = map compactRun (runsOf exp);
+          let t = compactRuns exp runs.${alias};
           in ''
             mkdir -p $out/${alias}
-            ${lib.concatMapStrings (t: ''
-              for dir in ${t}/*/; do
-                table=$(basename "$dir"); mkdir -p $out/${alias}/$table
-                ln -s "$dir"*.parquet $out/${alias}/$table/
-              done
-            '') tables}
-            jq -s . ${lib.concatMapStringsSep " " (t: "${t}/row.json") tables} > $out/${alias}/runs.json
+            for dir in ${t}/*/; do
+              table=$(basename "$dir"); mkdir -p $out/${alias}/$table
+              ln -s "$dir"*.parquet $out/${alias}/$table/
+            done
+            cp ${t}/runs.json $out/${alias}/runs.json
+            echo ${lib.escapeShellArg (codeOf exp)} > $out/${alias}/code.json
           '') use)}
       '';
       runPipeline = pname: p:
@@ -91,6 +119,10 @@ rec {
           Rscript ${p.script}
         '';
       built = lib.mapAttrs runPipeline pipelines;
+      result = (pkgs.symlinkJoin { name = n; paths = lib.attrValues built; })
+        // { inherit view stale untraced; pipelines = built; };
     in
-    (pkgs.symlinkJoin { name = n; paths = lib.attrValues built; }) // { inherit view; pipelines = built; };
+    if stale == [ ] then result
+    else if allowStale then lib.warn "${staleMsg}, or keep this draft (allowStale)." result
+    else throw "${staleMsg}, or pass allowStale = true for a draft.";
 }

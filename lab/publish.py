@@ -32,6 +32,33 @@ def read_lock(project: Path) -> dict[str, list[dict[str, str]]]:
     return json.loads(path.read_text()) if path.is_file() else {}
 
 
+def _write_lock(project: Path, lock: dict[str, list[dict[str, str]]]) -> None:
+    fd, tmp = tempfile.mkstemp(dir=project, prefix=".lab.lock.tmp")
+    with os.fdopen(fd, "w") as out:
+        out.write(json.dumps(lock, indent=2, sort_keys=True) + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, project / "lab.lock")
+
+
+def retain(project: str | Path, app: str, closures: set[str]) -> list[str]:
+    """Drop the locked runs of `app` that measured another closure; returns their names.
+
+    The lock lists the runs of the current code. A run of older code stays in the runs directory,
+    in the store until collected, and in the lock's git history. A run recorded by hand has no
+    closure and is kept.
+    """
+    project = Path(project)
+    with _LOCK:
+        lock = read_lock(project)
+        keep, dropped = [], []
+        for entry in lock.get(app, []):
+            closure = json.loads((Path(entry["path"]) / "manifest.json").read_text()).get("closure")
+            (dropped if closure is not None and closure not in closures else keep).append(entry)
+        if dropped:
+            _write_lock(project, {**lock, app: keep})
+    return [e["name"] for e in dropped]
+
+
 def publish(run_dir: str | Path, project: str | Path) -> dict[str, str]:
     """Add a finished run to the Nix store and to `<project>/lab.lock`."""
     run_dir, project = Path(run_dir), Path(project)
@@ -43,10 +70,5 @@ def publish(run_dir: str | Path, project: str | Path) -> dict[str, str]:
     sha256 = nixcli.path_hashes("nix", None, path)[path]
     entry = {"name": name, "path": path, "sha256": sha256}
     with _LOCK:
-        lock = add_entry(read_lock(project), manifest["app"], entry)
-        fd, tmp = tempfile.mkstemp(dir=project, prefix=".lab.lock.tmp")
-        with os.fdopen(fd, "w") as out:
-            out.write(json.dumps(lock, indent=2, sort_keys=True) + "\n")
-        os.chmod(tmp, 0o644)
-        os.replace(tmp, project / "lab.lock")
+        _write_lock(project, add_entry(read_lock(project), manifest["app"], entry))
     return entry

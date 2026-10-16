@@ -1,11 +1,14 @@
-"""One finished run -> typed Parquet tables and its manifest row.
+"""Finished runs -> typed Parquet tables and their manifest rows.
 
-Nix runs this inside a build, once per locked run:
+Nix runs this inside a build, once per experiment, over the runs its lock names:
 
-    python -m nixsci.lab.compact <run store path> <output directory>
+    python -m nixsci.lab.compact <output directory> <run store path>...
 
     <out>/<dataset>/<run id>.parquet   the columns the experiment declared, plus `run`, `seed`, `time`
-    <out>/row.json                     one run's manifest row: id, state, seed, parameters
+    <out>/runs.json                    one manifest row per run: id, state, seed, parameters
+
+One process for all runs: a derivation per run paid a sandbox and a pyarrow import each, about
+0.7 s, which a sweep of a thousand runs turns into minutes of nothing.
 """
 
 from __future__ import annotations
@@ -81,5 +84,16 @@ def compact_run(run: str | Path, out: str | Path) -> list[Path]:
     return written
 
 
+def compact_runs(out: str | Path, runs: list[str | Path]) -> None:
+    """Compact every run into `out` and write their rows, in run order, to `out/runs.json`."""
+    out, rows = Path(out), []
+    for run in runs:
+        compact_run(run, out)
+        rows.append(json.loads((out / "row.json").read_text()))
+    (out / "row.json").unlink(missing_ok=True)
+    rows.sort(key=lambda r: r["run"])
+    (out / "runs.json").write_text(json.dumps(rows, sort_keys=True))
+
+
 if __name__ == "__main__":
-    compact_run(sys.argv[1], sys.argv[2])
+    compact_runs(sys.argv[1], sys.argv[2:])

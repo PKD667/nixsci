@@ -310,6 +310,21 @@ class Backend:
         self._write_json(workdir, "handle.json", handle)
         return handle
 
+    def clear(self, run_id: str) -> bool:
+        """Remove the workdir a dead job left under `run_id`; True if there was one.
+
+        A run id names a measurement, so a retry after a crash reuses it and `launch` would find
+        the old workdir. A job still running there is not ours to delete: that raises.
+        """
+        left = {"workdir": self._workdir(run_id)}
+        if not self._exists(left, ""):
+            return False
+        recorded = self.read_file(left, "handle.json")
+        if recorded is not None and self.alive(json.loads(recorded)):
+            raise RuntimeError(f"run {run_id} is still running in {left['workdir']}")
+        self.remove(left)
+        return True
+
     def put(self, handle, name: str, source) -> str:
         """Copy bytes or a path into a running job's workdir (hash-verified); returns its target path."""
         ((n, data, digest),) = _input_records({name: source})
