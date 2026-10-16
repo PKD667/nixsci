@@ -16,19 +16,19 @@ p = doc.project {
   bib = ./references.bib;                            # \bibliography{p}
 };
 
-doc = doc.document {
-  name = "doc";
-  src = ./doc;                     # holds main.tex, which names its class
+paper = doc.document {
+  name = "paper";
+  src = ./paper;                     # holds main.tex, which names its class
   template = doc.templates.plain;  # or a template from doc.template
   meta = { };                      # checked against the template's slots
   projects = [ p ];
   figures.p.band = "8.6cm";        # width for this document; { from; width; options; } adds a variant
   source = self;                   # lets publish check for uncommitted changes
 };
-# doc.pdf  doc.publish  doc.refusals  doc.source  doc.crate  doc.zip  doc.shell  doc.apps  doc.unclean
+# paper.pdf  paper.publish  paper.refusals  paper.source  paper.crate  paper.zip  paper.shell  paper.apps  paper.unclean
 ```
 
-`doc.publish` builds a directory containing `doc.pdf`, `doc-latex.zip`, `doc-artifact.zip`, and `SHA256SUMS`. The LaTeX archive includes the dereferenced source tree, compiled figures, and a README with its compile command and TeX Live package requirements. The artifact archive contains the RO-Crate plus analysis views available through project outputs; these views are not full raw experiment runs. The checksum file covers the three sibling deliverables. No upload occurs.
+`paper.publish` builds a directory containing `paper.pdf`, `paper-latex.zip`, `paper-artifact.zip`, and `SHA256SUMS`. The LaTeX archive includes the dereferenced source tree, compiled figures, and a README with its compile command and TeX Live package requirements. The artifact archive contains the RO-Crate plus analysis views available through project outputs; these views are not full raw experiment runs. The checksum file covers the three sibling deliverables. No upload occurs.
 
 ## Figures
 
@@ -54,6 +54,10 @@ Each `values` entry is a JSON file. Its scalars become `\val{p/<entry>.<path>}`,
 
 ## Remeasure
 
+`nix run .#<doc> -- --remeasure --level 0.99 --output DIR` runs the same operation from the document app.
+
 An exported PDF package exposes `measurementPlan` and `withMeasurements`. Run `nixsci doc remeasure FLAKE#DOC --level 0.95 --output DIR` to execute every job in its original experiment specs with the original closures, in isolated empty stores, and build a fresh PDF from those locks. The output directory must be empty; failed runs retain diagnostics but cannot leave a stale PDF looking successful. `reports/` contains each claim comparison and `summary.json`; the PDF marks every page with the contradicted, inconclusive and unsupported counts. Confidence is a two-sided interval at the requested per-claim level, not a joint guarantee. No machine-hardware comparison is made. `formalVerification: not-performed` in statistical reports means provenance checks are not proofs.
+
+Analyses without declared claims are marked unjudged, not supported. Static inputs and experiments recorded by hand cannot be remeasured.
 
 The remeasurement path changes only lock inputs and analysis outputs. It does not override the code flake, make temporary commits, or modify the source checkout.

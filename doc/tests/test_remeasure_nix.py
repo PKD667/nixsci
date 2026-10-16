@@ -3,6 +3,8 @@
 NIXSCI_INTEGRATION=1 nix develop --command pytest -q doc/tests/test_remeasure_nix.py
 """
 import json
+import hashlib
+import zipfile
 import os
 import subprocess
 from pathlib import Path
@@ -77,8 +79,8 @@ values({"nonce": rows[-1]["nonce"]})
     paper = doc.document { name = "probe-doc"; src = ./tex;
       projects = [ project ]; source = self; };
   in {
-    apps.${system}.measure = exp.run;
-    packages.${system} = { probe-doc = paper.pdf; probe-analysis = analysis; };
+    apps.${system} = { measure = exp.run; probe-doc = paper.apps.default; };
+    packages.${system} = { probe-doc = paper.pdf; probe-analysis = analysis; probe-publish = paper.publish; };
   };
 }
 ''')
@@ -101,9 +103,17 @@ values({"nonce": rows[-1]["nonce"]})
     run("git", "-C", str(fixture), "commit", "-qm", "baseline measurements")
     old_analysis = Path(run("nix", "build", "--no-link", "--print-out-paths", str(fixture) + "#probe-analysis"))
     old_nonce = json.loads((old_analysis / "values.json").read_text())["nonce"]
+    published = Path(run("nix", "build", "--no-link", "--print-out-paths", str(fixture) + "#probe-publish"))
+    for line in (published / "SHA256SUMS").read_text().splitlines():
+        digest, name = line.split("  ", 1)
+        assert hashlib.sha256((published / name).read_bytes()).hexdigest() == digest
+    with zipfile.ZipFile(published / "probe-doc-artifact.zip") as archive:
+        assert any(n.startswith("data/probe/summary/view/probe/sample/") and n.endswith(".parquet") for n in archive.namelist())
+        assert "data/probe/summary/view/probe/runs.json" in archive.namelist()
     observation.write_text("0")
     output = tmp_path / "fresh"
-    assert remeasure.main([str(fixture) + "#probe-doc", "--level", "0.99", "--output", str(output)]) == 0
+    run("nix", "run", str(fixture) + "#probe-doc", "--", "--remeasure", "--level", "0.99",
+        "--output", str(output), cwd=fixture)
     assert (fixture / "lab.lock").read_bytes() == baseline
     assert run("git", "-C", str(fixture), "status", "--porcelain") == ""
     locks = json.loads((output / "locks.json").read_text())
