@@ -38,7 +38,10 @@ claims.speedup = {
 confidence = 0.99;
 ```
 
-The analysis writes `claims.json` and `claims-report.json`. Unsupported and inconclusive claims
+The analysis writes `claims.json` (`{ "format": "2.0", "claims": { ... } }`) and
+`claims-report.json`. Claim names are their IDs within the analysis. Additional fields on a claim,
+such as a source label or formal statement, travel with the report but do not constitute a proof.
+Reports explicitly mark formal verification as not performed. Unsupported and inconclusive claims
 remain visible in the report; they do not erase the PDF or stop an analysis build.
 
 ```
