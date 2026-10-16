@@ -11,7 +11,7 @@ from nixsci import lab
 SCHEMA = {"loss": {"epoch": "int", "value": "float"}}
 
 
-def _run(root: Path, name: str, seed: int, closure: str | None = None) -> Path:
+def _run(root: Path, name: str, seed: int, closure: str | None = None, params: dict | None = None) -> Path:
     run = root / name
     (run / "lab").mkdir(parents=True)
     os.environ["NIX_LAB_DIR"] = str(run / "lab")
@@ -21,7 +21,7 @@ def _run(root: Path, name: str, seed: int, closure: str | None = None) -> Path:
     finally:
         for k in ("NIX_LAB_DIR", "NIX_LAB_SCHEMA"):
             os.environ.pop(k)
-    manifest = {"app": "e", "run": name, "state": "ok", "seed": seed, "schema": SCHEMA}
+    manifest = {"app": "e", "run": name, "state": "ok", "seed": seed, "params": params or {}, "schema": SCHEMA}
     if closure is not None:
         manifest["closure"] = closure
     (run / "manifest.json").write_text(json.dumps(manifest))
@@ -47,18 +47,21 @@ class Clean(unittest.TestCase):
         values = {f.stem: pq.read_table(f).to_pylist()[0]["value"] for f in (self.root / "out" / "loss").iterdir()}
         self.assertEqual(values, {"e-0": 0.0, "e-1": 1.0})
 
-    def test_the_lock_keeps_runs_of_the_current_code_and_runs_recorded_by_hand(self):
+    def test_the_lock_keeps_runs_of_the_current_code_and_spec_and_runs_recorded_by_hand(self):
         from nixsci.lab.publish import read_lock, retain
 
+        now = "/nix/store/bbb-experiment"
         runs = {
-            "old": _run(self.root, "old", 0, "/nix/store/aaa-experiment"),
-            "new": _run(self.root, "new", 0, "/nix/store/bbb-experiment"),
+            "old": _run(self.root, "old", 0, "/nix/store/aaa-experiment", {"x": 0.1}),
+            "new": _run(self.root, "new", 0, now, {"x": 0.1}),
+            "unswept": _run(self.root, "unswept", 0, now, {"x": 0.3}),
+            "reseeded": _run(self.root, "reseeded", 7, now, {"x": 0.1}),
             "hand": _run(self.root, "hand", 0),
         }
         lock = {"e": [{"name": n, "path": str(p), "sha256": "x"} for n, p in runs.items()],
                 "other": [{"name": "o", "path": "/does/not/matter", "sha256": "x"}]}
         (self.root / "lab.lock").write_text(json.dumps(lock))
-        self.assertEqual(retain(self.root, "e", {"/nix/store/bbb-experiment"}), ["old"])
+        self.assertEqual(retain(self.root, "e", {now}, [(0, {"x": 0.1})]), ["old", "unswept", "reseeded"])
         after = read_lock(self.root)
         self.assertEqual([e["name"] for e in after["e"]], ["new", "hand"])
         self.assertEqual(after["other"], lock["other"])

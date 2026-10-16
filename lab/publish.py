@@ -14,6 +14,7 @@ import os
 import tempfile
 import threading
 from pathlib import Path
+from typing import Any
 
 from nixsci.deploy import nix as nixcli
 
@@ -40,20 +41,27 @@ def _write_lock(project: Path, lock: dict[str, list[dict[str, str]]]) -> None:
     os.replace(tmp, project / "lab.lock")
 
 
-def retain(project: str | Path, app: str, closures: set[str]) -> list[str]:
-    """Drop the locked runs of `app` that measured another closure; returns their names.
+def _job(seed, params) -> str:
+    return json.dumps({"seed": seed, "params": params or {}}, sort_keys=True)
 
-    The lock lists the runs of the current code. A run of older code stays in the runs directory,
-    in the store until collected, and in the lock's git history. A run recorded by hand has no
-    closure and is kept.
+
+def retain(project: str | Path, app: str, closures: set[str], jobs: list[tuple[Any, dict]]) -> list[str]:
+    """Drop the locked runs of `app` that are not of the experiment as it is now; returns their names.
+
+    The lock lists runs of the current code (`closures`) whose seed and parameters are one of the
+    spec's `jobs`. Any other run stays in the runs directory, in the store until collected, and in
+    the lock's git history. A run recorded by hand has no closure and is kept.
     """
+    wanted = {_job(seed, params) for seed, params in jobs}
     project = Path(project)
     with _LOCK:
         lock = read_lock(project)
         keep, dropped = [], []
         for entry in lock.get(app, []):
-            closure = json.loads((Path(entry["path"]) / "manifest.json").read_text()).get("closure")
-            (dropped if closure is not None and closure not in closures else keep).append(entry)
+            m = json.loads((Path(entry["path"]) / "manifest.json").read_text())
+            closure = m.get("closure")
+            current = closure in closures and _job(m.get("seed"), m.get("params")) in wanted
+            (dropped if closure is not None and not current else keep).append(entry)
         if dropped:
             _write_lock(project, {**lock, app: keep})
     return [e["name"] for e in dropped]
