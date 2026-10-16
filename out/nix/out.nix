@@ -110,7 +110,9 @@ rec {
     }:
     {
       inherit name files packages engine meta render;
-      figure = { width = "12cm"; preamble = ""; packages = _: [ ]; } // figure;
+      # size: the base font size, as the document's class sets it; \small in a figure means what it
+      # means on the page only if both start from the same size.
+      figure = { width = "12cm"; size = "10pt"; preamble = ""; packages = _: [ ]; } // figure;
     };
 
   templates = {
@@ -174,7 +176,7 @@ rec {
         ${lib.optionalString (p.style != null) "cp ${p.style} ${p.name}.sty"}
         cp ${v.fig.src} figure.tex
         cat > wrapper.tex <<'EOF'
-        \documentclass[border=0pt]{standalone}
+        \documentclass[border=0pt,${t.figure.size}]{standalone}
         ${t.figure.preamble}
         ${lib.optionalString (p.style != null) "\\usepackage{${p.name}}"}
         \def\datadir{data}\def\figwidth{${v.width}}
