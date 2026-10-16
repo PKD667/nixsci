@@ -9,7 +9,7 @@
 # jobs on hosts, seals each finished run and adds it to the Nix store. The runs it produced are
 # listed in `lab.lock` next to the flake. Everything after that is pure: an analysis is built
 # from those run store paths in the sandbox, with no network, and sees only the data it `use`s.
-{ pkgs, nixsci, python, rEnv, project }:
+{ pkgs, nixsci, python, rEnv, project, lockedOverride ? null }:
 let
   inherit (pkgs) lib;
   host = pkgs.stdenv.hostPlatform.system;
@@ -20,7 +20,7 @@ let
 
   lockFile = project + "/lab.lock";
   rawLock = if builtins.pathExists lockFile then builtins.fromJSON (builtins.readFile lockFile) else { };
-  locked = if rawLock ? format then
+  locked = if lockedOverride != null then lockedOverride else if rawLock ? format then
     assert lib.assertMsg (lib.head (lib.splitString "." rawLock.format) == "2") "unsupported lab.lock format ${rawLock.format}";
     rawLock.runs else rawLock;
   fetchRun = import ./fetch-run.nix { inherit pkgs; };
@@ -102,7 +102,7 @@ rec {
       source = builtins.toJSON { rev = project.rev or project.dirtyRev or null; narHash = project.narHash or null; };
     in
     {
-      inherit name spec specFile closures;
+      inherit name spec specFile closures source;
       run = {
         type = "app";
         program = toString (pkgs.writeShellScript "run-${name}" ''
@@ -117,7 +117,7 @@ rec {
   # every job of the spec has its runs, and nothing was recorded by hand. Anything else fails
   # evaluation unless `draft = true`, which builds with a warning. `clean` and the four lists are
   # on the result, for a publish step to refuse.
-  analysis = { name, use, pipelines, draft ? false, claims ? { }, confidence ? 0.95 }:
+  analysis = args@{ name, use, pipelines, draft ? false, claims ? { }, confidence ? 0.95 }:
     let
       n = name' "analysis" name;
       runs = lib.mapAttrs (_: runsOf) use;
@@ -179,6 +179,14 @@ rec {
         // {
           inherit view clean stale orphan missing untraced claimFile claimReport;
           pipelines = built;
+          withLock = newLock: level:
+            (import ./lab.nix { inherit pkgs nixsci python rEnv project; lockedOverride = newLock; })
+              .analysis (args // { confidence = level; });
+          remeasureSpec = lib.mapAttrs (_: exp: {
+            inherit (exp) name specFile closures source;
+            inherit claimFile;
+            view = toString view;
+          }) use;
           # What nixsci out reads: one list, each entry saying why.
           unclean = map (r: "${r}: older code") stale ++ map (r: "${r}: no job of the spec") orphan
             ++ map (j: "${j}: no run") missing ++ map (r: "${r}: recorded by hand") untraced;

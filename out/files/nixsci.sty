@@ -24,6 +24,10 @@
 \newcommand{\nixsci@draft}[1]{\AddToHook{shipout/foreground}{\put(0.5\paperwidth,-\paperheight+4mm){%
   \makebox[0pt]{\normalfont\tiny DRAFT: #1 untraced input(s); not for publication}}}}
 
+% Remeasurements carry a concise, machine-generated claim warning on every page.
+\newcommand{\nixsci@remeasure}[1]{\AddToHook{shipout/foreground}{\put(0.5\paperwidth,-\paperheight+8mm){%
+  \makebox[0pt]{\normalfont\tiny REMEASURED: #1}}}}
+
 % The generated file: the template's metadata, the projects' values, the draft mark.
 \InputIfFileExists{nixsci-generated}{}{}
 
