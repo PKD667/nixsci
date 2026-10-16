@@ -1,4 +1,5 @@
-# Produces a derivation shaped for nixsci.deploy: experiment.json at the root, a
+# Produces a lab experiment closure in the deployment.json v2 format, while
+# retaining lab-specific status.json and machine.json semantics.
 # `bin/run` wrapper that provisions $NIX_LAB_DIR, runs the program, forwards
 # SIGTERM, and records status.json however the program was written.
 { pkgs }:
@@ -42,6 +43,7 @@ pkgs.runCommand "experiment-${name}" {
   jq -n --arg program "$out/bin/run" --arg name "${name}" \
         --argjson metadata "$meta_json" --argjson resources "$resources_json" \
         --argjson env "$env_json" \
-    '{program: $program, metadata: ($metadata + {lab: {name: $name}}),
-      resources: $resources, env: $env}' > $out/experiment.json
+    '{format: "2.0", name: $name, program: $program, args: [], env: $env,
+      resources: $resources, walltime: null, restart: {policy: "no", max: 0, delay: 0},
+      metadata: ($metadata + {lab: {name: $name}})}' > $out/deployment.json
 ''
