@@ -1,6 +1,6 @@
 # lab
 
-Experiments and analyses as Nix values. An experiment, in any language, records what it measured in one line. Nix describes the experiment (seeds, sweeps, declared data) and builds everything pure: the compaction of records into Parquet and the R analyses are derivations over the finished runs, built in the sandbox. Python only executes: it runs the jobs on hosts and adds each finished run to the Nix store.
+Experiments and analyses as Nix values. An experiment, in any language, records what it measured in one line. Nix describes the experiment (seeds, sweeps, declared data) and builds everything pure: the compaction of records into Parquet and R or Python analyses are derivations over the finished runs, built in the sandbox. Python only executes: it runs the jobs on hosts and adds each finished run to the Nix store.
 
 The record side has no dependencies. Running on hosts uses [`nixsci.deploy`](../deploy/README.md); `nixsci.lab` never reimplements deployment.
 
@@ -10,7 +10,7 @@ The record side has no dependencies. Running on hosts uses [`nixsci.deploy`](../
 nix run .#demo            impure, Python: run the jobs, seal each run, add it to the Nix store,
                           list it in lab.lock                      (commit that file)
 nix build .#demo-curves   pure, Nix: compact each run to Parquet, build a view of the runs the
-                          lock names, run the R pipelines in the sandbox
+                          lock names, run the pipelines in the sandbox
 ```
 
 Everything pure is cached by Nix. A new run compacts once, and only the analyses that use it rebuild. The derivation graph of a result is its provenance: `nix-store -qR $(nix path-info --derivation .#demo-curves)` lists the runs it was built from.
@@ -23,7 +23,7 @@ In the project's flake:
 let lab = nixsci.lib.lab { inherit pkgs; project = self; }; in {
   lab.${system}.experiments.demo = lab.experiment {
     name = "demo";
-    closures.${system} = self.experiments.${system}.demo;   # what to run, built by Nix
+    closures.${system} = self.deployments.${system}.demo;   # what to run, built by Nix
     seeds = [ 0 1 ];                                        # one job per seed
     sweep.epsilon = [ 0.1 0.3 ];                            # every combination is a job
     params.size = 32;                                       # fixed, visible to lab.params()
@@ -34,7 +34,7 @@ let lab = nixsci.lib.lab { inherit pkgs; project = self; }; in {
 }
 ```
 
-`closures` maps each system you deploy to a built experiment; `systems` (default: this machine's) names which of them to build. `resources.provider` is a name from `~/.config/nixsci/providers.json`, and provider-specific settings go only under `resources.opts`. Unknown fields and a malformed name are evaluation errors.
+`closures` maps each system you deploy to a built deployment; `systems` (default: this machine's) names which of them to build. `resources.provider` is a name from `~/.config/nixsci/providers.json`, and provider-specific settings go only under `resources.opts`. Unknown fields and a malformed name are evaluation errors.
 
 `nix run .#demo` resolves nothing at run time: Nix already built the closures. The executor leases hosts, spreads the jobs over them, waits, fetches each run's `lab/` directory, writes its `manifest.json` (state `ok`, `failed` or `incomplete`, seed, parameters, target, times, the flake's source identity and the closure path), adds the run directory to the Nix store and lists it in `lab.lock`. Flakes only see git-tracked files, so `git add lab.lock`.
 
@@ -87,14 +87,34 @@ with lab.Run(None, lab.run_name("meas", seed=3), spec="result/demo-spec.json", s
 
 ## Where files live
 
-Runs are staged in `<project>/.nixsci/runs/<app>/<run>/`. A project is the nearest directory with a `.git`; the directory ignores itself in git, and `$NIXSCI_STORE` moves it. The runs that count are in the Nix store, named by `lab.lock`. Move them between machines with Nix:
+Runs are staged in `<project>/.nixsci/runs/<app>/<run>/`. `$NIXSCI_STORE` moves that directory.
+`lab.lock` names finished runs by name and recursive SHA-256; these derive the same Nix store path
+on every machine. `fetchRun` takes that name and hash. Nix uses a local copy or a configured
+substituter. If neither has it, the build asks you to pull from a peer.
 
-```sh
-nixsci lab push ssh-ng://host      # nix copy the locked runs to a store
-nixsci lab pull ssh-ng://host      # fetch the locked runs from a store
+Each machine can be both a reader and a peer. Configure Nix store URLs in
+`~/.config/nixsci/peers.json` (`/etc/nixsci/peers.json` supplies defaults):
+
+```json
+{"peers": ["ssh-ng://peer-a", "ssh-ng://peer-b"]}
 ```
 
-Evaluating an analysis on a machine that lacks a locked run fails with that path's name: pull it first. Nix checks every path against the hash in the lock.
+```sh
+nixsci lab pull                     # try peers until each locked run is present
+nixsci lab push                     # copy locked runs to every peer
+nixsci lab sync                     # pull, then push
+nixsci lab pull file:///cache       # use one explicit peer instead
+```
+
+`NIXSCI_PEERS_FILE` overrides the configuration path. Peer addresses stay out of the experiment
+and lock hashes. Peers need not be online when you measure; sync is explicit. The committed lock
+is the inventory, so peers synchronize the same project's locked runs, not every path in a store.
+Nix verifies content-addressed paths without signing keys; SSH still requires host authentication.
+
+Adding or pulling a run creates a GC root under `$XDG_STATE_HOME/nixsci/roots` (default
+`~/.local/state/nixsci/roots`). Pushing to an SSH store also roots the copy there. Binary caches
+retain files without store GC roots. Roots are retained until removed; automatic expiry is not
+implemented. A failed copy leaves the local run intact.
 
 ## Replicates, identity and reproducing a run
 
@@ -120,9 +140,10 @@ lab.${system}.analyses.demo-curves = lab.analysis {
 packages.${system}.demo-curves = self.lab.${system}.analyses.demo-curves;
 ```
 
-`nix build .#demo-curves` compacts each locked run to typed Parquet (`<dataset>/<run id>.parquet` with the declared columns plus `run`, `seed` and `time`), links exactly those files into a view, and runs each script with `Rscript` in the sandbox with `NIX_LAB_VIEW` (the view) and `NIX_LAB_OUT` (the pipeline's output directory, which becomes the result). The sandbox has no network and no other runs: a script cannot read what it did not `use`, and it cannot fetch anything. Constitute outside data into a dataset first, then use it by hash.
+`nix build .#demo-curves` compacts each locked run to typed Parquet (`<dataset>/<run id>.parquet` with the declared columns plus `run`, `seed` and `time`), links exactly those files into a view, and runs each script with `Rscript` or `python` in the sandbox with `NIX_LAB_VIEW` (the view) and `NIX_LAB_OUT` (the pipeline's output directory, which becomes the result). The sandbox has no network and no other runs: a script cannot read what it did not `use`, and it cannot fetch anything. Constitute outside data into a dataset first, then use it by hash.
 
-An analysis is **clean** when every locked run it uses measured the experiment's current closure and a job of its current spec, every job has `replicates` such runs, and no run was recorded by hand. Evaluation checks this against each run's manifest, before anything builds. A stale, orphan, missing or untraced run fails evaluation and names itself; `draft = true` builds anyway, with a warning. The result carries `clean` and the four lists, which is what a publication build refuses on.
+An analysis is **clean** when every locked run it uses measured the experiment's current closure and a job of its current spec, every job has `replicates` such runs, and no run was recorded by hand. Evaluation checks identity fields copied to v2 locks; compaction checks those facts against the
+hashed manifest. Legacy locks fetch the manifest at evaluation time. A stale, orphan, missing or untraced run fails evaluation and names itself; `draft = true` builds anyway, with a warning. The result carries `clean` and the four lists, which is what a publication build refuses on.
 
 The view also records each experiment's derivation (`<alias>/code.json`) as a dependency: the `.drv`, not its output, so the code that produced the runs is in the analysis's derivation graph and nothing is rebuilt.
 
@@ -175,7 +196,7 @@ It enforces the same declared columns and keys as the Python module. Use it as a
 `lib.mkExperiment` wraps a program so it gets a record directory, forwards SIGTERM, and always writes `status.json`:
 
 ```nix
-experiments.${system}.blocks = nixsci.lib.mkExperiment pkgs {
+deployments.${system}.blocks = nixsci.lib.mkExperiment pkgs {
   name = "blocks";
   program = "${python}/bin/python ${./blocks.py}";
   runtime = [ pkgs.clang ];           # extra tools on PATH
@@ -189,8 +210,33 @@ experiments.${system}.blocks = nixsci.lib.mkExperiment pkgs {
 
 `NIX_LAB_DIR` (record directory), `NIX_LAB_RUN` (run id), `NIX_LAB_SEED`, `NIX_LAB_PARAMS` (JSON). The executor sets them.
 
-## Status
+## Claims and Python analyses
 
-Verified on camarade with the demo: `nix run .#demo` runs four jobs and adds four runs to the Nix store and the lock; `nix build .#demo-curves` compacts them and runs R in the sandbox; a second build builds nothing; a pipeline that lists `/nix/store` sees no raw run and no network.
+A pipeline ending in `.py` runs with Python; other scripts default to R. Set `language = "r"`
+or `language = "python"` explicitly when needed, and `packages = [ ... ];` for extra Nix packages.
+`NIXSCI_VIEW` and `NIXSCI_OUT` are the file contract; the older `NIX_LAB_*` variables still work.
 
-Not built yet: datasets and models as Nix store objects that analyses `use`, runs that `use` other runs' artifacts, claim checks in `verify`, export of a run as a Workflow Run RO-Crate, confidence-interval helpers in the `nixsci` R package, comparison of artifact (array) records, and grid-wide materialization of inputs.
+```python
+from nixsci.lab.analysis import use, out, values
+
+demo = use("demo")
+rows = demo.table("loss").to_table().to_pylist()
+values({"last": rows[-1]["value"]})  # values.json
+```
+
+R has `use`, `runs`, `params`, `out`, and `values` for the same files. Analyses can declare `claims`
+and `confidence` beside `pipelines`. `nixsci.stats` evaluates these on the view; see
+[stats](../stats/README.md) for the declaration and its assumptions. Claims do not compare machine
+names or require identical hardware. The old row-tolerance `verify` remains available; it is not a
+statistical claim check.
+
+## Checks
+
+```
+nix develop --command pytest -q deploy/tests lab/tests stats/tests
+nix flake check
+```
+
+Local peer tests use file caches and isolated stores. They do not test remote SSH access.
+Artifact-array comparison, automatic root expiry, and run dependencies on other run artifacts are
+not implemented.

@@ -69,6 +69,7 @@ def seal(
     `local=True` falls back to this machine, which is right only when the run happened here.
     """
     directory = Path(directory)
+    manifest["format"] = "2.0"
     manifest["records_sha256"] = None
     machine_file = None
     for base in (directory, directory / "lab"):

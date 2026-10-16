@@ -1,6 +1,6 @@
 """Where nixsci.lab keeps its files.
 
-Outputs belong to a project and are not shared. A project is the nearest directory, from the spec
+Runs are staged per project, then shared through content-addressed Nix paths. A project is the nearest directory, from the spec
 or the working directory upwards, that holds a `.git`, or else the directory of the spec:
 
     <project>/.nixsci/runs/<app>/<run>/    sealed runs, as the executor and `lab.Run` write them
