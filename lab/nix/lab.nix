@@ -22,12 +22,14 @@ let
   locked = if builtins.pathExists lockFile then builtins.fromJSON (builtins.readFile lockFile) else { };
 
   # The runs of an experiment that its lock names, each checked by the hash of its contents and
-  # against the code. A run whose closure is not one of the experiment's closures now measured
-  # other code: it is stale. A run with no closure was recorded by hand: it is untraced.
+  # against the experiment as it is now. A run of another closure measured other code: stale. A
+  # run whose seed and parameters are no job of the spec: orphan. A run with no closure was
+  # recorded by hand: untraced.
   runsOf = exp:
     let
       entries = locked.${exp.name} or [ ];
       current = map toString (lib.attrValues exp.closures);
+      jobs = map (j: { inherit (j) seed params; }) (jobsOf exp.spec);
     in
     assert lib.assertMsg (entries != [ ])
       "experiment ${exp.name} has no locked runs: run it (nix run .#${exp.name}) and commit lab.lock";
@@ -35,10 +37,30 @@ let
       (r:
         let
           path = builtins.path { inherit (r) path sha256 name; };
-          closure = (builtins.fromJSON (builtins.readFile "${path}/manifest.json")).closure or null;
+          m = builtins.fromJSON (builtins.readFile "${path}/manifest.json");
+          closure = m.closure or null;
+          job = { seed = m.seed or null; params = m.params or { }; };
         in
-        { inherit (r) name; inherit path; traced = closure != null; stale = closure != null && !(builtins.elem closure current); })
+        {
+          inherit (r) name; inherit path job;
+          traced = closure != null;
+          stale = closure != null && !(builtins.elem closure current);
+          orphan = closure != null && !(builtins.elem job jobs);
+        })
       entries;
+
+  # The jobs a spec expands to, as spec.py's Spec.jobs: every sweep point times every seed.
+  jobsOf = spec:
+    let points = if spec.sweep == { } then [ { } ] else lib.cartesianProduct spec.sweep;
+    in lib.concatMap (point: map (seed: { inherit seed; params = spec.params // point; })
+      (if spec.seeds == [ ] then [ null ] else spec.seeds)) points;
+
+  # Jobs of the spec with fewer finished runs of the current code than `replicates` asks for.
+  missingOf = exp: runs:
+    let fresh = lib.filter (r: r.traced && !r.stale) runs;
+    in lib.optionals (exp.closures != { }) (lib.filter
+      (job: lib.count (r: r.job == job) fresh < exp.spec.replicates)
+      (jobsOf exp.spec));
 
   # Every locked run of one experiment as the Parquet tables it declared, plus `runs.json`.
   # One derivation per experiment, not per run: see compact.py for the cost that avoids.
@@ -83,19 +105,31 @@ rec {
       };
     };
 
-  # `allowStale = true` builds over stale runs with a warning: a draft. Publishing refuses it, and
-  # refuses untraced runs; both lists are on the result.
-  analysis = { name, use, pipelines, allowStale ? false }:
+  # An analysis is clean when every locked run measured the experiment's current code and spec,
+  # every job of the spec has its runs, and nothing was recorded by hand. Anything else fails
+  # evaluation unless `draft = true`, which builds with a warning. `clean` and the four lists are
+  # on the result, for a publish step to refuse.
+  analysis = { name, use, pipelines, draft ? false }:
     let
       n = name' "analysis" name;
       runs = lib.mapAttrs (_: runsOf) use;
       named = pick: lib.concatLists (lib.mapAttrsToList
         (alias: rs: map (r: "${alias}/${r.name}") (lib.filter pick rs)) runs);
       stale = named (r: r.stale);
+      orphan = named (r: r.orphan && !r.stale);
       untraced = named (r: !r.traced);
-      staleMsg = "analysis ${n}: ${toString (lib.length stale)} locked run(s) measured code that is "
-        + "not the experiment's closure any more: ${lib.concatStringsSep ", " stale}. "
-        + "Run the experiment again and commit lab.lock";
+      missing = lib.concatLists (lib.mapAttrsToList
+        (alias: exp: map (j: "${alias} seed=${builtins.toJSON j.seed} params=${builtins.toJSON j.params}")
+          (missingOf exp runs.${alias})) use);
+      problems = lib.concatLists [
+        (lib.optional (stale != [ ]) "measured older code: ${lib.concatStringsSep ", " stale}")
+        (lib.optional (orphan != [ ]) "are no job of the spec: ${lib.concatStringsSep ", " orphan}")
+        (lib.optional (missing != [ ]) "jobs without their runs: ${lib.concatStringsSep "; " missing}")
+        (lib.optional (untraced != [ ]) "recorded by hand: ${lib.concatStringsSep ", " untraced}")
+      ];
+      clean = problems == [ ];
+      report = "analysis ${n} is not clean. ${lib.concatStringsSep ". " problems}. "
+        + "Run the experiments (nix run .#<experiment>) and commit lab.lock";
       view = pkgs.runCommand "view-${n}" { } ''
         shopt -s nullglob
         mkdir $out
@@ -120,9 +154,9 @@ rec {
         '';
       built = lib.mapAttrs runPipeline pipelines;
       result = (pkgs.symlinkJoin { name = n; paths = lib.attrValues built; })
-        // { inherit view stale untraced; pipelines = built; };
+        // { inherit view clean stale orphan missing untraced; pipelines = built; };
     in
-    if stale == [ ] then result
-    else if allowStale then lib.warn "${staleMsg}, or keep this draft (allowStale)." result
-    else throw "${staleMsg}, or pass allowStale = true for a draft.";
+    if clean then result
+    else if draft then lib.warn "${report}; built as a draft." result
+    else throw "${report}, or pass draft = true.";
 }

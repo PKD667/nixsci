@@ -61,9 +61,10 @@ def run(
             return name, closures[configs[name]["system"]].path
 
         if project is not None:
-            dropped = retain(project, spec.name, {c.path for c in closures.values()})
+            jobs = [(j.seed, j.params) for j in spec.jobs()]
+            dropped = retain(project, spec.name, {c.path for c in closures.values()}, jobs)
             if dropped:
-                log(f"lab.lock: dropped {len(dropped)} run(s) of older code: {', '.join(dropped)}")
+                log(f"lab.lock: dropped {len(dropped)} run(s) of older code or another spec: {', '.join(dropped)}")
         todo, satisfied = store.plan(spec, out_root, assign, again=again)
         if satisfied:
             log(f"{satisfied} input(s) already have {spec.replicates} finished run(s): skipped")
