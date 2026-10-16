@@ -38,6 +38,10 @@ let lab = nixsci.lib.lab { inherit pkgs; project = self; }; in {
 
 `nix run .#demo` resolves nothing at run time: Nix already built the closures. The executor leases hosts, spreads the jobs over them, waits, fetches each run's `lab/` directory, writes its `manifest.json` (state `ok`, `failed` or `incomplete`, seed, parameters, target, times, the flake's source identity and the closure path), adds the run directory to the Nix store and lists it in `lab.lock`. Flakes only see git-tracked files, so `git add lab.lock`.
 
+The executor refuses a dirty tree. A run names the commit it came from, and that commit rebuilds the closure that ran; uncommitted code has no name anyone else can rebuild.
+
+`lab.lock` holds the runs of the experiment as it is now: its closure, and the jobs its spec expands to. Each `nix run` drops the other runs from the lock; they stay in `.nixsci/runs`, in the store until collected, and in the lock's git history.
+
 ## Recording (inside an experiment)
 
 ```python
@@ -79,7 +83,7 @@ with lab.Run(None, lab.run_name("meas", seed=3), spec="result/demo-spec.json", s
     run.record("size", {"n": 1000, "seconds": 1.5})
 ```
 
-`root=None` means `<project>/.nixsci/runs`. Then `nixsci lab add <run directory>` adds the run to the Nix store and `lab.lock`, which makes it visible to analyses like any other run.
+`root=None` means `<project>/.nixsci/runs`. Then `nixsci lab add <run directory>` adds the run to the Nix store and `lab.lock`, which makes it visible to analyses. It is *untraced*: no closure says what code produced it, so an analysis that uses it is not clean (below).
 
 ## Where files live
 
@@ -96,7 +100,7 @@ Evaluating an analysis on a machine that lacks a locked run fails with that path
 
 A run is identified by its **inputs**: the experiment closure (the code and every dependency), the parameters, the seed and the declared schema. Runs with the same inputs are *replicates*. `replicates = 3;` asks for at least three finished runs per input, and a dataset's `noisy.seconds = 0.25;` lets that column differ by up to 25% between replicates; other columns must match.
 
-- `nix run .#demo` is **idempotent and resumable**: inputs that already have enough finished replicates are skipped, so a preempted sweep continues where it stopped, and changed code (a new closure) is a new input. `nix run .#demo -- --again` adds one more replicate.
+- `nix run .#demo` is **idempotent and resumable**: inputs that already have enough finished replicates are skipped, so a preempted sweep continues where it stopped, and changed code (a new closure) is a new input. A workdir an interrupted attempt left behind is removed before the retry; one whose job is still running is refused. `nix run .#demo -- --again` adds one more replicate.
 - Every run is **sealed**: its manifest holds the SHA-256 of `records.jsonl` and of the spec (a copy is stored as `spec.json`), the source identity Nix reports, the closure, and the machine (hostname, kernel, CPU, cores, memory). Compaction refuses a run whose records changed afterwards, and so does the Nix hash in the lock.
 - `nixsci lab repro <run>` prints everything needed to run that measurement again.
 - `nixsci lab verify <run>` runs one new replicate from the closure the run used and compares the datasets. Exact columns must match; `noisy` columns must agree within their tolerance. It exits 0 only if they do.
@@ -117,6 +121,10 @@ packages.${system}.demo-curves = self.lab.${system}.analyses.demo-curves;
 ```
 
 `nix build .#demo-curves` compacts each locked run to typed Parquet (`<dataset>/<run id>.parquet` with the declared columns plus `run`, `seed` and `time`), links exactly those files into a view, and runs each script with `Rscript` in the sandbox with `NIX_LAB_VIEW` (the view) and `NIX_LAB_OUT` (the pipeline's output directory, which becomes the result). The sandbox has no network and no other runs: a script cannot read what it did not `use`, and it cannot fetch anything. Constitute outside data into a dataset first, then use it by hash.
+
+An analysis is **clean** when every locked run it uses measured the experiment's current closure and a job of its current spec, every job has `replicates` such runs, and no run was recorded by hand. Evaluation checks this against each run's manifest, before anything builds. A stale, orphan, missing or untraced run fails evaluation and names itself; `draft = true` builds anyway, with a warning. The result carries `clean` and the four lists, which is what a publication build refuses on.
+
+The view also records each experiment's derivation (`<alias>/code.json`) as a dependency: the `.drv`, not its output, so the code that produced the runs is in the analysis's derivation graph and nothing is rebuilt.
 
 The `nixsci` R package reads the view and has no function that reads anything else:
 
