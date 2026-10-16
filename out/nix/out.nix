@@ -297,7 +297,7 @@ rec {
         ${name}-latex.zip: the LaTeX source of ${name}, with its figures and style files.
         Unzip it into an empty directory, then run this in that directory:
 
-            latexmk ${flag} ${entry}
+            ${lib.escapeShellArgs command}
 
         That writes ${stem}.pdf. It needs these TeX Live packages (texliveSmall; the packages they
         depend on come with them): ${lib.concatStringsSep ", " texNames}.
