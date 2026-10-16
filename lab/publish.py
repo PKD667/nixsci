@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from nixsci.deploy import nix as nixcli
+from .run import read_manifest
 
 _LOCK = threading.Lock()
 
@@ -65,7 +66,7 @@ def retain(project: str | Path, app: str, closures: set[str], jobs: list[tuple[A
         lock = read_lock(project)
         keep, dropped = [], []
         for entry in lock.get(app, []):
-            m = entry.get("facts") or json.loads((Path(entry["path"]) / "manifest.json").read_text())
+            m = entry.get("facts") or read_manifest(Path(entry["path"]) / "manifest.json")
             closure = m.get("closure")
             current = closure in closures and _job(m.get("seed"), m.get("params")) in wanted
             (dropped if closure is not None and not current else keep).append(entry)
@@ -77,7 +78,7 @@ def retain(project: str | Path, app: str, closures: set[str], jobs: list[tuple[A
 def publish(run_dir: str | Path, project: str | Path) -> dict[str, str]:
     """Add a finished run to the Nix store and to `<project>/lab.lock`."""
     run_dir, project = Path(run_dir), Path(project)
-    manifest = json.loads((run_dir / "manifest.json").read_text())
+    manifest = read_manifest(run_dir / "manifest.json")
     if manifest.get("state") != "ok":
         raise ValueError(f"{manifest.get('run')}: only a finished (ok) run is published")
     name = manifest["run"]

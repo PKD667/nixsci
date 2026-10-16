@@ -77,3 +77,23 @@ def test_remote_root_uses_given_port_and_quotes_path():
         peers.remote_root("ssh-ng://user@node:2222", "/nix/store/abc-r")
         assert run.call_args.args[:4] == ("ssh", "-p", "2222", "user@node")
         assert "--add-root" in run.call_args.args[-1]
+
+
+@pytest.mark.parametrize('version', ['1.0', '1.99', '2.0', '2.42', None])
+def test_old_and_additive_run_formats_are_readable(tmp_path, version):
+    from nixsci.lab.run import read_manifest
+    data = {"app": "demo", "run": "r"}
+    if version is not None:
+        data["format"] = version
+    p = tmp_path / 'manifest.json'
+    p.write_text(json.dumps(data))
+    assert read_manifest(p) == data
+
+
+@pytest.mark.parametrize('version', ['3.0', '2', '2.bad', {}, 2])
+def test_future_and_malformed_run_formats_fail(tmp_path, version):
+    from nixsci.lab.run import read_manifest
+    p = tmp_path / 'manifest.json'
+    p.write_text(json.dumps({"format": version}))
+    with pytest.raises(ValueError, match='unsupported'):
+        read_manifest(p)
