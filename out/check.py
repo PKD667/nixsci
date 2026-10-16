@@ -48,6 +48,9 @@ def warnings(path, text):
 
 
 def main(argv):
+    if argv and argv[0] == "remeasure":
+        from .remeasure import main as remeasure
+        return remeasure(argv[1:])
     if not argv:
         print("usage: nixsci out <file.tex|dir> ...", file=sys.stderr)
         return 2

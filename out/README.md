@@ -51,3 +51,9 @@ Each `values` entry is a JSON file. Its scalars become `\val{p/<entry>.<path>}`,
 `nix run .#<doc>` links the assembled tree (template files, `nixsci.sty`, projects, compiled figures) to `.nixsci/out/<doc>`, puts it on `TEXINPUTS`, `BIBINPUTS` and `BSTINPUTS`, exports `NIXSCI_TREE`, and runs `latexmk -pvc` in `srcDir`. After editing a figure source, run `nix run` again.
 
 `nixsci out <dir>` prints prose warnings (WRITING.md budgets and deny-list). It always exits 0.
+
+## Remeasure
+
+An exported PDF package exposes `measurementPlan` and `withMeasurements`. Run `nixsci out remeasure FLAKE#DOC --level 0.95 --output DIR` to execute every job in its original experiment specs with the original closures, in isolated empty stores, and build a fresh PDF from those locks. The output directory must be empty; failed runs retain diagnostics but cannot leave a stale PDF looking successful. `reports/` contains each claim comparison and `summary.json`; the PDF marks every page with the contradicted, inconclusive and unsupported counts. Confidence is a two-sided interval at the requested per-claim level, not a joint guarantee. No machine-hardware comparison is made. `formalVerification: not-performed` in statistical reports means provenance checks are not proofs.
+
+The remeasurement path changes only lock inputs and analysis outputs. It does not override the code flake, make temporary commits, or modify the source checkout.
