@@ -288,6 +288,9 @@ rec {
         root=$PWD
         mkdir -p "$root/.nixsci/out"
         ln -sfn ${tree}/tree "$root/.nixsci/out/${name}"
+        # For a document that must name a real directory (fontspec's Path=): the build sets nothing
+        # and runs in the tree, so `os.getenv("NIXSCI_TREE") or "."` names it in both.
+        export NIXSCI_TREE="$root/.nixsci/out/${name}"
         export TEXINPUTS="$root/.nixsci/out/${name}//:''${TEXINPUTS:-}"
         export BIBINPUTS="$root/.nixsci/out/${name}:''${BIBINPUTS:-}"
         export BSTINPUTS="$root/.nixsci/out/${name}:''${BSTINPUTS:-}"
