@@ -55,9 +55,32 @@
       };
 
       packages = forAll (pkgs:
-        let pp = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).pkgs; in rec {
+        let
+          example = { static }:
+            let
+              out = self.lib.out { inherit pkgs; };
+              curve = pkgs.runCommand "demo-curve" { } "mkdir $out; cp ${./out/examples/demo/curve.tsv} $out/curve.tsv";
+              values = pkgs.writeText "curve.json" (builtins.toJSON { final = 0.3; epochs = 3; });
+              demo = out.project {
+                name = "demo";
+                style = ./out/examples/demo/demo.sty;
+                packages = ps: [ ps.pgfplots ];
+                data.curve = if static then out.static ./out/examples/demo/curve.tsv else out.output curve "curve.tsv";
+                figures.curve = { src = ./out/examples/demo/curve.tex; data = [ "curve" ]; };
+                values.curve = values;
+              };
+            in
+            out.document {
+              name = if static then "example-draft" else "example";
+              src = ./out/examples/demo/tex;
+              projects = [ demo ];
+              figures.demo.curve-small = { from = "curve"; width = "6cm"; };
+              source = self;
+            };
+          pp = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).pkgs; in rec {
           default = nixsci;
           nixsci = pp.nixsci;
+          example-paper-publish = (example { static = false; }).publish;
           # The interpreter that has nixsci, for derivations that run its modules.
           python = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).withPackages (p: [ p.nixsci ]);
           # An analysis is a derivation: `nix build .#demo-curves`.
@@ -85,15 +108,11 @@
                 dependencies = with py; [ requests arcp jinja2 python-dateutil click ];
               };
             in pkgs.python3.withPackages (_: [ rocrate ]);
-          # Self-test fixture: the paper template with one included file, to exercise the document build.
-          example-paper =
-            let out = self.lib.out { inherit pkgs; };
-            in (out.document {
-              name = "example";
-              template = out.templates.paper;
-              src = ./out/templates/paper/tex;
-              include."gen/answer.tex" = pkgs.writeText "answer.tex" "42\n";
-            }).pdf;
+          # Self-test fixtures: one project with a compiled figure and a value, read by a document.
+          # `example-paper` takes its data from a derivation and is clean; `example-draft` takes the
+          # same data as a static file, so it is a draft and its `publish` must refuse.
+          example-paper = (example { static = false; }).pdf;
+          example-draft = (example { static = true; }).pdf;
           # R package for analysis scripts: use("alias"), runs(), params(), out().
           nixsci-r = pkgs.rPackages.buildRPackage {
             pname = "nixsci";

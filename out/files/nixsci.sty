@@ -13,6 +13,20 @@
     \PackageError{nixsci}{unknown nixsci style `#1'}{The toolkit knows: slides.}%
   \fi}
 
+% \val{project/key.path}: a number an analysis wrote, from the document's generated file. An
+% unknown key is an error, never a blank: a number in the text is either traced or the build fails.
+\newcommand{\nixsci@defval}[2]{\expandafter\def\csname nixsci@val@#1\endcsname{#2}}
+\newcommand{\val}[1]{\ifcsname nixsci@val@#1\endcsname\csname nixsci@val@#1\endcsname
+  \else\PackageError{nixsci}{no value `#1'}{The document's projects publish no value with this key.}\fi}
+
+% A draft: some input could not be traced (a static file, an unclean analysis). Every page says
+% so, at its foot, so a draft cannot pass for the published document.
+\newcommand{\nixsci@draft}[1]{\AddToHook{shipout/foreground}{\put(0.5\paperwidth,-\paperheight+4mm){%
+  \makebox[0pt]{\normalfont\tiny DRAFT: #1 untraced input(s); not for publication}}}}
+
+% The generated file: the template's metadata, the projects' values, the draft mark.
+\InputIfFileExists{nixsci-generated}{}{}
+
 % \nixsciproject{name}: load a project's exported style. The project flake publishes it as the
 % library key of the same name, so the document tree holds `<name>.sty` and the document writes one
 % line for the whole project. The key must be in the flake's `use` list for it to be there.

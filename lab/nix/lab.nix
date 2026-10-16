@@ -154,7 +154,13 @@ rec {
         '';
       built = lib.mapAttrs runPipeline pipelines;
       result = (pkgs.symlinkJoin { name = n; paths = lib.attrValues built; })
-        // { inherit view clean stale orphan missing untraced; pipelines = built; };
+        // {
+          inherit view clean stale orphan missing untraced;
+          pipelines = built;
+          # What nixsci out reads: one list, each entry saying why.
+          unclean = map (r: "${r}: older code") stale ++ map (r: "${r}: no job of the spec") orphan
+            ++ map (j: "${j}: no run") missing ++ map (r: "${r}: recorded by hand") untraced;
+        };
     in
     if clean then result
     else if draft then lib.warn "${report}; built as a draft." result
