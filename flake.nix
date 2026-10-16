@@ -81,6 +81,7 @@
           default = nixsci;
           nixsci = pp.nixsci;
           example-paper-publish = (example { static = false; }).publish;
+          example-draft-publish-attempt = (example { static = true; }).publish;
           # The interpreter that has nixsci, for derivations that run its modules.
           python = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).withPackages (p: [ p.nixsci ]);
           # An analysis is a derivation: `nix build .#demo-curves`.
@@ -181,6 +182,15 @@
             pipelines.curve.script = ./lab/examples/demo.R;
           };
         });
+
+      # `nix flake check`: the fixtures build, and a draft cannot be published.
+      checks = forAll (pkgs: {
+        example-paper = self.packages.${pkgs.stdenv.hostPlatform.system}.example-paper;
+        example-draft = self.packages.${pkgs.stdenv.hostPlatform.system}.example-draft;
+        publish-refuses-draft =
+          let draft = self.packages.${pkgs.stdenv.hostPlatform.system}.example-draft-publish-attempt;
+          in assert !(builtins.tryEval draft.drvPath).success; pkgs.runCommand "publish-refuses-draft" { } "touch $out";
+      });
 
       apps = forAll (pkgs: {
         default = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nixsci"; };
