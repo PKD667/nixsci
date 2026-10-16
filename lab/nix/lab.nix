@@ -74,7 +74,7 @@ let
     pkgs.runCommand "data-${exp.name}" { nativeBuildInputs = [ python ]; } ''
       python -m nixsci.lab.compact $out ${lib.concatMapStringsSep " " (r: "${r.path}") runs} \
         --expect ${pkgs.writeText "${exp.name}-expected.json" (builtins.toJSON (builtins.listToAttrs
-          (map (r: { name = r.name; value = r.facts; }) (lib.filter (r: r.facts != null) runs))))}
+          (map (r: { name = r.name; value = r.facts; }) runs)))}
     '';
 
   # The experiment's derivations, as a dependency of the view: the .drv, not its output, so the
