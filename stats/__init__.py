@@ -242,6 +242,8 @@ def difference_bounds(a: Sequence[float], b: Sequence[float], stat: str, level: 
 
 def above(b: Bounds, threshold: float) -> str:
     """The quantity is greater than `threshold`."""
+    if not math.isfinite(threshold):
+        raise ValueError("claim threshold must be finite")
     if b.lo > threshold:
         return "supported"
     if b.hi <= threshold:
@@ -251,6 +253,8 @@ def above(b: Bounds, threshold: float) -> str:
 
 def below(b: Bounds, threshold: float) -> str:
     """The quantity is less than `threshold`."""
+    if not math.isfinite(threshold):
+        raise ValueError("claim threshold must be finite")
     if b.hi < threshold:
         return "supported"
     if b.lo >= threshold:
@@ -260,6 +264,8 @@ def below(b: Bounds, threshold: float) -> str:
 
 def between(b: Bounds, lo: float, hi: float) -> str:
     """The quantity lies in [lo, hi] (equivalence: both one-sided tests must pass)."""
+    if not math.isfinite(lo) or not math.isfinite(hi):
+        raise ValueError("claim limits must be finite")
     if lo > hi:
         raise ValueError(f"between: lo {lo} > hi {hi}")
     if b.lo >= lo and b.hi <= hi:

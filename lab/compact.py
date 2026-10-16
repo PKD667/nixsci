@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from nixsci.lab import load
-from nixsci.lab.run import sha256_file
+from nixsci.lab.run import read_manifest, sha256_file
 from nixsci.lab.schema import parse
 
 ARROW = {"int": "int64", "float": "float64", "str": "string", "bool": "bool_"}
@@ -43,10 +43,7 @@ def compact_run(run: str | Path, out: str | Path) -> list[Path]:
     import pyarrow.parquet as pq
 
     run, out = Path(run), Path(out)
-    manifest = json.loads((run / "manifest.json").read_text())
-    version = str(manifest.get("format", "1.0")).split(".")[0]
-    if version not in ("1", "2"):
-        raise ValueError(f"unsupported run format {manifest.get('format')!r}")
+    manifest = read_manifest(run / "manifest.json")
     if manifest.get("state") != "ok":
         raise ValueError(f"run {manifest.get('run')}: only a finished (ok) run can be compacted")
     records = _records(run)
@@ -91,7 +88,7 @@ def compact_runs(out: str | Path, runs: list[str | Path], expected: dict | None 
     """Compact every run into `out` and write their rows, in run order, to `out/runs.json`."""
     out, rows = Path(out), []
     for run in runs:
-        manifest = json.loads((Path(run) / "manifest.json").read_text())
+        manifest = read_manifest(Path(run) / "manifest.json")
         if expected is not None and manifest["run"] in expected:
             from .publish import facts
             if facts(manifest) != expected[manifest["run"]]:
