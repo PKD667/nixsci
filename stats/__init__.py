@@ -8,10 +8,11 @@ verdicts:
     contradicted   the data support the claim's negation at confidence `level`
     inconclusive   neither: too few samples, or the quantity sits at the claim's boundary
 
-`level` (0.95, 0.99, ...) is the confidence of the verdict. Each bound below is one-sided at
-`level`, so a two-sided claim (`between`, `near`) is the two one-sided tests of equivalence
-testing (TOST) and its printed interval has two-sided coverage 2 * level - 1. Confidence is method-specific, not a universal error bound. Student t is exact for independent
-normal samples; Welch, Wilson and Newcombe give approximate confidence. The conditions are:
+`level` (0.95, 0.99, ...) is the requested two-sided interval coverage. A claim is supported
+only when the whole interval lies within its stated region, contradicted when the whole interval
+lies outside, and inconclusive otherwise. Confidence is method-specific, not a universal error
+bound. Student t is exact for independent normal samples; Welch, Wilson and Newcombe give
+approximate confidence. The conditions are:
 
     mean        Student t over samples (independent, roughly normal or n large)
     proportion  Wilson score (independent Bernoulli trials)
@@ -112,11 +113,11 @@ def binom_sf(k: int, n: int, p: float = 0.5) -> float:
     return sum(math.comb(n, i) * p**i * (1 - p) ** (n - i) for i in range(max(k, 0), n + 1))
 
 
-# ---- one quantity: estimate and one-sided bounds --------------------------------------------
+# ---- one quantity: estimate and two-sided interval --------------------------------------------
 
 @dataclass(frozen=True)
 class Bounds:
-    """An estimate with a lower and an upper bound, each one-sided at `level`.
+    """An estimate with a two-sided confidence interval at `level`.
 
     A bound is +-inf when the data cannot bound the quantity at that level (n too small).
     """
@@ -153,7 +154,7 @@ def mean_bounds(xs: Sequence[float], level: float) -> Bounds:
     if n == 1:
         return Bounds(m, -math.inf, math.inf, level, n, "t")
     s = math.sqrt(math.fsum((x - m) ** 2 for x in xs) / (n - 1))
-    half = t_quantile(level, n - 1) * s / math.sqrt(n)
+    half = t_quantile((1.0 + level) / 2.0, n - 1) * s / math.sqrt(n)
     return Bounds(m, m - half, m + half, level, n, "t")
 
 
@@ -163,7 +164,7 @@ def wilson_bounds(successes: int, n: int, level: float) -> Bounds:
         raise ValueError("n must be a positive integer")
     if isinstance(successes, bool) or not isinstance(successes, int) or not 0 <= successes <= n:
         raise ValueError("successes must be an integer between 0 and n")
-    p, z = successes / n, z_quantile(level)
+    p, z = successes / n, z_quantile((1.0 + level) / 2.0)
     centre = (p + z * z / (2 * n)) / (1 + z * z / n)
     half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
     return Bounds(p, max(0.0, centre - half), min(1.0, centre + half), level, n, "wilson")
@@ -172,14 +173,14 @@ def wilson_bounds(successes: int, n: int, level: float) -> Bounds:
 def median_bounds(xs: Sequence[float], level: float) -> Bounds:
     """Distribution-free bounds from order statistics: x_(k) <= median with probability
     P(Binomial(n, 1/2) >= k); the lower bound is the largest such x_(k) with that probability
-    at least `level` (and symmetrically for the upper bound)."""
+    at least `(1 + level) / 2` (and symmetrically for the upper bound)."""
     _check_level(level)
     ys = sorted(_finite(xs))
     n = len(ys)
     if n == 0:
         raise ValueError("no samples")
     med = ys[n // 2] if n % 2 else (ys[n // 2 - 1] + ys[n // 2]) / 2
-    k = max((k for k in range(1, n + 1) if binom_sf(k, n) >= level), default=None)
+    k = max((k for k in range(1, n + 1) if binom_sf(k, n) >= (1.0 + level) / 2.0), default=None)
     lo = ys[k - 1] if k is not None else -math.inf
     hi = ys[n - k] if k is not None else math.inf
     return Bounds(med, lo, hi, level, n, "order statistics")
@@ -215,7 +216,7 @@ def welch_bounds(a: Sequence[float], b: Sequence[float], level: float) -> Bounds
     if se == 0.0:
         return Bounds(d, d, d, level, na + nb, "welch")
     df = (va + vb) ** 2 / ((va * va / (na - 1) if va else 0.0) + (vb * vb / (nb - 1) if vb else 0.0))
-    half = t_quantile(level, df) * se
+    half = t_quantile((1.0 + level) / 2.0, df) * se
     return Bounds(d, d - half, d + half, level, na + nb, "welch")
 
 
@@ -263,7 +264,7 @@ def below(b: Bounds, threshold: float) -> str:
 
 
 def between(b: Bounds, lo: float, hi: float) -> str:
-    """The quantity lies in [lo, hi] (equivalence: both one-sided tests must pass)."""
+    """The quantity lies in [lo, hi] (equivalence: the interval must lie inside)."""
     if not math.isfinite(lo) or not math.isfinite(hi):
         raise ValueError("claim limits must be finite")
     if lo > hi:
