@@ -76,7 +76,9 @@ values({"nonce": rows[-1]["nonce"]})
         of = { use = "probe"; dataset = "sample"; column = "ok"; }; };
     };
     project = doc.project {
-      name = "probe"; values.summary = doc.output analysis "values.json";
+      name = "probe";
+      data.shared = doc.output analysis "values.json";
+      values.summary = doc.output analysis "values.json";
     };
     paper = doc.document { name = "probe-doc"; src = ./tex;
       projects = [ project ]; source = self; };
@@ -118,6 +120,7 @@ values({"nonce": rows[-1]["nonce"]})
     with zipfile.ZipFile(published / "probe-doc-artifact.zip") as archive:
         assert any(n.startswith("data/probe/summary/view/probe/sample/") and n.endswith(".parquet") for n in archive.namelist())
         assert "data/probe/summary/view/probe/runs.json" in archive.namelist()
+        assert "data/probe/shared/view/probe/runs.json" in archive.namelist()
     observation.write_text("crash" if mode == "failure" else "0")
     output = tmp_path / "fresh"
     command = ["nix", "run", str(fixture) + "#probe-doc", "--", "--remeasure", "--level", "0.99",
