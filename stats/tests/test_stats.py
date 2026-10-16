@@ -35,30 +35,30 @@ def _coverage(draw, bound, trials=4000, seed=1):
 
 
 def test_mean_lower_bound_coverage():
-    # one-sided at 0.95: the lower bound exceeds the true mean in about 5 % of samples
+    # two-sided at 0.95: the lower bound exceeds the true mean in about 2.5 % of samples
     miss = _coverage(lambda r: [r.gauss(10, 3) for _ in range(5)],
                      lambda xs: stats.mean_bounds(xs, 0.95).lo > 10)
-    assert 0.05 - 0.012 < miss < 0.05 + 0.012
+    assert 0.025 - 0.012 < miss < 0.025 + 0.012
 
 
 def test_wilson_coverage():
     miss = _coverage(lambda r: [r.random() < 0.3 for _ in range(40)],
                      lambda xs: stats.bounds(xs, "proportion", 0.95).hi < 0.3)
-    assert miss < 0.05 + 0.015
+    assert miss < 0.025 + 0.015
 
 
 def test_welch_coverage_unequal_variances():
     miss = _coverage(lambda r: ([r.gauss(5, 1) for _ in range(4)], [r.gauss(5, 4) for _ in range(9)]),
                      lambda ab: stats.welch_bounds(ab[0], ab[1], 0.95).lo > 0)
-    assert 0.05 - 0.012 < miss < 0.05 + 0.012
+    assert 0.025 - 0.012 < miss < 0.025 + 0.012
 
 
 def test_median_bounds_small_n():
-    # n = 5: P(Bin(5, 1/2) >= 1) = 31/32 >= 0.95, P(>= 2) = 26/32 < 0.95 -> the extremes
-    b = stats.median_bounds([3, 1, 2, 5, 4], 0.95)
-    assert (b.estimate, b.lo, b.hi) == (3, 1, 5)
-    # n = 4 at 0.95: P(>= 1) = 15/16 < 0.95 -> unbounded, so no claim can be supported
-    b = stats.median_bounds([1, 2, 3, 4], 0.95)
+    # n = 6: each tail at the extremes is 1/64 < 0.025, so their coverage exceeds 0.95.
+    b = stats.median_bounds([3, 1, 2, 5, 4, 6], 0.95)
+    assert (b.estimate, b.lo, b.hi) == (3.5, 1, 6)
+    # n = 5: P(at least one tail missed) = 2/32 > 0.05 -> unbounded.
+    b = stats.median_bounds([1, 2, 3, 4, 5], 0.95)
     assert math.isinf(b.lo) and math.isinf(b.hi)
     assert stats.above(b, 0) == "inconclusive"
 
@@ -88,7 +88,7 @@ def test_verdicts_exclusive_and_monotone_in_level(xs, t):
 
 
 @given(samples, st.floats(-1e3, 1e3), st.floats(0, 1e3))
-def test_between_matches_two_one_sided(xs, centre, width):
+def test_between_requires_interval_inside(xs, centre, width):
     b = stats.mean_bounds(xs, 0.95)
     lo, hi = centre - width, centre + width
     both = stats.above(b, lo) == "supported" or b.lo >= lo
@@ -175,7 +175,7 @@ def test_cli_writes_report(tmp_path, capsys):
     (tmp_path / "claims.json").write_text(json.dumps(CLAIMS))
     code = claims.main([str(tmp_path / "claims.json"), "--view", str(a), "--level", "0.99",
                         "--json", str(tmp_path / "r.json")])
-    assert code == 0
+    assert code == 3  # six replicates cannot resolve the near claim at 99 %
     assert json.loads((tmp_path / "r.json").read_text())["level"] == 0.99
     assert "faster" in capsys.readouterr().out
 

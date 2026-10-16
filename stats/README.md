@@ -20,9 +20,9 @@ print(stats.above(b, 1.0))
 | Difference of proportions | Newcombe score | Two independent Bernoulli samples; approximate coverage |
 | Exact value | Every raw value equals the expected value | No statistical model |
 
-`level` is the confidence of each one-sided bound. For a range or equivalence claim, both bounds
-must pass; the displayed interval has two-sided coverage `2 * level - 1`. These are method-specific
-intervals, not distribution-free guarantees. Confidence applies to each claim separately; there is
+`level` is the requested two-sided interval coverage. The whole interval must lie inside a
+claim's region to support it, outside to contradict it; an overlapping interval is inconclusive.
+These are method-specific intervals, not distribution-free guarantees. Confidence applies to each claim separately; there is
 no multiple-claim correction. Hardware is recorded, but does not gate comparisons.
 
 ## Claims in lab
