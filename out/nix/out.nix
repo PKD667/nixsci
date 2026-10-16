@@ -53,13 +53,27 @@ let
   # A font-aware engine builds a font cache on first use and needs a writable HOME for it
   # (luaotfload ignores TEXMFVAR and TEXMFCACHE; measured).
   engineHome = engine: lib.optionalString (engine != "pdflatex") ''export HOME="$TMPDIR"'';
+
+  # The lab analyses among a project's inputs, by key. Each one's `view` (set by lab.nix, carried
+  # by `output`) is what the artifact keeps. Two different analyses under one key would land in one
+  # directory, so that is an error.
+  analysesOf = name: sets:
+    let
+      found = lib.concatLists (map (set: lib.mapAttrsToList (key: e: { inherit key; view = e.view; })
+        (lib.filterAttrs (_: e: (e.view or null) != null) set)) sets);
+      add = acc: a:
+        if acc ? ${a.key} && toString acc.${a.key} != toString a.view
+        then throw "out: ${name}/${a.key} names two different analyses"
+        else acc // { ${a.key} = a.view; };
+    in lib.foldl' add { } found;
 in
 rec {
   # A file copied by hand: the build cannot say where its numbers came from.
   static = path: { inherit path; unclean = [ "static" ]; };
 
-  # One file of a derivation's output, keeping the derivation's provenance.
-  output = drv: file: { path = "${drv}/${file}"; unclean = drv.unclean or [ ]; };
+  # One file of a derivation's output, keeping the derivation's provenance and, for a lab analysis,
+  # its view (the tables and run records the analysis read).
+  output = drv: file: { path = "${drv}/${file}"; unclean = drv.unclean or [ ]; view = drv.view or null; };
 
   project =
     { name
@@ -93,6 +107,7 @@ rec {
       figures = figures';
       values = values';
       unclean = tagged "files" files' ++ tagged "data" data' ++ tagged "values" values';
+      analyses = analysesOf name [ files' data' values' ];
     };
 
   # files: a directory whose entries land at the root of the tree, or a list of files.
@@ -228,7 +243,11 @@ rec {
           projects}
       '';
 
-      texEnv' = texEnv (ps: t.packages ps ++ packages ps ++ lib.concatMap (p: p.packages ps) projects);
+      texPkgs = ps: t.packages ps ++ packages ps ++ lib.concatMap (p: p.packages ps) projects;
+      texEnv' = texEnv texPkgs;
+      # A TeX Live package's name: an entry of the texlive set carries it in its `pkgs` list.
+      texName = p: p.pname or (lib.head p.pkgs).pname;
+      texNames = lib.sort (a: b: a < b) (lib.unique (map texName (texPkgs pkgs.texlive)));
 
       sourceTree = pkgs.runCommand "${name}-source" { } ''
         mkdir $out
@@ -268,16 +287,52 @@ rec {
         ++ lib.optional dirty "the flake has uncommitted changes";
       # Refused at build time, not evaluation: the flake still evaluates while you write.
       publish =
-        if refusals == [ ] then crate
+        if refusals == [ ] then publishDir
         else pkgs.runCommand "${name}-publish-refused" { } ''
           echo ${lib.escapeShellArg "out: ${name} cannot be published:\n  ${lib.concatStringsSep "\n  " refusals}"} >&2
           exit 1
         '';
 
+      readme = pkgs.writeText "${name}-README.txt" ''
+        ${name}-latex.zip: the LaTeX source of ${name}, with its figures and style files.
+        Unzip it into an empty directory, then run this in that directory:
+
+            latexmk ${flag} ${entry}
+
+        That writes ${stem}.pdf. It needs these TeX Live packages (texliveSmall; the packages they
+        depend on come with them): ${lib.concatStringsSep ", " texNames}.
+        ${lib.optionalString (t.engine != "pdflatex") "${t.engine} writes a font cache: set HOME to a writable directory first."}
+      '';
+
+      # The LaTeX project: the source tree and README.txt. Sorted names and fixed times, so two
+      # builds give the same bytes.
       zip = pkgs.runCommand "${name}-zip" { nativeBuildInputs = [ pkgs.zip ]; } ''
-        mkdir -p $out
-        cd ${sourceTree}
-        zip -r -X $out/${name}.zip .
+        mkdir -p $out work
+        cp -RL --no-preserve=mode ${sourceTree}/. work/
+        [ ! -e work/README.txt ] || { echo "out: ${name} has a README.txt at its root; the LaTeX zip adds one" >&2; exit 1; }
+        cp ${readme} work/README.txt
+        cd work
+        find . -exec touch -h -d @0 {} +
+        find . -type f -printf '%P\n' | LC_ALL=C sort | zip -X -D -q $out/${name}.zip -@
+      '';
+
+      analysisViews = lib.concatMap (p: lib.mapAttrsToList (key: view: { project = p.name; inherit key view; }) p.analyses) projects;
+
+      # publish: the document, its LaTeX project, and the reproduction artifact, with SHA256SUMS.
+      publishDir = pkgs.runCommand "${name}-publish" { nativeBuildInputs = [ pkgs.zip ]; } ''
+        mkdir -p $out art
+        cp ${pdf}/${name}.pdf $out/${name}.pdf
+        cp ${zip}/${name}.zip $out/${name}-latex.zip
+        cp -RL --no-preserve=mode ${crate}/. art/
+        ${lib.concatMapStrings (a: ''
+          mkdir -p ${lib.escapeShellArg "art/data/${a.project}/${a.key}/view"}
+          cp -RL --no-preserve=mode ${a.view}/. ${lib.escapeShellArg "art/data/${a.project}/${a.key}/view"}/
+        '') analysisViews}
+        find art -exec touch -h -d @0 {} +
+        (cd art && find . -type f -printf '%P\n' | LC_ALL=C sort | zip -X -D -q $out/${name}-artifact.zip -@)
+        cd $out
+        files=$(find . -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
+        sha256sum $files > SHA256SUMS
       '';
 
       # The dev loop edits the checkout: the tree (template, toolkit, projects, compiled figures) is
