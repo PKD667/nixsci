@@ -44,3 +44,16 @@ def test_invalid_level_and_nonempty_output_refused(tmp_path):
     else:
         raise AssertionError("level 1 must be refused")
 
+
+
+def test_freeze_keeps_git_revision_not_just_store_source(monkeypatch, tmp_path):
+    locked = "git+file:///project?ref=main&rev=abc123"
+    def run(command, **kwargs):
+        if command[:3] == ["nix", "flake", "metadata"]:
+            return json.dumps({"url": locked, "path": "/nix/store/source-without-git-metadata"})
+        if any("currentSystem" in arg for arg in command):
+            return "x86_64-linux"
+        assert command[-1].startswith(locked + "#")
+        return str(tmp_path / "plan")
+    monkeypatch.setattr(remeasure, "_run", run)
+    assert remeasure._build_plan(".", "paper")[1] == locked

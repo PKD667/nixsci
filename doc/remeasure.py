@@ -91,11 +91,19 @@ def main(argv=None) -> int:
             info.setdefault(item["analysis"], item)
         reports = output / "reports"
         reports.mkdir(exist_ok=True)
-        summaries = {"contradicted": 0, "inconclusive": 0, "unsupported": 0}
+        summaries = {"contradicted": 0, "inconclusive": 0, "unsupported": 0, "unjudged": 0}
         for analysis, item in info.items():
             view_expr = prefix + "in (p.remeasureViews { inherit locks; level = " + str(args.level) + "; })." + json.dumps(analysis)
             view = _run(["nix", "build", "--impure", "--no-link", "--print-out-paths", "--expr", view_expr])
             report = reports / (Path(analysis).name + ".json")
+            declarations = json.loads(Path(item["claimFile"]).read_text())
+            declared = declarations.get("claims", {}) if "format" in declarations else declarations
+            if not declared:
+                summaries["unjudged"] += 1
+                report.write_text(json.dumps({"format": "2.0", "claims": {},
+                    "reason": "no claims declared; measurements have not been judged",
+                    "formalVerification": "not-performed"}, indent=2) + "\n")
+                continue
             command = [sys.executable, "-m", "nixsci.stats.claims", item["claimFile"], "--view", item["view"], "--reproduction", view, "--level", str(args.level), "--json", str(report)]
             judged = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if judged.returncode not in (0, 1, 3):
@@ -111,7 +119,7 @@ def main(argv=None) -> int:
                 if reproduced == "unsupported":
                     summaries["unsupported"] += 1
         note = (f"{summaries['contradicted']} contradicted; {summaries['inconclusive']} inconclusive; "
-                f"{summaries['unsupported']} unsupported original claims; per-claim interval confidence {args.level:.2f}; no joint guarantee")
+                f"{summaries['unsupported']} unsupported original claims; {summaries['unjudged']} unjudged analyses; per-claim interval confidence {args.level:.2f}; no joint guarantee")
         (reports / "summary.json").write_text(json.dumps({"level": args.level, **summaries,
             "formalVerification": "not-performed", "confidenceScope": "per-claim; no joint guarantee"}, indent=2, sort_keys=True) + "\n")
         if any(summaries.values()):

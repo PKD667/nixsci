@@ -72,7 +72,7 @@
         };
 
       # Documents: `doc = nixsci.lib.doc { inherit pkgs; }; doc.document { ... }` (see doc/nix/doc.nix).
-      lib.doc = { pkgs }: import ./doc/nix/doc.nix { inherit pkgs; crateTool = self.packages.${pkgs.stdenv.hostPlatform.system}.crate-python; };
+      lib.doc = { pkgs }: import ./doc/nix/doc.nix { inherit pkgs; crateTool = self.packages.${pkgs.stdenv.hostPlatform.system}.crate-python; cliTool = self.packages.${pkgs.stdenv.hostPlatform.system}.nixsci; };
       # Compatibility for flakes pinned before the module was named doc.
       lib.out = self.lib.doc;
 
@@ -194,7 +194,7 @@
           mkdir -p "$HOME"
           cd nixsci
           # Wrapper builds and isolated-store smoke tests run outside the sandbox separately.
-          pytest -q deploy/tests lab/tests stats/tests --ignore=deploy/tests/test_wrapper.py --ignore=deploy/tests/test_source.py
+          pytest -q deploy/tests lab/tests stats/tests doc/tests --ignore=deploy/tests/test_wrapper.py --ignore=deploy/tests/test_source.py
           touch $out
         '';
 

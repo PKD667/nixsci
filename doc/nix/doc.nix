@@ -31,7 +31,7 @@
 # Provenance travels as `unclean`, a list of what a reader could not trace to code and locked
 # runs: a file marked `static`, a lab analysis that is not clean. A document with any is a draft:
 # every page says so, and `publish` refuses it, as it refuses an uncommitted tree.
-{ pkgs, crateTool }:
+{ pkgs, crateTool, cliTool ? null }:
 let
   inherit (pkgs) lib;
   toolkit = ../files;
@@ -222,7 +222,12 @@ rec {
         let key = builtins.unsafeDiscardStringContext (toString (e.drv or null));
         in if (e.drv or null) == null || !(e.drv ? withLock) || acc ? ${key}
         then acc else acc // { ${key} = e.drv; }) { } analysisEntries;
-      measurementPlan = pkgs.writeText "${name}-measurement-plan.json" (builtins.toJSON
+      measurementPlan =
+        assert lib.assertMsg (!(lib.any (e: (e.unclean or [ ]) != [ ] && !((e.drv or { }) ? withLock)) analysisEntries))
+          "doc: ${name}: cannot remeasure static or untraced inputs";
+        assert lib.assertMsg (lib.all (drv: lib.all (item: item.closures != { }) (lib.attrValues drv.remeasureSpec)) (lib.attrValues analysisDrvs))
+          "doc: ${name}: an experiment recorded by hand has no measurement closure to rerun";
+        pkgs.writeText "${name}-measurement-plan.json" (builtins.toJSON
         (lib.concatMap (drv: map (item: item // { analysis = builtins.unsafeDiscardStringContext (toString drv); })
           (lib.attrValues drv.remeasureSpec)) (lib.attrValues analysisDrvs)));
 
@@ -389,7 +394,12 @@ rec {
       devApp = pkgs.writeShellApplication {
         name = "${name}-dev";
         runtimeInputs = [ texEnv' pkgs.xdg-utils ];
-        text = env + (if sourceDir == null then ''
+        text = lib.optionalString (cliTool != null) ''
+          if [ "''${1:-}" = --remeasure ]; then
+            shift
+            exec ${cliTool}/bin/nixsci doc remeasure "$PWD"#${lib.escapeShellArg name} "$@"
+          fi
+        '' + env + (if sourceDir == null then ''
           echo "doc: ${name} needs srcDir for the dev loop: src is not a plain path" >&2
           exit 1
         '' else ''
