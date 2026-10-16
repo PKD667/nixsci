@@ -11,8 +11,6 @@ from pathlib import Path
 
 import pytest
 
-from nixsci.doc import remeasure
-
 pytestmark = pytest.mark.skipif(os.environ.get("NIXSCI_INTEGRATION") != "1", reason="opt-in Nix integration")
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -23,7 +21,8 @@ def run(*args, cwd=None):
     return p.stdout.strip()
 
 
-def test_fresh_runs_feed_new_pdf_and_claim_warnings(tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode", ["contradicted", "unjudged", "failure"])
+def test_fresh_runs_feed_new_pdf_and_claim_warnings(tmp_path, monkeypatch, mode):
     fixture = tmp_path / "fixture"
     fixture.mkdir()
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
@@ -33,7 +32,10 @@ def test_fresh_runs_feed_new_pdf_and_claim_warnings(tmp_path, monkeypatch):
     (fixture / "measure.py").write_text('''import os, time
 from pathlib import Path
 from nixsci import lab
-lab.record("sample", {"ok": Path(os.environ["OBSERVATION_FILE"]).read_text().strip() == "1", "nonce": str(time.time_ns())})
+observation = Path(os.environ["OBSERVATION_FILE"]).read_text().strip()
+if observation == "crash":
+    raise RuntimeError("fixture apparatus failed")
+lab.record("sample", {"ok": observation == "1", "nonce": str(time.time_ns())})
 ''')
     (fixture / "analysis.py").write_text('''from nixsci.lab.analysis import use, values
 rows = use("probe").table("sample").to_table().to_pylist()
@@ -88,6 +90,12 @@ values({"nonce": rows[-1]["nonce"]})
     system = run("nix", "eval", "--impure", "--raw", "--expr", "builtins.currentSystem")
     p = fixture / "flake.nix"
     p.write_text(p.read_text().replace("system = builtins.currentSystem;", f"system = {json.dumps(system)};"))
+    if mode == "unjudged":
+        declaration = """      claims.ok = { kind = "exact"; value = true;
+        of = { use = "probe"; dataset = "sample"; column = "ok"; }; };
+"""
+        assert declaration in p.read_text()
+        p.write_text(p.read_text().replace(declaration, ""))
     run("git", "init", "-q", str(fixture))
     run("git", "-C", str(fixture), "config", "user.name", "nixsci test")
     run("git", "-C", str(fixture), "config", "user.email", "test@invalid")
@@ -110,10 +118,20 @@ values({"nonce": rows[-1]["nonce"]})
     with zipfile.ZipFile(published / "probe-doc-artifact.zip") as archive:
         assert any(n.startswith("data/probe/summary/view/probe/sample/") and n.endswith(".parquet") for n in archive.namelist())
         assert "data/probe/summary/view/probe/runs.json" in archive.namelist()
-    observation.write_text("0")
+    observation.write_text("crash" if mode == "failure" else "0")
     output = tmp_path / "fresh"
-    run("nix", "run", str(fixture) + "#probe-doc", "--", "--remeasure", "--level", "0.99",
-        "--output", str(output), cwd=fixture)
+    command = ["nix", "run", str(fixture) + "#probe-doc", "--", "--remeasure", "--level", "0.99",
+               "--output", str(output)]
+    if mode == "failure":
+        result = subprocess.run(command, cwd=fixture, text=True, capture_output=True)
+        assert result.returncode != 0
+        assert "diagnostics retained" in result.stderr
+        assert not list(output.glob("*.pdf"))
+        assert list((output / "diagnostics").rglob("manifest.json"))
+        assert (fixture / "lab.lock").read_bytes() == baseline
+        assert run("git", "-C", str(fixture), "status", "--porcelain") == ""
+        return
+    run(*command, cwd=fixture)
     assert (fixture / "lab.lock").read_bytes() == baseline
     assert run("git", "-C", str(fixture), "status", "--porcelain") == ""
     locks = json.loads((output / "locks.json").read_text())
@@ -121,11 +139,13 @@ values({"nonce": rows[-1]["nonce"]})
     assert len(fresh) == 4
     assert {r["sha256"] for r in fresh}.isdisjoint({r["sha256"] for r in json.loads(baseline)["runs"]["remeasure-fixture"]})
     report = json.loads((output / "reports/summary.json").read_text())
-    assert report["contradicted"] == 1
+    assert report["contradicted"] == (1 if mode == "contradicted" else 0)
+    assert report["unjudged"] == (1 if mode == "unjudged" else 0)
     pdf = output / "probe-doc.pdf"
     assert pdf.is_file()
     # The footer and nonce must come from fresh measurements, not a recycled baseline PDF.
     pkgs = 'let f=builtins.getFlake ' + json.dumps(str(ROOT)) + ';in f.inputs.nixpkgs.legacyPackages.' + system + '.poppler-utils'
     text = run("nix", "shell", "--impure", "--expr", pkgs, "-c", "pdftotext", str(pdf), "-")
-    assert "REMEASURED" in text and "1 contradicted" in text
+    assert "REMEASURED" in text
+    assert ("1 contradicted" if mode == "contradicted" else "1 unjudged") in text
     assert old_nonce not in text
