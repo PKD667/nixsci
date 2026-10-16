@@ -106,7 +106,7 @@ def main(argv=None) -> int:
                     summaries["contradicted"] += 1
                 if reproduced == "inconclusive":
                     summaries["inconclusive"] += 1
-                if original == "unsupported":
+                if reproduced == "unsupported":
                     summaries["unsupported"] += 1
         note = (f"{summaries['contradicted']} contradicted; {summaries['inconclusive']} inconclusive; "
                 f"{summaries['unsupported']} unsupported original claims; per-claim interval confidence {args.level:.2f}; no joint guarantee")
