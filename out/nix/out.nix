@@ -324,6 +324,10 @@ rec {
         cp ${pdf}/${name}.pdf $out/${name}.pdf
         cp ${zip}/${name}.zip $out/${name}-latex.zip
         cp -RL --no-preserve=mode ${crate}/. art/
+        cat > art/ARTIFACT-README.txt <<'EOF'
+        This archive contains the RO-Crate files and the analysis views listed under data/.
+        These views are not full raw experiment run directories.
+        EOF
         ${lib.concatMapStrings (a: ''
           mkdir -p ${lib.escapeShellArg "art/data/${a.project}/${a.key}/view"}
           cp -RL --no-preserve=mode ${a.view}/. ${lib.escapeShellArg "art/data/${a.project}/${a.key}/view"}/
