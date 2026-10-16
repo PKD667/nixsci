@@ -180,6 +180,7 @@ experiments.${system}.blocks = nixsci.lib.mkExperiment pkgs {
   program = "${python}/bin/python ${./blocks.py}";
   runtime = [ pkgs.clang ];           # extra tools on PATH
   metadata = { project = "x"; };
+  hardware = { arch = "x86_64"; };   # optional exact target pin: cpu, arch, cores
 };
 ```
 

@@ -32,7 +32,7 @@ def normalize_manifest(value: Mapping[str, Any], paths: Mapping[str, str]) -> di
         restart = value.get("restart", {})
         if not isinstance(restart, Mapping):
             raise ValueError("restart must be an object")
-        policy, maximum, delay = restart.get("policy", "no"), restart.get("max"), restart.get("delay", 0)
+        policy, maximum, delay = restart.get("policy", "no"), restart.get("max"), restart.get("delay", 5)
         if policy not in ("no", "on-failure", "always"):
             raise ValueError("restart.policy must be no, on-failure, or always")
         if maximum is not None and (isinstance(maximum, bool) or not isinstance(maximum, int) or maximum < 0):

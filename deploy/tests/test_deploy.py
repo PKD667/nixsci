@@ -81,6 +81,7 @@ class Manifest(unittest.TestCase):
         valid = normalize_manifest({**base, "walltime": 0.25,
                                    "restart": {"policy": "always", "max": 2, "delay": 0.5}}, paths)
         self.assertEqual(valid["argv"], [])
+        self.assertEqual(normalize_manifest(base, paths)["restart"]["delay"], 5)
         for fields in ({"walltime": 0}, {"walltime": float("inf")},
                        {"restart": {"policy": "maybe"}},
                        {"restart": {"max": -1}}, {"restart": {"delay": -1}},
