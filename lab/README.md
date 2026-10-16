@@ -15,6 +15,8 @@ nix build .#demo-curves   pure, Nix: compact each run to Parquet, build a view o
 
 Everything pure is cached by Nix. A new run compacts once, and only the analyses that use it rebuild. The derivation graph of a result is its provenance: `nix-store -qR $(nix path-info --derivation .#demo-curves)` lists the runs it was built from.
 
+A document's `--remeasure` path reuses each original experiment's exact spec and closures, but runs into a separate empty store and supplies those fresh locks through `analysis.withLock`. It does not patch source files or change the code closure. The distinction matters: a code-input override could produce a different executable while appearing to reproduce the same experiment.
+
 ## Describing an experiment
 
 In the project's flake:
