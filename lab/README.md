@@ -191,7 +191,13 @@ lab::record_bytes("weights", &bytes, "application/octet-stream")?;
 let epsilon = lab::params()["epsilon"].as_f64();   // lab::seed() -> Option<i64>
 ```
 
-It enforces the same declared columns and keys as the Python module. Use it as a path dependency (`lab = { path = "../nixsci/lab/rust/lab" }`) or vendor it. `tests/test_rust.py` builds nothing itself: point `NIX_LAB_RUST_EMIT` at `cargo build --example emit` and Python checks that it can read what Rust wrote. A recorder in another language only has to follow `SPEC.md`.
+It enforces the same declared columns and keys as the Python module. Use it as a path dependency (`lab = { path = "../nixsci/lab/rust/lab" }`) or vendor it. `tests/test_rust.py` builds nothing itself: point `NIX_LAB_RUST_EMIT` at the `emit` example and Python checks that it can read what Rust wrote. The pinned `rust-recorder` flake check builds that fixture with nixpkgs and runs the test:
+
+```sh
+nix build .#checks.x86_64-linux.rust-recorder
+```
+
+It checks this Rust fixture against the Python reader; it does not prove equivalence for arbitrary Rust programs or other languages. A recorder in another language only has to follow `SPEC.md`.
 
 ## Making a flake experiment
 
