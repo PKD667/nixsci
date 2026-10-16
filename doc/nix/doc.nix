@@ -386,6 +386,10 @@ rec {
         export TEXINPUTS="$root/.nixsci/doc/${name}//:''${TEXINPUTS:-}"
         export BIBINPUTS="$root/.nixsci/doc/${name}:''${BIBINPUTS:-}"
         export BSTINPUTS="$root/.nixsci/doc/${name}:''${BSTINPUTS:-}"
+        # fontspec resolves filename fonts through kpathsea, not TEXINPUTS. Search the same
+        # assembled tree recursively, where project/template fonts live (and ZIPs stay portable).
+        export TTFONTS="$root/.nixsci/doc/${name}//:''${TTFONTS:-}"
+        export OPENTYPEFONTS="$root/.nixsci/doc/${name}//:''${OPENTYPEFONTS:-}"
       '';
       shell = pkgs.mkShell {
         packages = [ texEnv' pkgs.xdg-utils ];
