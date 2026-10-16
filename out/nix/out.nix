@@ -94,6 +94,7 @@ rec {
       unclean = tagged "files" files' ++ tagged "data" data' ++ tagged "values" values';
     };
 
+  # files: a directory whose entries land at the root of the tree, or a list of files.
   # meta: slot -> "required" | "optional", or null for any slots (a document that names its own
   # class keeps its metadata for other documents to read). render: the meta -> TeX the class reads.
   # figure: what a figure compiled for this template gets (fonts, default width).
@@ -209,9 +210,9 @@ rec {
           cp -RL --no-preserve=mode "$2" "$out/tree/$1"
           printf '%s\t%s\n' "$1" "$2" >> $out/origins.tsv
         }
-        ${lib.optionalString (t.files != null) ''
-          for f in ${t.files}/*; do put "$(basename "$f")" "$f"; done
-        ''}
+        ${if t.files == null then ""
+          else if lib.isList t.files then lib.concatMapStrings (f: "put ${baseNameOf (toString f)} ${f}\n") t.files
+          else ''for f in ${t.files}/*; do put "$(basename "$f")" "$f"; done''}
         [ -e $out/tree/nixsci.sty ] || put nixsci.sty ${toolkit}/nixsci.sty
         put nixsci-generated.tex ${generated}
         ${lib.concatMapStrings (p:
