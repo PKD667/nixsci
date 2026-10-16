@@ -27,7 +27,7 @@ def _store_file(value: object, field: str) -> str:
 
 @dataclass(frozen=True)
 class Closure:
-    """Resolved experiment manifest and the complete NAR-identified closure."""
+    """Resolved deployment manifest and the complete NAR-identified closure."""
 
     path: str
     program: str
