@@ -260,9 +260,13 @@ rec {
       refusals = unclean
         ++ lib.optional (source == null) "the document does not name its flake (source = self), so its tree cannot be checked"
         ++ lib.optional dirty "the flake has uncommitted changes";
+      # Refused at build time, not evaluation: the flake still evaluates while you write.
       publish =
         if refusals == [ ] then crate
-        else throw "out: ${name} cannot be published:\n  ${lib.concatStringsSep "\n  " refusals}";
+        else pkgs.runCommand "${name}-publish-refused" { } ''
+          echo ${lib.escapeShellArg "out: ${name} cannot be published:\n  ${lib.concatStringsSep "\n  " refusals}"} >&2
+          exit 1
+        '';
 
       zip = pkgs.runCommand "${name}-zip" { nativeBuildInputs = [ pkgs.zip ]; } ''
         mkdir -p $out
@@ -311,7 +315,7 @@ rec {
     in
     assert lib.assertMsg (unknownFigures == [ ]) "out: ${name}: ${lib.concatStringsSep "; " unknownFigures}";
     {
-      inherit pdf publish crate zip shell unclean;
+      inherit pdf publish refusals crate zip shell unclean;
       meta = meta';
       source = sourceTree;
       apps = {
