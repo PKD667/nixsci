@@ -53,6 +53,7 @@ def test_pull_tries_each_peer_then_verifies_and_roots(tmp_path):
     with patch.object(peers, "peers", return_value=["file:///bad", "file:///good"]), \
          patch.object(publish, "read_lock", return_value={"demo": [entry]}), \
          patch.object(peers, "_run", side_effect=run), \
+         patch.object(peers, "canonical_path", return_value=entry["path"]), \
          patch.object(peers, "verify") as verify, patch.object(peers, "root") as root:
         assert peers.transfer(tmp_path, "pull", log=lambda _: None) == 0
         assert len(calls) == 2
@@ -65,7 +66,8 @@ def test_push_roots_ssh_peer_and_local_copy(tmp_path):
     entry = {"name": "r", "path": "/nix/store/test-r", "sha256": "sha256-r"}
     with patch.object(publish, "read_lock", return_value={"demo": [entry]}), \
          patch.object(peers, "_run", return_value=subprocess.CompletedProcess([], 0, "", "")), \
-         patch.object(peers, "verify"), patch.object(peers, "root") as local, \
+         patch.object(peers, "verify"), patch.object(peers, "canonical_path", return_value=entry["path"]), \
+         patch.object(peers, "root") as local, \
          patch.object(peers, "remote_root") as remote:
         assert peers.transfer(tmp_path, "push", "ssh-ng://node", log=lambda _: None) == 0
         local.assert_called_once_with(entry["path"])
@@ -97,3 +99,18 @@ def test_future_and_malformed_run_formats_fail(tmp_path, version):
     p.write_text(json.dumps({"format": version}))
     with pytest.raises(ValueError, match='unsupported'):
         read_manifest(p)
+
+
+def test_transfers_reject_noncanonical_path():
+    entry = {"name": "r", "sha256": "sha256-r", "path": "/nix/store/other-r"}
+    with patch.object(peers, "_run", return_value=subprocess.CompletedProcess([], 0, "/nix/store/canonical-r\n", "")):
+        with pytest.raises(ValueError, match="path differs"):
+            peers.canonical_path(entry)
+
+
+def test_facts_cannot_be_bypassed_by_an_unmatched_manifest_name(tmp_path):
+    run = tmp_path / "locked"
+    run.mkdir()
+    (run / "manifest.json").write_text(json.dumps({"run": "some-other-run", "state": "ok"}))
+    with pytest.raises(ValueError, match="no matching locked identity"):
+        compact_runs(tmp_path / "out", [run], {"locked": None})

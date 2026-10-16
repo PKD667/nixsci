@@ -86,13 +86,23 @@ def compact_run(run: str | Path, out: str | Path) -> list[Path]:
 
 def compact_runs(out: str | Path, runs: list[str | Path], expected: dict | None = None) -> None:
     """Compact every run into `out` and write their rows, in run order, to `out/runs.json`."""
-    out, rows = Path(out), []
+    out, rows, seen = Path(out), [], set()
     for run in runs:
         manifest = read_manifest(Path(run) / "manifest.json")
-        if expected is not None and manifest["run"] in expected:
-            from .publish import facts
-            if facts(manifest) != expected[manifest["run"]]:
-                raise ValueError(f"run {manifest['run']}: lock facts differ from the sealed manifest")
+        name = manifest["run"]
+        if name in seen:
+            raise ValueError(f"duplicate run identity {name!r}")
+        seen.add(name)
+        if expected is not None:
+            # A store basename is <32-character store hash>-<run name>.
+            path = Path(run)
+            locked_name = path.name[33:] if path.parent == Path("/nix/store") else path.name
+            if locked_name not in expected or name != locked_name:
+                raise ValueError(f"run {name!r}: no matching locked identity for {locked_name!r}")
+            if expected[locked_name] is not None:
+                from .publish import facts
+                if facts(manifest) != expected[locked_name]:
+                    raise ValueError(f"run {name}: lock facts differ from the sealed manifest")
         compact_run(run, out)
         rows.append(json.loads((out / "row.json").read_text()))
     (out / "row.json").unlink(missing_ok=True)

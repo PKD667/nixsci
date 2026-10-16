@@ -66,6 +66,16 @@ def remote_root(remote: str, path: str) -> None:
         raise RuntimeError(f"copied to {remote}, but could not root {path}: {p.stderr.strip()}")
 
 
+def canonical_path(entry: dict) -> str:
+    p = _run("nix-store", "--print-fixed-path", "--recursive", "sha256", entry["sha256"], entry["name"])
+    if p.returncode:
+        raise ValueError(f"invalid run identity {entry['name']!r}: {p.stderr.strip()}")
+    path = p.stdout.strip()
+    if entry.get("path", path) != path:
+        raise ValueError(f"{entry['name']}: lock path differs from the path derived from name and hash")
+    return path
+
+
 def verify(entry: dict) -> None:
     p = _run("nix", "--extra-experimental-features", "nix-command", "path-info", "--json", entry["path"])
     if p.returncode:
@@ -87,7 +97,7 @@ def transfer(project: Path, action: str, remote: str | None = None, log=print) -
         raise ValueError(f"{project}/lab.lock lists no runs")
     failed = False
     for e in entries:
-        path = e["path"]
+        path = canonical_path(e)
         if action in ("pull", "sync"):
             if not Path(path).exists():
                 errors = []
