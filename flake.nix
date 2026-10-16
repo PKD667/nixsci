@@ -171,7 +171,35 @@
       legacyPackages = forAll (pkgs: { demo-curves = self.lab.${pkgs.stdenv.hostPlatform.system}.analyses.demo-curves; });
 
       # `nix flake check`: the fixtures build, and a draft cannot be published.
-      checks = forAll (pkgs: {
+      checks = forAll (pkgs:
+        let
+          rustEmitter = pkgs.rustPlatform.buildRustPackage {
+            pname = "nixsci-rust-emitter";
+            version = "0.1.0";
+            src = ./lab/rust/lab;
+            cargoLock.lockFile = ./lab/rust/lab/Cargo.lock;
+            cargoBuildFlags = [ "--example" "emit" ];
+            doCheck = false;
+            installPhase = ''
+              mkdir -p $out/bin
+              cp target/${pkgs.stdenv.hostPlatform.rust.rustcTarget}/release/examples/emit $out/bin/emit
+            '';
+          };
+          testPython = pkgs.python3.withPackages (p: [ p.pytest p.hypothesis p.pyarrow ]);
+        in {
+        rust-recorder = pkgs.runCommand "nixsci-rust-recorder-check" {
+          nativeBuildInputs = [ testPython ];
+        } ''
+          cp -R ${./.} nixsci
+          chmod -R u+w nixsci
+          export PYTHONPATH=$PWD HOME=$TMPDIR/home
+          export NIX_LAB_RUST_EMIT=${rustEmitter}/bin/emit
+          mkdir -p "$HOME"
+          cd nixsci
+          pytest -q lab/tests/test_rust.py
+          touch $out
+        '';
+
         recorder = pkgs.runCommand "nixsci-recorder-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
           export PYTHONPATH="${self.packages.${pkgs.stdenv.hostPlatform.system}.lab-py}/${pkgs.python3.sitePackages}"
           export NIX_LAB_DIR=$TMPDIR/records
