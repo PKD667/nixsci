@@ -58,6 +58,8 @@
       # Wrap a program so it becomes a nixsci experiment closure.
       #   mkExperiment pkgs { name = "x"; program = "${drv}/bin/x"; metadata = {...}; }
       lib.mkExperiment = pkgs: import ./lab/nix/mk-experiment.nix { inherit pkgs; };
+      # Deployment closures implement the deployment.json v2 policy contract.
+      lib.mkDeployment = pkgs: import ./deploy/nix/mk-deployment.nix { inherit pkgs; };
       # Experiments and analyses as Nix values. `project` is the calling flake's `self`.
       #   lab = nixsci.lib.lab { inherit pkgs; project = self; };
       lib.lab = { pkgs, project }:
@@ -125,6 +127,21 @@
           };
         });
 
+      deployments = forAll (pkgs: {
+        hello = (self.lib.mkDeployment pkgs) {
+          name = "hello";
+          program = "${pkgs.writeShellScript "hello" ''echo \"hello from $(hostname) workdir=$NIX_DEPLOY_WORKDIR\"''}";
+          runtime = [ pkgs.coreutils pkgs.hostname ];
+        };
+        demo = (self.lib.mkDeployment pkgs) {
+          name = "demo";
+          program = "${pkgs.python3}/bin/python";
+          args = [ "${./lab/examples/demo.py}" ];
+          env.PYTHONPATH = "${self.packages.${pkgs.system}.lab-py}/${pkgs.python3.sitePackages}";
+        };
+      });
+
+      # Legacy lab-facing experiment outputs remain available; deployment resolution prefers deployments.
       experiments = forAll (pkgs: {
         # Self-test fixture: a closure that reports where it ran, to exercise any target end to end.
         hello =
