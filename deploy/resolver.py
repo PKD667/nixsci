@@ -23,8 +23,11 @@ def resolve(flake: str, deployment: str, system: str, ignore: tuple[str, ...] = 
     )
     try:
         root = nix.build("nix", snapshot, installable, system)
-    except nix.NixError:
-        if deployment.startswith(("deployments.", "experiments.", "packages.", "apps.")):
+    except nix.NixError as error:
+        # Nix reports unavailable flake outputs explicitly; other evaluation, fetch, and
+        # build failures must remain visible rather than being reinterpreted as legacy.
+        missing = f"does not provide attribute" in str(error) and f"or '{installable}'" in str(error)
+        if deployment.startswith(("deployments.", "experiments.", "packages.", "apps.")) or not missing:
             raise
         import warnings
         warnings.warn("flake has no deployments output; resolving legacy experiments output", RuntimeWarning)
