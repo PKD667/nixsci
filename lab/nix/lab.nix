@@ -122,10 +122,10 @@ rec {
         (alias: exp: map (j: "${alias} seed=${builtins.toJSON j.seed} params=${builtins.toJSON j.params}")
           (missingOf exp runs.${alias})) use);
       problems = lib.concatLists [
-        (lib.optional (stale != [ ]) "measured older code: ${lib.concatStringsSep ", " stale}")
-        (lib.optional (orphan != [ ]) "are no job of the spec: ${lib.concatStringsSep ", " orphan}")
-        (lib.optional (missing != [ ]) "jobs without their runs: ${lib.concatStringsSep "; " missing}")
-        (lib.optional (untraced != [ ]) "recorded by hand: ${lib.concatStringsSep ", " untraced}")
+        (lib.optional (stale != [ ]) "Runs of older code: ${lib.concatStringsSep ", " stale}")
+        (lib.optional (orphan != [ ]) "Runs of no job in the spec: ${lib.concatStringsSep ", " orphan}")
+        (lib.optional (missing != [ ]) "Jobs without their runs: ${lib.concatStringsSep "; " missing}")
+        (lib.optional (untraced != [ ]) "Runs recorded by hand: ${lib.concatStringsSep ", " untraced}")
       ];
       clean = problems == [ ];
       report = "analysis ${n} is not clean. ${lib.concatStringsSep ". " problems}. "
