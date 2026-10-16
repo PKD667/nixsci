@@ -26,7 +26,9 @@ def _run(command: list[str], **kwargs) -> str:
 def _build_plan(ref: str, doc: str) -> tuple[Path, str]:
     meta = json.loads(_run(["nix", "flake", "metadata", "--json", ref]))
     # Freeze the input before any impure jobs run; never read a changing checkout afterward.
-    frozen = meta.get("path") or meta["resolvedUrl"]
+    # A store source path alone drops Git metadata (self.rev), making clean code look untraced.
+    # The locked URL keeps the original revision while preventing checkout changes under the run.
+    frozen = meta.get("url") or meta.get("path") or meta["resolvedUrl"]
     system = _run(["nix", "eval", "--impure", "--raw", "--expr", "builtins.currentSystem"])
     out = _run(["nix", "build", "--no-link", "--print-out-paths", f"{frozen}#packages.{system}.{doc}.measurementPlan"])
     return Path(out), frozen
