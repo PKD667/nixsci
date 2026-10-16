@@ -51,8 +51,9 @@ def test_dev_shell_finds_project_font_by_filename(tmp_path):
     builddir.mkdir()
     command = (
         'cd ' + json.dumps(str(builddir)) + '; '
-        'echo "kpsewhich: $(kpsewhich --format=\'truetype fonts\' DejaVuSans.ttf)"; '
-        'test -n "$(kpsewhich --format=\'truetype fonts\' DejaVuSans.ttf)"; '
+        'found=$(kpsewhich --format=\'truetype fonts\' DejaVuSans.ttf); '
+        'echo "kpsewhich: $found"; '
+        'test "$(readlink -f "$found")" = "$(readlink -f "$NIXSCI_TREE/fixture-fonts/DejaVuSans.ttf")"; '
         'latexmk -g -xelatex -interaction=nonstopmode -halt-on-error '
         '"' + str(fixture / "tex/main.tex") + '"'
     )
