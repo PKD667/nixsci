@@ -210,3 +210,13 @@ def test_nonfinite_samples_rejected(x):
 def test_bool_proportion_rejects_continuous_samples():
     with pytest.raises(ValueError, match="bool"):
         stats.bounds([0.25, 0.75], "proportion", 0.95)
+
+
+def test_claim_format_compatibility(tmp_path):
+    a = _view(tmp_path, 'format', _runs(random.Random(7), 1.0, 1.5))
+    legacy = claims.judge(CLAIMS, a, None, 0.95)
+    current = claims.judge({'format': '2.3', 'claims': CLAIMS}, a, None, 0.95)
+    assert current == legacy
+    assert current['formalVerification'] == 'not-performed'
+    with pytest.raises(ValueError, match='unsupported claims format'):
+        claims.judge({'format': '3.0', 'claims': CLAIMS}, a, None, 0.95)

@@ -166,7 +166,7 @@ rec {
           cd $out
           ${runner} ${p.script}
         '';
-      claimFile = pkgs.writeText "${n}-claims.json" (builtins.toJSON claims);
+      claimFile = pkgs.writeText "${n}-claims.json" (builtins.toJSON { format = "2.0"; inherit claims; });
       claimReport = pkgs.runCommand "${n}-claims" { nativeBuildInputs = [ python ]; } ''
         mkdir $out
         cp ${claimFile} $out/claims.json

@@ -126,9 +126,16 @@ def evaluate(claim: dict[str, Any], view: str | Path, level: float) -> dict[str,
 
 def judge(claims: dict[str, Any], view: str | Path, reproduction: str | Path | None, level: float) -> dict[str, Any]:
     stats._check_level(level)
+    if isinstance(claims, dict) and "format" in claims:
+        import re
+        version = claims["format"]
+        match = re.fullmatch(r"([0-9]+)\.([0-9]+)", version) if isinstance(version, str) else None
+        if match is None or int(match.group(1)) != 2:
+            raise ValueError(f"unsupported claims format {version!r}")
+        claims = claims["claims"]
     if not isinstance(claims, dict) or not claims:
         raise ValueError("declare at least one claim")
-    report: dict[str, Any] = {"level": level, "scope": "per-claim; no multiplicity correction", "formalVerification": "not-performed", "claims": {}}
+    report: dict[str, Any] = {"format": "2.0", "level": level, "scope": "per-claim; no multiplicity correction", "formalVerification": "not-performed", "claims": {}}
     for name in sorted(claims):
         entry: dict[str, Any] = {"claim": claims[name], "original": evaluate(claims[name], view, level)}
         if reproduction is not None:
