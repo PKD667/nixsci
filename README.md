@@ -11,7 +11,7 @@ nix run github:PKD667/nixsci -- --help
 | `nixsci deploy` | `nixsci.deploy` | [deploy/README.md](deploy/README.md), [deploy/DESIGN.md](deploy/DESIGN.md) |
 | `nixsci lab` | `nixsci.lab` | [lab/README.md](lab/README.md), [lab/SPEC.md](lab/SPEC.md), [lab/DESIGN.md](lab/DESIGN.md) |
 | statistics | `nixsci.stats` | [stats/README.md](stats/README.md) |
-| `nixsci out` | `nixsci.out` | [out/README.md](out/README.md) |
+| `nixsci doc` | `nixsci.doc` | [doc/README.md](doc/README.md) |
 | `nixsci <command>` | `nixsci.cli` | [cli/README.md](cli/README.md) |
 
 Nix pins the toolchain. Peer stores share sealed runs by content hash. No machine or organisation
