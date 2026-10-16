@@ -100,7 +100,7 @@ rec {
       files' = lib.mapAttrs (_: entry) files;
       values' = lib.mapAttrs (_: entry) values;
       replaceOutput = replacements: e:
-        let e' = entry e; key = toString (e'.drv or null);
+        let e' = entry e; key = builtins.unsafeDiscardStringContext (toString (e'.drv or null));
         in if (e'.drv or null) != null && replacements ? ${key}
           then output replacements.${key} e'.file
           else e;
@@ -219,10 +219,11 @@ rec {
       analysisEntries = lib.concatMap (p: lib.concatLists (map (set: lib.attrValues set)
         [ p.files p.data p.values ])) projects;
       analysisDrvs = lib.foldl' (acc: e:
-        if (e.drv or null) == null || !(e.drv ? withLock) || acc ? ${toString e.drv}
-        then acc else acc // { ${toString e.drv} = e.drv; }) { } analysisEntries;
+        let key = builtins.unsafeDiscardStringContext (toString (e.drv or null));
+        in if (e.drv or null) == null || !(e.drv ? withLock) || acc ? ${key}
+        then acc else acc // { ${key} = e.drv; }) { } analysisEntries;
       measurementPlan = pkgs.writeText "${name}-measurement-plan.json" (builtins.toJSON
-        (lib.concatMap (drv: map (item: item // { analysis = toString drv; })
+        (lib.concatMap (drv: map (item: item // { analysis = builtins.unsafeDiscardStringContext (toString drv); })
           (lib.attrValues drv.remeasureSpec)) (lib.attrValues analysisDrvs)));
 
       remeasurementTex = if _remeasurement == null then null else
