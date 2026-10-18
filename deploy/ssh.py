@@ -134,8 +134,11 @@ class SSH(Backend):
             raise RuntimeError(f"remote Nix bootstrap verification failed: {check!r}")
         self._bootstrap_shipped = True
 
-    def _remote_hashes(self, root: str) -> dict[str, str]:
-        raw = self._remote_nix("path-info", "--recursive", "--json", root).stdout
+    def _remote_hashes(self, root: str | None = None) -> dict[str, str]:
+        # --all enumerates registered paths without probing missing paths (a
+        # nonzero path-info result is always an error, never a cache miss).
+        args = ["--all"] if root is None else ["--recursive"]
+        raw = self._remote_nix("path-info", *args, "--json", *([] if root is None else [root])).stdout
         try:
             entries = json.loads(raw)
         except ValueError as error:
@@ -152,8 +155,10 @@ class SSH(Backend):
                 or not isinstance(entry.get("narHash"), str)
             ):
                 raise RuntimeError(f"remote Nix path-info entry lacks NAR identity: {entry!r}")
+            if entry["path"] in result and result[entry["path"]] != entry["narHash"]:
+                raise RuntimeError("remote Nix path-info has conflicting NAR identities")
             result[entry["path"]] = entry["narHash"]
-        if root not in result:
+        if root is not None and root not in result:
             raise RuntimeError(f"remote closure does not contain {root}")
         return result
 
@@ -166,26 +171,50 @@ class SSH(Backend):
         self._admit(closure)
         self._wait_ready()
         self._ship_bootstrap()
+        cached = self._remote_hashes()
+        missing = []
+        for path, expected in closure.closure.items():
+            if path not in cached:
+                missing.append(path)
+            elif cached[path] != expected:
+                raise RuntimeError(f"preexisting target path NAR identity differs: {path}")
+        if not missing:
+            self._verify(closure)
+            return {"path": closure.path, "closure": dict(closure.closure), "system": closure.system}
         token = closure.path.rsplit("/", 1)[-1].split("-", 1)[0]
         with tempfile.TemporaryDirectory(prefix="nix-deploy-cache-") as temp:
-            cache = str(Path(temp) / "nar-cache")
-            nix.copy_to_cache(self.nix, cache, closure.path)
-            parent = f"/tmp/nix-deploy-cache-{token}"
-            self._remote(f"rm -rf -- {shlex.quote(parent)}; mkdir -m 700 -p {shlex.quote(parent)}")
-            result = subprocess.run(
-                [*self._scp, "-r", cache, f"{self.host}:{parent}/"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            if result.returncode:
-                raise RuntimeError(
-                    f"cannot ship closure cache: {result.stderr.decode(errors='replace')[-2000:]}"
-                )
-            remote_cache = f"{parent}/{Path(cache).name}"
+            archive = str(Path(temp) / "closure.export")
+            # Native export supports a partial graph. A file binary cache does
+            # not: it refuses paths whose already-cached references are absent
+            # from that cache. Never invent narinfo records to bypass that check.
+            nix.export_paths(self.nix, archive, *missing)
+            # Stage on the declared target disk, not /tmp (often small tmpfs).
+            # Each invocation owns a unique directory: concurrent staging of
+            # the same closure must not remove another invocation's cache.
+            stage_root = f"{self.run_root}/.stage"
+            parent = self._remote(
+                f"umask 077; mkdir -p {shlex.quote(stage_root)}; "
+                f"mktemp -d {shlex.quote(stage_root + '/nar-' + token + '-XXXXXXXX')}"
+            ).stdout.decode().strip()
+            if not re.fullmatch(re.escape(stage_root + "/nar-" + token + "-") + r"[A-Za-z0-9]{8,}", parent):
+                raise RuntimeError("remote staging directory is outside the declared run root")
             try:
-                self._remote_nix(
-                    "copy", "--no-check-sigs", "--from", f"file://{remote_cache}", closure.path
+                result = subprocess.run(
+                    [*self._scp, "-C", archive, f"{self.host}:{parent}/"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                 )
+                if result.returncode:
+                    raise RuntimeError(
+                        f"cannot ship closure cache: {result.stderr.decode(errors='replace')[-2000:]}"
+                    )
+                # argv[0] selects the static Nix binary's legacy import frontend.
+                # This alias lives only inside this invocation's private stage.
+                importer = f"{parent}/nix-store"
+                self._remote(f"ln -s {shlex.quote(self.remote_bootstrap)} {shlex.quote(importer)}")
+                command = nix.command(importer, self.store, "--import")
+                self._remote(shlex.join(command) + " < "
+                             + shlex.quote(f"{parent}/{Path(archive).name}"))
             finally:
                 self._remote(f"rm -rf -- {shlex.quote(parent)}")
         self._verify(closure)

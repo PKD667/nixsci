@@ -32,7 +32,14 @@ controller and, for non-Nix hosts, an ssh client.
 
 The resolving machine (the *controller*) does the `nix build`. Targets never
 evaluate or build anything: they only receive the verified closure. Heavy builds
-therefore belong on a machine meant for it, not on a laptop.
+therefore belong on a machine meant for it, not on a laptop. SSH staging queries
+registered target NAR identities, exports only missing paths in Nix's native
+export format, and imports them against references already on the target. A
+partial file binary cache is not valid for this job: it requires its references
+in the cache too. OpenSSH compresses the transfer. Temporary archives are private
+and target staging lives under the declared disk-backed `run_root`, not `/tmp`.
+The complete target closure is still byte-verified and its entire NAR identity
+map compared after every transfer, including cache hits.
 
 ## The deployment contract (format 2.0)
 
