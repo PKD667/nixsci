@@ -173,5 +173,31 @@
           shellHook = ''export PYTHONPATH="$(dirname "$PWD"):$PYTHONPATH"'';
         };
       });
+      # The suite and the document fixture are the two things a claim in a README rests on, so a
+      # build runs both. The real-Nix and Rust tests need an executable the sandbox does not have
+      # and skip themselves.
+      checks = forAll (pkgs: {
+        tests =
+          let python = pkgs.python3.withPackages (p: [ p.pytest p.hypothesis p.pyarrow ]);
+          in pkgs.runCommand "nixsci-tests"
+            {
+              nativeBuildInputs = [ python pkgs.git ];
+              env.PYTHONDONTWRITEBYTECODE = "1";
+            }
+            ''
+              export HOME=$TMPDIR
+              mkdir -p $TMPDIR/work
+              cp -r ${self} $TMPDIR/work/nixsci
+              cd $TMPDIR/work/nixsci
+              chmod -R u+w .
+              export PYTHONPATH=$TMPDIR/work
+              # test_source.py drives `nix flake metadata` against a real store; the sandbox has a
+              # read-only one, so it runs on a machine with a store and not here.
+              python3 -m pytest -q deploy/tests lab/tests cli/tests \
+                --ignore=deploy/tests/test_source.py > $out 2>&1 || { cat $out; exit 1; }
+              printf 'skipped deploy/tests/test_source.py: needs a writable Nix store\n' >> $out
+            '';
+        example-paper = self.packages.${pkgs.stdenv.hostPlatform.system}.example-paper;
+      });
     };
 }
