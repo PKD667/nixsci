@@ -200,9 +200,30 @@ def copy_to(nix, destination, root):
     run(nix, None, "copy", "--no-check-sigs", "--to", destination, root)
 
 
-def copy_to_cache(nix, cache, root):
+def copy_to_cache(nix, cache, *paths, recursive=True):
+    if not paths:
+        raise ValueError("cache export requires at least one store path")
     Path(cache).mkdir(parents=True, exist_ok=False)
-    copy_to(nix, f"file://{cache}", root)
+    # GPU wheels contain large compressed binaries: xz spends disproportionate
+    # controller time here. Encoding is independent of verified NAR identity.
+    run(nix, None, "copy", "--no-check-sigs",
+        *([] if recursive else ["--no-recursive"]),
+        "--to", f"file://{cache}?compression=zstd", *paths)
+
+
+def export_paths(nix, destination, *paths):
+    """Native export accepts a partial graph; unlike a binary cache, its
+    references need not be present in the transport directory. Import checks
+    those references against the destination store before registration.
+    """
+    if not paths:
+        raise ValueError("native export requires at least one store path")
+    with Path(destination).open("xb") as stream:
+        result = subprocess.run(["nix-store", "--export", *paths], executable=nix,
+                                stdout=stream, stderr=subprocess.PIPE)
+    if result.returncode:
+        raise NixError(f"Nix native export failed ({result.returncode}): "
+                       + result.stderr.decode("utf-8", "replace")[-3000:])
 
 
 def command(nix, store, *args):
@@ -216,6 +237,7 @@ __all__ = [
     "command",
     "copy_to",
     "copy_to_cache",
+    "export_paths",
     "manifest",
     "path_hashes",
     "run",
