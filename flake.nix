@@ -226,27 +226,8 @@
           touch $out
         '';
 
-        example-paper = self.packages.${pkgs.stdenv.hostPlatform.system}.example-paper;
-        example-draft = self.packages.${pkgs.stdenv.hostPlatform.system}.example-draft;
-        publish-refuses-draft =
-          let draft = exampleDocument pkgs { static = true; };
-          in assert draft.refusals != [ ] && draft.publish.name == "example-draft-publish-refused"; pkgs.runCommand "publish-refuses-draft" { } "touch $out";
-      });
-
-      apps = forAll (pkgs: {
-        default = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nixsci"; };
-        demo = self.lab.${pkgs.system}.experiments.demo.run;
-      });
-      devShells = forAll (pkgs: {
-        default = pkgs.mkShell {
-          packages = [ pkgs.python3 pkgs.python3Packages.pytest pkgs.python3Packages.hypothesis pkgs.python3Packages.pyarrow pkgs.git ];
-          shellHook = ''export PYTHONPATH="$(dirname "$PWD"):$PYTHONPATH"'';
-        };
-      });
-      # The suite and the document fixture are the two things a claim in a README rests on, so a
-      # build runs both. The real-Nix and Rust tests need an executable the sandbox does not have
-      # and skip themselves.
-      checks = forAll (pkgs: {
+        # The suite and the document fixture are the two things a claim in a README rests on, so a
+        # build runs both. (Added by the deploy branch: it also covers cli/tests.)
         tests =
           let python = pkgs.python3.withPackages (p: [ p.pytest p.hypothesis p.pyarrow ]);
           in pkgs.runCommand "nixsci-tests"
@@ -268,6 +249,21 @@
               printf 'skipped deploy/tests/test_source.py: needs a writable Nix store\n' >> $out
             '';
         example-paper = self.packages.${pkgs.stdenv.hostPlatform.system}.example-paper;
+        example-draft = self.packages.${pkgs.stdenv.hostPlatform.system}.example-draft;
+        publish-refuses-draft =
+          let draft = exampleDocument pkgs { static = true; };
+          in assert draft.refusals != [ ] && draft.publish.name == "example-draft-publish-refused"; pkgs.runCommand "publish-refuses-draft" { } "touch $out";
+      });
+
+      apps = forAll (pkgs: {
+        default = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nixsci"; };
+        demo = self.lab.${pkgs.system}.experiments.demo.run;
+      });
+      devShells = forAll (pkgs: {
+        default = pkgs.mkShell {
+          packages = [ pkgs.python3 pkgs.python3Packages.pytest pkgs.python3Packages.hypothesis pkgs.python3Packages.pyarrow pkgs.git ];
+          shellHook = ''export PYTHONPATH="$(dirname "$PWD"):$PYTHONPATH"'';
+        };
       });
     };
 }
