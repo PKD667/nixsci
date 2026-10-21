@@ -7,6 +7,8 @@
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAll = f: nixpkgs.lib.genAttrs systems (s: f nixpkgs.legacyPackages.${s});
+      # CUDA is unfree (redistributable); only the GPU probe needs it.
+      cudaPkgs = system: import nixpkgs { inherit system; config.allowUnfree = true; };
 
       # The python library and its one executable, `nixsci`.
       library = py: {
@@ -34,6 +36,9 @@
       # Wrap a program so it becomes a nixsci experiment closure.
       #   mkExperiment pkgs { name = "x"; program = "${drv}/bin/x"; metadata = {...}; }
       lib.mkExperiment = pkgs: import ./lab/nix/mk-experiment.nix { inherit pkgs; };
+      # The GPU probe: `lib.gpuProbe pkgs` is { probe, driver, experiment } (see gpu/README.md).
+      # `pkgs` must allow unfree packages (CUDA); the flake's own output below does that itself.
+      lib.gpuProbe = pkgs: import ./gpu { inherit pkgs; mkExperiment = self.lib.mkExperiment pkgs; };
       # Experiments and analyses as Nix values. `project` is the calling flake's `self`.
       #   lab = nixsci.lib.lab { inherit pkgs; project = self; };
       lib.lab = { pkgs, project }:
@@ -105,9 +110,15 @@
           r-env = pkgs.rWrapper.override {
             packages = with pkgs.rPackages; [ arrow dplyr ggplot2 jsonlite nixsci-r ];
           };
+        } // nixpkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
+          # The CUDA binary alone (the experiment wraps it): `nix build .#gpu-probe`.
+          gpu-probe = (self.lib.gpuProbe (cudaPkgs "x86_64-linux")).probe;
         });
 
-      experiments = forAll (pkgs: {
+      experiments = forAll (pkgs: nixpkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
+        # Which GPU did this run get, and what does it measure (gpu/README.md). NVIDIA, x86_64 only.
+        gpu-probe = (self.lib.gpuProbe (cudaPkgs "x86_64-linux")).experiment;
+      } // {
         # Self-test fixture: a closure that reports where it ran, to exercise any target end to end.
         hello =
           let
