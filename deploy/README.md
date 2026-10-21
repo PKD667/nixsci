@@ -81,6 +81,49 @@ directories (the closure should bring everything else). nixsci.deploy adds:
 stdout and stderr go to `process.log` in the workdir. The program stays
 foreground in its own process group; `stop` sends SIGTERM to that group.
 
+## Debugging an environment: `shell`
+
+`nixsci deploy shell` opens an interactive shell in exactly the environment a bare
+`run` of the same experiment would give its program: same closure checks, same
+declared env, inputs, `NIX_DEPLOY_*`, `PATH`, `HOME`, same `nix shell --offline` store
+view, under `env -i`. It is built by the method `run` uses (`Backend.job_env`), so the
+two cannot drift. The program is **not** started; it is available as `$NIX_DEPLOY_PROGRAM`
+(the one variable a job does not get).
+
+```sh
+nixsci deploy [--lease L | --config F --target T] shell FLAKE EXPERIMENT \
+    [--program NAME] [--env K=V]... [--input N=P]... [--run-id ID] [--show] [--keep] [-- CMD ...]
+```
+
+| flag | meaning |
+|---|---|
+| `--program NAME` | which program `$NIX_DEPLOY_PROGRAM` names (`run` or a `commands` entry) |
+| `--env`, `--input` | as for `run` |
+| `--run-id ID` | workdir name under `run_root` (default `shell-<time>-<pid>`); refused if it exists |
+| `--show` | print the environment (`NAME=VALUE`, sorted, secrets included) and the resolved program and argv as JSON; start nothing |
+| `--keep` | do not remove the workdir on exit |
+| `-- CMD ...` | run this instead of `bash --noprofile --norc -i` (found on the closure's `PATH`, then the host's) |
+
+A line on stderr names the target, closure and workdir. The exit status is the shell's;
+the workdir is removed unless `--keep`. The ssh backend runs it with `ssh -t` (a real
+pty; resizes and the exit status are ssh's), with the target's own ssh options. A flake
+that `run` would refuse as dirty is refused. A lease or target with several hosts is
+refused: a multi-host `run` also sets `NIX_DEPLOY_HOSTFILE`. On ssh, `HOME` is the remote
+user's and is not in `--show`'s `env` (listed under `env_from_target`). There is no Grid'5000
+path: there, use the helper's `g5k shell` and run `$NIX_DEPLOY_ENTER bash` by hand.
+
+```sh
+$ nixsci deploy --config targets.json --target box shell . my-experiment --env SEED=3
+nixsci deploy shell: target=box closure=/nix/store/...-my-experiment workdir=/tmp/me-runs/shell-1760-4242
+bash-5.2$ echo $NIX_DEPLOY_WORKDIR; "$NIX_DEPLOY_PROGRAM" --dry-run; exit
+```
+
+What it does not prove: `deploy/tests/test_shell.py` uses a fake `nix` and a fake `ssh`
+(which runs the remote command with `sh -c` here), so it shows the command lines and
+environment are right and the exit status travels, not that a real sshd allocates the pty
+or that real `nix shell` puts the closure on `PATH`. It reproduces the environment `launch` builds, not the process around it
+(process group, log redirection, the walltime).
+
 ## Machine configuration
 
 What a provider *name* means is configured per machine, in
