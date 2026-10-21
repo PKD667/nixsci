@@ -13,6 +13,15 @@ from .backend import Backend
 from .model import Closure
 
 
+def _argv(name: str, value) -> tuple[str, ...]:
+    """The ssh (or scp) executable, as configuration spells it: a word list, or one string that
+    is split like a shell would. A bare string must not become a tuple of its letters."""
+    words = tuple(shlex.split(value)) if isinstance(value, str) else tuple(value)
+    if not words or not all(isinstance(w, str) and w for w in words):
+        raise ValueError(f"{name} must be an executable, optionally followed by arguments")
+    return words
+
+
 class SSH(Backend):
     def __init__(
         self,
@@ -49,6 +58,7 @@ class SSH(Backend):
             profiles=profiles,
         )
         self.host, self.remote_bootstrap = host, remote_bootstrap
+        ssh_command, scp_command = _argv("ssh_command", ssh_command), _argv("scp_command", scp_command)
         if jump is not None and not re.fullmatch(r"[A-Za-z0-9_.@,:-]+", jump):
             raise ValueError("jump must be host or user@host entries joined by commas")
         # ssh_command / scp_command let a site use its own wrapper (a batch-system login wrapper, mosh-less proxies...).
