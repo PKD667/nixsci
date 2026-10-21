@@ -177,7 +177,7 @@ controller, hashes it itself, and the flake lock is what pins it. A plain file p
 works, but then it must come with its `bootstrap_sha256`.
 
 **The ssh layer is configuration, not code.** Per target (or per provider default):
-`ssh_command` and `scp_command` (default `ssh` and `scp -q`), `ssh_options` (extra
+`ssh_command` and `scp_command` (default `ssh` and `scp -q`; a word list, or one string split like a shell would, e.g. `"env OAR_JOB_ID=7 oarsh"`), `ssh_options` (extra
 `-o ...`), `jump` (ProxyJump chain), `rsh` (what jobs use to reach their peers,
 becomes `NIX_DEPLOY_RSH`) and `ready_timeout`. That is how a cluster (a gateway
 plus a login wrapper or plain ssh), a cloud VM or a laptop on the LAN are all
