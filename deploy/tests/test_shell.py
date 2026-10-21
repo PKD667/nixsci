@@ -135,6 +135,60 @@ class Show(unittest.TestCase):
         self.assertEqual(backend.removed, [])
 
 
+class Delegated(unittest.TestCase):
+    """A backend that defines `shell` is handed the call; one that does not gets the built-in path."""
+
+    def test_a_backend_shell_receives_exactly_the_arguments_and_its_status_is_returned(self):
+        calls = []
+
+        class Own(Recording):
+            def shell(self, closure, **kwargs):
+                calls.append((closure, kwargs))
+                return 42
+
+            def stage(self, closure): raise AssertionError("built-in path used")
+
+        backend, err = Own(), io.StringIO()
+        c = closure()
+        code = shell(
+            backend, c, target="gw", run_id="r1", program="infer", env={"A": "1"},
+            inputs={"data": b"abc"}, cmd=("ls", "-l"), show=True, keep=True,
+            out=io.StringIO(), err=err,
+        )
+        self.assertEqual(code, 42)
+        self.assertEqual(len(calls), 1)
+        self.assertIs(calls[0][0], c)
+        self.assertEqual(calls[0][1], dict(
+            run_id="r1", program="infer", env={"A": "1"}, inputs={"data": b"abc"},
+            cmd=("ls", "-l"), show=True, keep=True,
+        ))
+        self.assertEqual(
+            err.getvalue(),
+            f"nixsci deploy shell: target=gw closure={STORE} workdir=/run/x/r1\n",
+        )
+        self.assertEqual(backend.removed, [])  # the built-in cleanup did not run
+
+    def test_the_status_is_whatever_the_backend_returns(self):
+        for status in (0, 3, 130):
+            with self.subTest(status=status):
+                class Own(Recording):
+                    def shell(self, closure, **kwargs): return status
+
+                self.assertEqual(
+                    shell(Own(), closure(), run_id="r1", out=io.StringIO(), err=io.StringIO()),
+                    status,
+                )
+
+    def test_a_backend_without_shell_uses_the_built_in_path(self):
+        self.assertFalse(hasattr(Backend, "shell"))
+        backend = Recording()
+        self.assertFalse(hasattr(backend, "shell"))
+        code, shown = show(backend, run_id="r1")
+        self.assertEqual(code, 0)
+        self.assertEqual(shown["workdir"], "/run/x/r1")
+        self.assertEqual(backend.removed, ["/run/x/r1"])
+
+
 # ---- the CLI, through real processes -------------------------------------------------------
 
 DRIVER = f"""

@@ -1,6 +1,7 @@
 """`nixsci deploy shell`: an interactive shell in the environment a bare `run` gives its program.
 
 The environment comes from `Backend.job_env`, the method `launch` uses, so the two cannot drift.
+A backend that defines its own `shell(...)` (see `Backend`) is handed the call instead.
 The program is not executed. The one variable a job does not get is `NIX_DEPLOY_PROGRAM`, the
 path of the program, so that `"$NIX_DEPLOY_PROGRAM" "$@"` starts it by hand.
 """
@@ -72,8 +73,19 @@ def shell(
 ) -> int:
     out, err = out or sys.stdout, err or sys.stderr
     run_id = run_id or f"shell-{int(time.time())}-{os.getpid()}"
-    backend.stage(closure)
     workdir = backend._workdir(run_id)
+    own = getattr(backend, "shell", None)
+    if callable(own):  # a backend that reaches its hosts some other way provides the shell
+        print(
+            f"nixsci deploy shell: target={target} closure={closure.path} workdir={workdir}",
+            file=err,
+            flush=True,
+        )
+        return own(
+            closure, run_id=run_id, program=program, env=env, inputs=inputs, cmd=cmd,
+            show=show, keep=keep,
+        )
+    backend.stage(closure)
     if backend.exists({"workdir": workdir}, "."):
         raise FileExistsError(f"{workdir} exists already; pick another --run-id")
     try:

@@ -2,7 +2,7 @@
 
 A provider never runs experiments; it only acquires and releases machines. What
 a provider name means is decided per machine, so callers (nerve, nixsci.lab) only
-ever say `provider = "g5k"`:
+ever say `provider = "cluster"`:
 
     # ~/.config/nixsci/providers.json, built by Nix (`builtins.toJSON`)
     { "providers": { "lab": {

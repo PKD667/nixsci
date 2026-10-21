@@ -27,7 +27,7 @@ let lab = nixsci.lib.lab { inherit pkgs; project = self; }; in {
     seeds = [ 0 1 ];                                        # one job per seed
     sweep.epsilon = [ 0.1 0.3 ];                            # every combination is a job
     params.size = 32;                                       # fixed, visible to lab.params()
-    resources = { provider = "g5k"; hosts = 2; walltime = 120; opts.queue = "besteffort"; };
+    resources = { provider = "cluster"; hosts = 2; walltime = 120; opts.queue = "besteffort"; };
     data.loss.columns = { epoch = "int"; value = "float"; split = "str?"; };   # ? = may be null
   };
   apps.${system}.demo = self.lab.${system}.experiments.demo.run;
