@@ -12,6 +12,7 @@ nix run github:PKD667/nixsci -- --help
 | `nixsci lab` | `nixsci.lab` | [lab/README.md](lab/README.md), [lab/SPEC.md](lab/SPEC.md), [lab/DESIGN.md](lab/DESIGN.md) |
 | `nixsci out` | `nixsci.out` | [out/README.md](out/README.md) |
 | `nixsci <command>` | `nixsci.cli` | [cli/README.md](cli/README.md) |
+| GPU probe (`experiments.<system>.gpu-probe`) | `gpu/` | [gpu/README.md](gpu/README.md) |
 
 nixsci depends on Nix and Python only. Nothing in it knows any one organisation's machines; packages that do, such as [usinix](https://github.com/Unsuspicious-Industries/usinix), depend on it and add commands to it.
 
