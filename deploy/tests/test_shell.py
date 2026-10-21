@@ -148,6 +148,8 @@ class Delegated(unittest.TestCase):
 
             def stage(self, closure): raise AssertionError("built-in path used")
 
+            def _workdir(self, run_id): raise AssertionError("a delegating backend need not have one")
+
         backend, err = Own(), io.StringIO()
         c = closure()
         code = shell(
@@ -164,7 +166,7 @@ class Delegated(unittest.TestCase):
         ))
         self.assertEqual(
             err.getvalue(),
-            f"nixsci deploy shell: target=gw closure={STORE} workdir=/run/x/r1\n",
+            f"nixsci deploy shell: target=gw closure={STORE}\n",
         )
         self.assertEqual(backend.removed, [])  # the built-in cleanup did not run
 
