@@ -257,16 +257,20 @@ class Backend:
             raise KeyError(f"experiment does not declare program {name!r}")
         return commands[name]
 
-    def launch(
+    def job_env(
         self,
         closure: Closure,
-        *,
         run_id: str,
         argv: tuple[str, ...] = (),
         env: Mapping[str, str] | None = None,
         inputs: Mapping[str, Any] | None = None,
         program: str = "run",
-    ) -> dict[str, Any]:
+    ) -> tuple[str, tuple[str, ...], dict[str, str], list[dict[str, str]]]:
+        """What a job sees: `(program path, args, environment, input records)`.
+
+        Checks the closure, creates the workdir and stages the inputs into it. `launch` and
+        `nixsci deploy shell` both build the environment here, so they cannot drift.
+        """
         self._admit(closure)
         self._verify(closure)
         workdir = self._workdir(run_id)
@@ -294,10 +298,24 @@ class Backend:
         enter = self.enter(closure)
         if enter:
             values["NIX_DEPLOY_ENTER"] = " ".join(shlex.quote(part) for part in enter)
-        self._write_json(workdir, "inputs.json", input_json)
-        handle = self._spawn(
-            closure, workdir, run_id, self._program(closure, program), args, values
+        return self._program(closure, program), args, values, input_json
+
+    def launch(
+        self,
+        closure: Closure,
+        *,
+        run_id: str,
+        argv: tuple[str, ...] = (),
+        env: Mapping[str, str] | None = None,
+        inputs: Mapping[str, Any] | None = None,
+        program: str = "run",
+    ) -> dict[str, Any]:
+        executable, args, values, input_json = self.job_env(
+            closure, run_id, argv, env, inputs, program
         )
+        workdir = self._workdir(run_id)
+        self._write_json(workdir, "inputs.json", input_json)
+        handle = self._spawn(closure, workdir, run_id, executable, args, values)
         handle.update(
             {
                 "id": run_id,
