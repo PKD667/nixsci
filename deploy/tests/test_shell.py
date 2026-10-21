@@ -330,7 +330,9 @@ class Cli(unittest.TestCase):
             raise
         finally:
             os.close(master)
-        return status, out.decode(errors="replace").replace("\r", "")
+        text = out.decode(errors="replace").replace("\r", "")
+        # Whether bash has printed its prompt before the first typed line's output depends on timing.
+        return status, re.sub(r"(?m)^bash-[0-9.]+[#$] ", "", text)
 
     def runs_left(self):
         return sorted(os.listdir(self.runs))
