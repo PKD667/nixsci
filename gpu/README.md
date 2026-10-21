@@ -1,6 +1,6 @@
 # gpu
 
-A standard probe that records **which GPU a run got** and **what it measured** on a fixed workload, so runtimes from different GPUs can later be normalised ("standardized GPU time"). NVIDIA only. AMD (ROCm, MI210 at Luxembourg) is **not done**.
+A standard probe that records **which GPU a run got** and **what it measured** on a fixed workload, so runtimes from different GPUs can later be normalised ("standardized GPU time"). NVIDIA only. AMD (ROCm, MI210) is **not done**.
 
 Also here: `driver.sh`, which lets a Nix-built CUDA program find the *host's* driver library on non-NixOS machines.
 
@@ -101,7 +101,7 @@ LD_LIBRARY_PATH=$ld program        # for that one command
 - stderr: `libX <- dir` for each link. stdout: only the new `LD_LIBRARY_PATH` value (`WORKDIR/driver/lib` prepended to the old one).
 - No driver found: stderr `no NVIDIA driver library found on this host`, exit 0, stdout is the old `LD_LIBRARY_PATH` unchanged, nothing created. The probe then reports `cudaGetDeviceCount: ... InsufficientDriver` in `errors`.
 
-Demonstrated here: a fake Debian directory holding the driver symlinks plus a poisoned `libm.so.6`: `LD_LIBRARY_PATH=<that dir>` makes the probe die (`libm.so.6: file too short`); through `driver.sh` it ran and measured. **Not verified on a real Debian or Grid'5000 node:** this machine is NixOS, where the libraries are Nix-built, so the actual host-libc-vs-Nix-libc interplay (the Nix glibc is newer than Debian's; libcuda's `libc.so.6` NEEDED resolves to the already-loaded Nix one) is argued, not observed. On this NixOS machine the probe also finds the driver without `driver.sh` (observed: it loads libcuda with `LD_LIBRARY_PATH` empty, and fails with `InsufficientDriver` when `/run/opengl-driver` is masked by a tmpfs in a mount namespace). Its RUNPATH has no `opengl-driver` entry, so it is the Nix glibc here that searches that directory; I did not look up where that comes from.
+Demonstrated here: a fake Debian directory holding the driver symlinks plus a poisoned `libm.so.6`: `LD_LIBRARY_PATH=<that dir>` makes the probe die (`libm.so.6: file too short`); through `driver.sh` it ran and measured. **Not verified on a real Debian cluster node:** this machine is NixOS, where the libraries are Nix-built, so the actual host-libc-vs-Nix-libc interplay (the Nix glibc is newer than Debian's; libcuda's `libc.so.6` NEEDED resolves to the already-loaded Nix one) is argued, not observed. On this NixOS machine the probe also finds the driver without `driver.sh` (observed: it loads libcuda with `LD_LIBRARY_PATH` empty, and fails with `InsufficientDriver` when `/run/opengl-driver` is masked by a tmpfs in a mount namespace). Its RUNPATH has no `opengl-driver` entry, so it is the Nix glibc here that searches that directory; I did not look up where that comes from.
 
 ## Tests
 

@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 from .model import Closure
 
-#: Host tools (ssh, oarsh, ip) a job may call; closures bring everything else themselves.
+#: Host tools (ssh, a site login wrapper, ip) a job may call; closures bring everything else themselves.
 HOST_PATH = "/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin"
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 _RUN = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
@@ -151,6 +151,14 @@ def resolve_bootstrap(ref: str, nix: str = "nix") -> str:
 
 
 class Backend:
+    """What a target can do. One optional method is deliberately not defined here:
+
+    `shell(self, closure, *, run_id, program, env, inputs, cmd, show, keep) -> int`. A backend
+    whose hosts are reached some other way (allocations, gateways, no direct login) may define
+    it; `nixsci deploy shell` then calls it instead of the built-in path, and its return value
+    is the exit status.
+    """
+
     backend_name = "backend"
 
     def __init__(

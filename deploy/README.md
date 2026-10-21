@@ -8,7 +8,7 @@ to a target, runs it there, and gives you a handle to watch it, read its files,
 tunnel to its ports and stop it. Where the machines come from (your laptop, ssh
 hosts you already have, a site-specific broker) is a separate, pluggable question:
 a *provider*. nixsci.deploy contains **no scheduler code**: reserving machines
-(OAR, Slurm, a cloud API...) is somebody else's job, done by hand, by a project's
+(a batch scheduler, a cloud API...) is somebody else's job, done by hand, by a project's
 own script, or by a provider plugin. nixsci.deploy starts at "here are hosts I can ssh to".
 
 It is meant to be the only way experiments are deployed. If a project has its
@@ -109,8 +109,11 @@ the workdir is removed unless `--keep`. The ssh backend runs it with `ssh -t` (a
 pty; resizes and the exit status are ssh's), with the target's own ssh options. A flake
 that `run` would refuse as dirty is refused. A lease or target with several hosts is
 refused: a multi-host `run` also sets `NIX_DEPLOY_HOSTFILE`. On ssh, `HOME` is the remote
-user's and is not in `--show`'s `env` (listed under `env_from_target`). There is no Grid'5000
-path: there, use the helper's `g5k shell` and run `$NIX_DEPLOY_ENTER bash` by hand.
+user's and is not in `--show`'s `env` (listed under `env_from_target`). A backend whose hosts are
+reached some other way (allocations, gateways, no direct login) may define
+`shell(self, closure, *, run_id, program, env, inputs, cmd, show, keep) -> int`, returning the
+exit status; `nixsci deploy shell` calls it instead of the built-in path (after the same
+one-line header). The base `Backend` does not define it.
 
 ```sh
 $ nixsci deploy --config targets.json --target box shell . my-experiment --env SEED=3
@@ -139,7 +142,7 @@ pkgs.writeText "providers.json" (builtins.toJSON { providers.lab = {
   # bootstrap defaults to "nixpkgs#nixStatic" (see below): no binary path, no hash to maintain
   ssh_options = [ "-o" "StrictHostKeyChecking=accept-new" ];
   ready_timeout = 180;             # hosts that just booted may refuse ssh for a while
-  # ssh_command = [ "oarsh" ];     # a site's own ssh wrapper; scp_command, rsh likewise
+  # ssh_command = [ "sitessh" ];  # a site's own ssh wrapper; scp_command, rsh likewise
 }; })
 ```
 
@@ -159,8 +162,8 @@ works, but then it must come with its `bootstrap_sha256`.
 **The ssh layer is configuration, not code.** Per target (or per provider default):
 `ssh_command` and `scp_command` (default `ssh` and `scp -q`), `ssh_options` (extra
 `-o ...`), `jump` (ProxyJump chain), `rsh` (what jobs use to reach their peers,
-becomes `NIX_DEPLOY_RSH`) and `ready_timeout`. That is how Grid'5000 (a gateway
-plus `oarsh` or plain ssh), a cloud VM or a laptop on the LAN are all
+becomes `NIX_DEPLOY_RSH`) and `ready_timeout`. That is how a cluster (a gateway
+plus a login wrapper or plain ssh), a cloud VM or a laptop on the LAN are all
 different values.
 
 **Walltime.** `walltime` (minutes) is a generic resource. When given, the lease
@@ -275,11 +278,11 @@ Verified end to end:
 
 - `local` provider and `native` backend, on a laptop and on a server.
 - The refactored design (no scheduler code, flake-reference bootstrap `nixpkgs#nixStatic`, `static`
-  provider with a gateway `jump`) end to end on 2 hand-reserved Grid'5000 nodes at Lille: group
+  provider with a gateway `jump`) end to end on 2 hand-reserved nodes of a remote cluster: group
   launch, node-to-node ssh through `NIX_DEPLOY_RSH`, command in the peer's store view through
   `NIX_DEPLOY_ENTER`, job released afterwards.
-- The `ssh` backend on real Grid'5000 nodes (1 and 2 Lille nodes, reserved by hand, reached
-  through the site gateway): ship a static Nix, ship and verify the closure by NAR hash
+- The `ssh` backend on a remote cluster (1 and 2 nodes, reserved by hand, reached
+  through a gateway): ship a static Nix, ship and verify the closure by NAR hash
   under a rootless store, run it inside that store view, read its log, fetch results.
 - Multi-host: `group.launch` stages the closure on both nodes and starts the program on
   the first; from there the program reached the second node with `$NIX_DEPLOY_RSH` and ran
@@ -297,7 +300,7 @@ user namespace where root-owned `/etc` files look owned by `nobody`, so ssh refu
 system config, which is why the default `NIX_DEPLOY_RSH` is `ssh -F /dev/null ...`.
 
 Limits to know: the ssh backend needs unprivileged user namespaces on the target
-(`nix --store` with a local root; present on Grid'5000 nodes); a bare static Nix has no
+(`nix --store` with a local root; present on the cluster nodes tried); a bare static Nix has no
 config, so every invocation passes `--extra-experimental-features nix-command` itself;
 `x86_64-linux` and `aarch64-linux` only; GPU toolchains are the experiment's business,
 not nixsci.deploy's.

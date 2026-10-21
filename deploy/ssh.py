@@ -51,7 +51,7 @@ class SSH(Backend):
         self.host, self.remote_bootstrap = host, remote_bootstrap
         if jump is not None and not re.fullmatch(r"[A-Za-z0-9_.@,:-]+", jump):
             raise ValueError("jump must be host or user@host entries joined by commas")
-        # ssh_command / scp_command let a site use its own wrapper (oarsh, mosh-less proxies...).
+        # ssh_command / scp_command let a site use its own wrapper (a batch-system login wrapper, mosh-less proxies...).
         self.ssh_options = (*(() if jump is None else ("-o", f"ProxyJump={jump}")), *ssh_options)
         self._ssh = (
             *ssh_command,
