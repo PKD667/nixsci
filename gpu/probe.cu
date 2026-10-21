@@ -262,16 +262,29 @@ static std::string uuid_string(const cudaUUID_t& u) {
   return b;
 }
 
+// The version is the first token after "Kernel Module" that starts with a digit: the line reads
+// "... UNIX x86_64 Kernel Module  580.173.02  Tue ..." or "... UNIX Open Kernel Module for x86_64  580.178.04  Release ...".
+static std::string kernel_module_version_of(const std::string& line) {
+  size_t k = line.find("Kernel Module");
+  if (k == std::string::npos) return "";
+  size_t i = k + 13;
+  while (i < line.size()) {
+    i = line.find_first_not_of(' ', i);
+    if (i == std::string::npos) return "";
+    size_t e = line.find(' ', i);
+    std::string tok = line.substr(i, e == std::string::npos ? e : e - i);
+    if (isdigit((unsigned char)tok[0])) return tok;
+    if (e == std::string::npos) return "";
+    i = e;
+  }
+  return "";
+}
+
 static std::string kernel_module_version() {  // from /proc/driver/nvidia/version, if readable
   std::ifstream f("/proc/driver/nvidia/version");
   std::string line;
   if (!f || !std::getline(f, line)) return "";
-  size_t k = line.find("Kernel Module");
-  if (k == std::string::npos) return "";
-  size_t a = line.find_first_not_of(' ', k + 13);
-  if (a == std::string::npos) return "";
-  size_t b = line.find(' ', a);
-  return line.substr(a, b == std::string::npos ? b : b - a);
+  return kernel_module_version_of(line);
 }
 
 static const char* CLOCKS_NOTE =
