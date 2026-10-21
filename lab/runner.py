@@ -17,7 +17,7 @@ import hashlib
 from nixsci.lab.run import seal
 
 from . import store
-from .publish import publish
+from .publish import publish, retain
 from .spec import Spec
 
 
@@ -60,6 +60,11 @@ def run(
             name = names[job.index % len(names)]
             return name, closures[configs[name]["system"]].path
 
+        if project is not None:
+            jobs = [(j.seed, j.params) for j in spec.jobs()]
+            dropped = retain(project, spec.name, {c.path for c in closures.values()}, jobs)
+            if dropped:
+                log(f"lab.lock: dropped {len(dropped)} run(s) of older code or another spec: {', '.join(dropped)}")
         todo, satisfied = store.plan(spec, out_root, assign, again=again)
         if satisfied:
             log(f"{satisfied} input(s) already have {spec.replicates} finished run(s): skipped")
@@ -122,12 +127,17 @@ def _run_job(
     if deadline:
         env["NIX_DEPLOY_DEADLINE"] = str(int(deadline))
         timeout = min(timeout, max(0.0, deadline - time.time()))
+    if be.clear(run_id):
+        log(f"[{run_id}] removed the workdir an interrupted attempt left on {name}")
     handle = be.launch(closure, run_id=run_id, env=env)
     log(f"[{run_id}] launched on {name}")
     give_up = time.monotonic() + timeout
     while be.alive(handle):
         if time.monotonic() > give_up:
-            be.stop(handle)
+            try:
+                be.stop(handle)
+            except RuntimeError:  # it ended on its own meanwhile
+                pass
             break
         time.sleep(poll)
     dest = out_root / spec.name / run_id

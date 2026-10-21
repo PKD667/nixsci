@@ -400,16 +400,16 @@ class Cli(unittest.TestCase):
         self.assertEqual(self.runs_left(), [])
 
     def test_keep_leaves_the_workdir_and_without_it_the_workdir_goes(self):
-        done = self.plain("box", "shell", "x", "exp", "--run-id", "k", "--keep", "--", "true")
+        done = self.plain("box", "shell", "x", "exp", "--run-id", "k", "--keep", "--", "sh", "-c", "exit 0")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.runs_left(), ["k"])
         self.assertIn("kept workdir", done.stderr)
-        again = self.plain("box", "shell", "x", "exp", "--run-id", "k", "--", "true")
+        again = self.plain("box", "shell", "x", "exp", "--run-id", "k", "--", "sh", "-c", "exit 0")
         self.assertNotEqual(again.returncode, 0)  # exists: refused, and not removed
         self.assertIn("exists already", again.stderr)
         self.assertEqual(self.runs_left(), ["k"])
         shutil.rmtree(os.path.join(self.runs, "k"))
-        done = self.plain("box", "shell", "x", "exp", "--run-id", "k", "--", "false")
+        done = self.plain("box", "shell", "x", "exp", "--run-id", "k", "--", "sh", "-c", "exit 1")
         self.assertEqual((done.returncode, self.runs_left()), (1, []))
 
     def test_a_dirty_flake_is_refused_and_nothing_is_created(self):
@@ -423,7 +423,7 @@ class Cli(unittest.TestCase):
         subprocess.run([*git, "commit", "-qm", "x"], check=True)
         with open(os.path.join(repo, "flake.nix"), "a") as f:
             f.write("# dirty\n")
-        argv = ["--config", self.config, "--target", "box", "shell", repo, "exp", "--", "true"]
+        argv = ["--config", self.config, "--target", "box", "shell", repo, "exp", "--", "sh", "-c", "exit 0"]
         with self.assertRaisesRegex(RuntimeError, "dirty or has untracked files"):
             cli.main(argv)
         self.assertEqual(self.runs_left(), [])
@@ -464,7 +464,7 @@ class Cli(unittest.TestCase):
 
     def test_over_ssh_inputs_are_staged_and_hash_checked_as_run_does(self):
         done = self.plain("far", "shell", "x", "exp", "--run-id", "r1", "--input", "blob=" + self.nix,
-                          "--", "sh", "-c", "cat $NIX_DEPLOY_INPUT_blob | head -1; exit 4")
+                          "--", "sh", "-c", "read first < $NIX_DEPLOY_INPUT_blob; echo $first; exit 4")
         self.assertEqual(done.returncode, 4, done.stderr)
         self.assertEqual(done.stdout.strip(), "#!/bin/sh")  # the interactive call has no stdout
         calls = [json.loads(line)["argv"][-1] for line in open(self.sshlog)]

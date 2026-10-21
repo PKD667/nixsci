@@ -19,12 +19,36 @@
           pyproject = true;
           build-system = [ py.setuptools ];
           dependencies = [ py.pyarrow ];
-          pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" "nixsci.out" ];
+          pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" "nixsci.doc" "nixsci.stats" ];
           # A store path is immutable: bytecode written into one changes its hash and Nix then refuses it.
           makeWrapperArgs = [ "--set" "PYTHONDONTWRITEBYTECODE" "1" ];
           meta.mainProgram = "nixsci";
         };
       };
+      # Self-test fixture: one project with a compiled figure and a value, read by a document.
+      # `example-paper` takes its data from a derivation and is clean; `example-draft` takes the
+      # same data as a static file, so it is a draft and its `publish` is refused.
+      exampleDocument = pkgs: { static }:
+        let
+          doc = self.lib.doc { inherit pkgs; };
+          curve = pkgs.runCommand "demo-curve" { } "mkdir $out; cp ${./doc/examples/demo/curve.tsv} $out/curve.tsv";
+          values = pkgs.writeText "curve.json" (builtins.toJSON { final = 0.3; epochs = 3; });
+          demo = doc.project {
+            name = "demo";
+            style = ./doc/examples/demo/demo.sty;
+            packages = ps: [ ps.pgfplots ];
+            data.curve = if static then doc.static ./doc/examples/demo/curve.tsv else doc.output curve "curve.tsv";
+            figures.curve = { src = ./doc/examples/demo/curve.tex; data = [ "curve" ]; };
+            values.curve = values;
+          };
+        in
+        doc.document {
+          name = if static then "example-draft" else "example";
+          src = ./doc/examples/demo/tex;
+          projects = [ demo ];
+          figures.demo.curve-small = { from = "curve"; width = "6cm"; };
+          source = self;
+        };
     in {
       # `pkgs.python3.withPackages (p: [ p.nixsci ])` in any consumer that applies this.
       overlays.default = final: prev: {
@@ -39,8 +63,11 @@
       # The GPU probe: `lib.gpuProbe pkgs` is { probe, driver, experiment } (see gpu/README.md).
       # `pkgs` must allow unfree packages (CUDA); the flake's own output below does that itself.
       lib.gpuProbe = pkgs: import ./gpu { inherit pkgs; mkExperiment = self.lib.mkExperiment pkgs; };
+      # Deployment closures implement the deployment.json v2 policy contract.
+      lib.mkDeployment = pkgs: import ./deploy/nix/mk-deployment.nix { inherit pkgs; };
       # Experiments and analyses as Nix values. `project` is the calling flake's `self`.
       #   lab = nixsci.lib.lab { inherit pkgs; project = self; };
+      lib.fetchRun = pkgs: import ./lab/nix/fetch-run.nix { inherit pkgs; };
       lib.lab = { pkgs, project }:
         import ./lab/nix/lab.nix {
           inherit pkgs project;
@@ -49,30 +76,34 @@
           rEnv = self.packages.${pkgs.stdenv.hostPlatform.system}.r-env;
         };
 
-      # Documents: `out = nixsci.lib.out { inherit pkgs; }; out.document { ... }` (see out/nix/out.nix).
-      lib.out = { pkgs }: import ./out/nix/out.nix { inherit pkgs; crateTool = self.packages.${pkgs.stdenv.hostPlatform.system}.crate-python; };
+      # Documents: `doc = nixsci.lib.doc { inherit pkgs; }; doc.document { ... }` (see doc/nix/doc.nix).
+      lib.doc = { pkgs }: import ./doc/nix/doc.nix { inherit pkgs; crateTool = self.packages.${pkgs.stdenv.hostPlatform.system}.crate-python; cliTool = self.packages.${pkgs.stdenv.hostPlatform.system}.nixsci; };
+      # Compatibility for flakes pinned before the module was named doc.
+      lib.out = self.lib.doc;
 
       # `nix flake init -t github:PKD667/nixsci#paper` (or #slides, #poster).
       templates = {
-        paper = { path = ./out/templates/paper; description = "A paper: LaTeX source, PDF and RO-Crate from one flake"; };
-        slides = { path = ./out/templates/slides; description = "Beamer slides"; };
-        poster = { path = ./out/templates/poster; description = "A tikzposter poster"; };
+        paper = { path = ./doc/templates/paper; description = "A paper: LaTeX source, PDF and RO-Crate from one flake"; };
+        slides = { path = ./doc/templates/slides; description = "Beamer slides"; };
+        poster = { path = ./doc/templates/poster; description = "A tikzposter poster"; };
       };
 
       packages = forAll (pkgs:
-        let pp = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).pkgs; in rec {
+        let
+          example = exampleDocument pkgs;
+          pp = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).pkgs; in rec {
           default = nixsci;
           nixsci = pp.nixsci;
+          example-paper-publish = (example { static = false; }).publish;
           # The interpreter that has nixsci, for derivations that run its modules.
           python = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).withPackages (p: [ p.nixsci ]);
-          # An analysis is a derivation: `nix build .#demo-curves`.
-          demo-curves = self.lab.${pkgs.stdenv.hostPlatform.system}.analyses.demo-curves;
           # `from nixsci import lab` with no dependencies: safe to put in any experiment closure.
           lab-py = pkgs.runCommand "nixsci-lab-py" { } ''
             site=$out/${pkgs.python3.sitePackages}/nixsci
             mkdir -p $site
             mkdir $site/lab
-            cp ${./lab}/*.py $site/lab/
+            ${pkgs.lib.concatMapStringsSep "\n" (f: "cp ${f} $site/lab/${baseNameOf f}")
+              [ ./lab/__init__.py ./lab/schema.py ./lab/run.py ./lab/home.py ]}
           '';
           # The Python that writes a document's RO-Crate (rocrate is not in nixpkgs).
           crate-python =
@@ -90,15 +121,8 @@
                 dependencies = with py; [ requests arcp jinja2 python-dateutil click ];
               };
             in pkgs.python3.withPackages (_: [ rocrate ]);
-          # Self-test fixture: the paper template with one included file, to exercise the document build.
-          example-paper =
-            let out = self.lib.out { inherit pkgs; };
-            in (out.document {
-              name = "example";
-              template = out.templates.paper;
-              src = ./out/templates/paper/tex;
-              include."gen/answer.tex" = pkgs.writeText "answer.tex" "42\n";
-            }).pdf;
+          example-paper = (example { static = false; }).pdf;
+          example-draft = (example { static = true; }).pdf;
           # R package for analysis scripts: use("alias"), runs(), params(), out().
           nixsci-r = pkgs.rPackages.buildRPackage {
             pname = "nixsci";
@@ -115,37 +139,16 @@
           gpu-probe = (self.lib.gpuProbe (cudaPkgs "x86_64-linux")).probe;
         });
 
-      experiments = forAll (pkgs: nixpkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
+      deployments = forAll (pkgs: nixpkgs.lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
         # Which GPU did this run get, and what does it measure (gpu/README.md). NVIDIA, x86_64 only.
         gpu-probe = (self.lib.gpuProbe (cudaPkgs "x86_64-linux")).experiment;
       } // {
-        # Self-test fixture: a closure that reports where it ran, to exercise any target end to end.
-        hello =
-          let
-            run = pkgs.writeShellApplication {
-              name = "hello";
-              runtimeInputs = [ pkgs.coreutils pkgs.hostname ];
-              text = ''
-                echo "hello from $(hostname) arch=$(uname -m) workdir=$NIX_DEPLOY_WORKDIR"
-                echo "home: ''${HOME:-unset}"
-                echo "enter: ''${NIX_DEPLOY_ENTER:-unset}"
-                echo "hosts: ''${NIX_DEPLOY_HOSTFILE:+$(tr '\n' ' ' < "$NIX_DEPLOY_HOSTFILE")}"
-                if [ -n "''${NIX_DEPLOY_HOSTFILE:-}" ]; then
-                  first=1
-                  while read -r host; do
-                    if [ "$first" = 1 ]; then first=0; continue; fi
-                    # shellcheck disable=SC2086
-                    echo "peer $host: $(''${NIX_DEPLOY_RSH:-ssh} "$host" "$NIX_DEPLOY_ENTER" hostname 2>&1 | tail -n 1)"
-                  done < "$NIX_DEPLOY_HOSTFILE"
-                fi
-              '';
-            };
-          in pkgs.runCommand "hello-experiment" { } ''
-            mkdir $out
-            echo '{"program": "${run}/bin/hello"}' > $out/experiment.json
-          '';
-        # Typed loss rows, one curve per run (see `lab.<system>.experiments.demo` below).
-        demo = (import ./lab/nix/mk-experiment.nix { inherit pkgs; }) {
+        hello = (self.lib.mkDeployment pkgs) {
+          name = "hello";
+          program = "${pkgs.writeShellScript "hello" ''echo \"hello from $(hostname) workdir=$NIX_DEPLOY_WORKDIR\"''}";
+          runtime = [ pkgs.coreutils pkgs.hostname ];
+        };
+        demo = (self.lib.mkExperiment pkgs) {
           name = "demo";
           program = "${pkgs.python3}/bin/python";
           args = [ "${./lab/examples/demo.py}" ];
@@ -161,7 +164,7 @@
         in rec {
           experiments.demo = l.experiment {
             name = "demo";
-            closures.${system} = self.experiments.${system}.demo;
+            closures.${system} = self.deployments.${system}.demo;
             seeds = [ 0 1 ];
             sweep.epsilon = [ 0.1 0.3 ];
             resources = { provider = "local"; hosts = 2; };
@@ -174,20 +177,68 @@
           };
         });
 
-      apps = forAll (pkgs: {
-        default = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nixsci"; };
-        demo = self.lab.${pkgs.system}.experiments.demo.run;
-      });
-      devShells = forAll (pkgs: {
-        default = pkgs.mkShell {
-          packages = [ pkgs.python3 pkgs.python3Packages.pytest pkgs.python3Packages.hypothesis pkgs.python3Packages.pyarrow pkgs.git ];
-          shellHook = ''export PYTHONPATH="$(dirname "$PWD"):$PYTHONPATH"'';
-        };
-      });
-      # The suite and the document fixture are the two things a claim in a README rests on, so a
-      # build runs both. The real-Nix and Rust tests need an executable the sandbox does not have
-      # and skip themselves.
-      checks = forAll (pkgs: {
+      # An analysis is a derivation: `nix build .#demo-curves`. Not under `packages`: it needs runs
+      # in lab.lock, which this repository does not ship, and `nix flake check` evaluates packages.
+      legacyPackages = forAll (pkgs: { demo-curves = self.lab.${pkgs.stdenv.hostPlatform.system}.analyses.demo-curves; });
+
+      # `nix flake check`: the fixtures build, and a draft cannot be published.
+      checks = forAll (pkgs:
+        let
+          rustEmitter = pkgs.rustPlatform.buildRustPackage {
+            pname = "nixsci-rust-emitter";
+            version = "0.1.0";
+            src = ./lab/rust/lab;
+            cargoLock.lockFile = ./lab/rust/lab/Cargo.lock;
+            cargoBuildFlags = [ "--example" "emit" ];
+            doCheck = false;
+            installPhase = ''
+              mkdir -p $out/bin
+              cp target/${pkgs.stdenv.hostPlatform.rust.rustcTarget}/release/examples/emit $out/bin/emit
+            '';
+          };
+          testPython = pkgs.python3.withPackages (p: [ p.pytest p.hypothesis p.pyarrow ]);
+        in {
+        rust-recorder = pkgs.runCommand "nixsci-rust-recorder-check" {
+          nativeBuildInputs = [ testPython ];
+        } ''
+          cp -R ${./.} nixsci
+          chmod -R u+w nixsci
+          export PYTHONPATH=$PWD HOME=$TMPDIR/home
+          export NIX_LAB_RUST_EMIT=${rustEmitter}/bin/emit
+          mkdir -p "$HOME"
+          cd nixsci
+          pytest -q lab/tests/test_rust.py
+          touch $out
+        '';
+
+        recorder = pkgs.runCommand "nixsci-recorder-check" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          export PYTHONPATH="${self.packages.${pkgs.stdenv.hostPlatform.system}.lab-py}/${pkgs.python3.sitePackages}"
+          export NIX_LAB_DIR=$TMPDIR/records
+          python - <<'PYTHON'
+          from nixsci import lab
+          import os
+          lab.record("sample", {"ok": True})
+          assert lab.load(os.environ["NIX_LAB_DIR"])[0]["data"] == {"ok": True}
+          PYTHON
+          touch $out
+        '';
+
+        unit = pkgs.runCommand "nixsci-unit-tests" {
+          nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.pytest p.hypothesis p.pyarrow ]))
+            pkgs.coreutils pkgs.bash pkgs.procps pkgs.git ];
+        } ''
+          cp -R ${./.} nixsci
+          chmod -R u+w nixsci
+          export PYTHONPATH=$PWD HOME=$TMPDIR/home
+          mkdir -p "$HOME"
+          cd nixsci
+          # Wrapper builds and isolated-store smoke tests run outside the sandbox separately.
+          pytest -q deploy/tests lab/tests stats/tests doc/tests --ignore=deploy/tests/test_wrapper.py --ignore=deploy/tests/test_source.py
+          touch $out
+        '';
+
+        # The suite and the document fixture are the two things a claim in a README rests on, so a
+        # build runs both. (Added by the deploy branch: it also covers cli/tests.)
         tests =
           let python = pkgs.python3.withPackages (p: [ p.pytest p.hypothesis p.pyarrow ]);
           in pkgs.runCommand "nixsci-tests"
@@ -209,6 +260,21 @@
               printf 'skipped deploy/tests/test_source.py: needs a writable Nix store\n' >> $out
             '';
         example-paper = self.packages.${pkgs.stdenv.hostPlatform.system}.example-paper;
+        example-draft = self.packages.${pkgs.stdenv.hostPlatform.system}.example-draft;
+        publish-refuses-draft =
+          let draft = exampleDocument pkgs { static = true; };
+          in assert draft.refusals != [ ] && draft.publish.name == "example-draft-publish-refused"; pkgs.runCommand "publish-refuses-draft" { } "touch $out";
+      });
+
+      apps = forAll (pkgs: {
+        default = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nixsci"; };
+        demo = self.lab.${pkgs.system}.experiments.demo.run;
+      });
+      devShells = forAll (pkgs: {
+        default = pkgs.mkShell {
+          packages = [ pkgs.python3 pkgs.python3Packages.pytest pkgs.python3Packages.hypothesis pkgs.python3Packages.pyarrow pkgs.git ];
+          shellHook = ''export PYTHONPATH="$(dirname "$PWD"):$PYTHONPATH"'';
+        };
       });
     };
 }

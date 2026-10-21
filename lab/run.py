@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,17 @@ _ENV = (
     "NIX_LAB_KEYS",
 )
 STATES = ("ok", "failed", "incomplete")
+
+
+def read_manifest(path: str | os.PathLike[str]) -> dict[str, Any]:
+    """Unversioned records are v1. Unknown major versions fail instead of being guessed."""
+    data = json.loads(Path(path).read_text())
+    version = data.get("format")
+    if version is not None:
+        match = re.fullmatch(r"([0-9]+)\.([0-9]+)", version) if isinstance(version, str) else None
+        if match is None or int(match.group(1)) not in (1, 2):
+            raise ValueError(f"unsupported run format {version!r}")
+    return data
 
 
 def sha256_file(path: str | os.PathLike[str]) -> str:
@@ -69,6 +81,7 @@ def seal(
     `local=True` falls back to this machine, which is right only when the run happened here.
     """
     directory = Path(directory)
+    manifest["format"] = "2.0"
     manifest["records_sha256"] = None
     machine_file = None
     for base in (directory, directory / "lab"):

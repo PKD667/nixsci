@@ -14,7 +14,32 @@ _RUN = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
 def normalize_manifest(value: Mapping[str, Any], paths: Mapping[str, str]) -> dict[str, Any]:
     if not isinstance(value, Mapping):
-        raise TypeError("experiment.json must be an object")
+        raise TypeError("deployment.json must be an object")
+    value = dict(value)
+    version = value.get("format")
+    if version is not None:
+        match = re.fullmatch(r"([0-9]+)\.([0-9]+)", version) if isinstance(version, str) else None
+        if match is None or int(match.group(1)) != 2:
+            raise ValueError(f"unsupported deployment format {version!r}")
+        for field in ("args", "env"):
+            old = "argv" if field == "args" else field
+            if old in value:
+                value[field] = value[old]
+        value["argv"] = value.get("args", [])
+        walltime = value.get("walltime")
+        if walltime is not None and (isinstance(walltime, bool) or not isinstance(walltime, (int, float)) or not __import__("math").isfinite(walltime) or walltime <= 0):
+            raise ValueError("walltime must be a finite positive number of minutes or null")
+        restart = value.get("restart", {})
+        if not isinstance(restart, Mapping):
+            raise ValueError("restart must be an object")
+        policy, maximum, delay = restart.get("policy", "no"), restart.get("max"), restart.get("delay", 5)
+        if policy not in ("no", "on-failure", "always"):
+            raise ValueError("restart.policy must be no, on-failure, or always")
+        if maximum is not None and (isinstance(maximum, bool) or not isinstance(maximum, int) or maximum < 0):
+            raise ValueError("restart.max must be a nonnegative integer or null")
+        if isinstance(delay, bool) or not isinstance(delay, (int, float)) or not __import__("math").isfinite(delay) or delay < 0:
+            raise ValueError("restart.delay must be finite and nonnegative seconds")
+        value["restart"] = {"policy": policy, "max": maximum, "delay": delay}
 
     def program(item: object, field: str) -> str:
         if (
@@ -30,7 +55,7 @@ def normalize_manifest(value: Mapping[str, Any], paths: Mapping[str, str]) -> di
     result["program"] = program(value.get("program"), "program")
     commands = value.get("commands", {})
     if not isinstance(commands, Mapping):
-        raise ValueError("experiment.json commands must be an object")
+        raise ValueError("deployment commands must be an object")
     if any(not isinstance(name, str) or not name for name in commands):
         raise ValueError("manifest command names must be strings")
     result["commands"] = {
@@ -262,7 +287,7 @@ class Backend:
             return closure.program
         commands = closure.metadata.get("commands", {})
         if not isinstance(commands, Mapping) or name not in commands:
-            raise KeyError(f"experiment does not declare program {name!r}")
+            raise KeyError(f"deployment does not declare program {name!r}")
         return commands[name]
 
     def job_env(
@@ -335,6 +360,21 @@ class Backend:
         )
         self._write_json(workdir, "handle.json", handle)
         return handle
+
+    def clear(self, run_id: str) -> bool:
+        """Remove the workdir a dead job left under `run_id`; True if there was one.
+
+        A run id names a measurement, so a retry after a crash reuses it and `launch` would find
+        the old workdir. A job still running there is not ours to delete: that raises.
+        """
+        left = {"workdir": self._workdir(run_id)}
+        if not self._exists(left, ""):
+            return False
+        recorded = self.read_file(left, "handle.json")
+        if recorded is not None and self.alive(json.loads(recorded)):
+            raise RuntimeError(f"run {run_id} is still running in {left['workdir']}")
+        self.remove(left)
+        return True
 
     def put(self, handle, name: str, source) -> str:
         """Copy bytes or a path into a running job's workdir (hash-verified); returns its target path."""

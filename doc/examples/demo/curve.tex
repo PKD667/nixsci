@@ -1,0 +1,6 @@
+% Loss per epoch, from the data the figure declares (\datadir/curve.tsv).
+\begin{tikzpicture}
+\begin{axis}[demoaxis,xlabel={epoch},ylabel={loss}]
+  \addplot[demoAccent,mark=*] table[x=epoch,y=value]{\datadir/curve.tsv};
+\end{axis}
+\end{tikzpicture}
