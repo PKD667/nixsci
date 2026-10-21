@@ -10,7 +10,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from nixsci.deploy import providers
-from nixsci.deploy.backend import Backend
+from nixsci.deploy.backend import Backend, normalize_manifest
 from nixsci.deploy.model import Closure
 from nixsci.deploy.ssh import SSH
 
@@ -72,6 +72,22 @@ class Capture(Backend):
     def _spawn(self, closure, workdir, run_id, executable, argv, env):
         self.env = env
         return {}
+
+
+class Manifest(unittest.TestCase):
+    def test_v2_walltime_and_restart_validation(self):
+        paths = {STORE: "sha256-" + base64.b64encode(bytes(32)).decode()}
+        base = {"format": "2.0", "program": STORE + "/bin/run"}
+        valid = normalize_manifest({**base, "walltime": 0.25,
+                                   "restart": {"policy": "always", "max": 2, "delay": 0.5}}, paths)
+        self.assertEqual(valid["argv"], [])
+        self.assertEqual(normalize_manifest(base, paths)["restart"]["delay"], 5)
+        for fields in ({"walltime": 0}, {"walltime": float("inf")},
+                       {"restart": {"policy": "maybe"}},
+                       {"restart": {"max": -1}}, {"restart": {"delay": -1}},
+                       {"format": "3.0"}):
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                normalize_manifest({**base, **fields}, paths)
 
 
 class Launch(unittest.TestCase):

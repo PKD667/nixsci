@@ -40,15 +40,6 @@ def _listing(project: Path | None, app: str | None) -> None:
                 print(f"  {ident[:12]}  " + ", ".join(f"{n} {s}" for s, n in sorted(states.items())))
 
 
-def _copy(direction: str, remote: str, project: Path) -> int:
-    paths = [e["path"] for entries in publish.read_lock(project).values() for e in entries]
-    if not paths:
-        _err(f"{project / 'lab.lock'} lists no runs")
-        return 1
-    cmd = ["nix", "--extra-experimental-features", "nix-command", "copy", "--no-check-sigs", f"--{direction}", remote, *paths]
-    return subprocess.run(cmd).returncode
-
-
 def _data(args) -> int:
     store = inputs.Store(args.inputs or home.inputs_root())
     try:
@@ -105,8 +96,9 @@ def main(argv=None) -> int:
     p.add_argument("--spec", required=True)
     sub.add_parser("ls", help="what the runs directory holds").add_argument("app", nargs="?")
     sub.add_parser("add", help="add a finished run directory to the Nix store and lab.lock").add_argument("run")
-    for name, text in (("push", "copy the locked runs to REMOTE"), ("pull", "copy the locked runs from REMOTE")):
-        sub.add_parser(name, help=f"{text} (a Nix store URL, e.g. ssh-ng://host)").add_argument("remote")
+    for name in ("push", "pull", "sync"):
+        sub.add_parser(name, help=f"{name} locked runs with a peer or all configured peers").add_argument("remote", nargs="?")
+    sub.add_parser("judge", help="judge claims on an original and a reproduction (see --help)")
     rp = sub.add_parser("repro", help="print everything needed to run a run's measurement again")
     rp.add_argument("run")
     v = sub.add_parser("verify", help="run one more replicate of a finished run and compare")
@@ -134,6 +126,11 @@ def main(argv=None) -> int:
     df.add_argument("a")
     df.add_argument("b")
 
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # Pass judge's arguments to the language-independent stats interface.
+    if argv and argv[0] == "judge":
+        from nixsci.stats.claims import main as judge
+        return judge(argv[1:])
     args = ap.parse_args(argv)
     project = home.project_root(args.project)
 
@@ -146,8 +143,9 @@ def main(argv=None) -> int:
         entry = publish.publish(Path(args.run), project)
         print(f"{entry['name']}  {entry['path']}")
         return 0
-    if args.cmd in ("push", "pull"):
-        return _copy("to" if args.cmd == "push" else "from", args.remote, project)
+    if args.cmd in ("push", "pull", "sync"):
+        from .peers import transfer
+        return transfer(project, args.cmd, args.remote, log=_err)
     if args.cmd in ("repro", "verify"):
         from . import verify as verify_mod
 
@@ -168,6 +166,12 @@ def main(argv=None) -> int:
     from nixsci.deploy import resolver
 
     source = json.loads(args.source)
+    # A run must name a commit: that commit rebuilds the closure, and the closure is the code that
+    # ran. A dirty tree has no commit to name, so its runs could not be rebuilt by anyone else.
+    rev = source.get("rev")
+    if not isinstance(rev, str) or not rev or rev.endswith("-dirty"):
+        _err(f"nixsci lab: refusing to run from uncommitted code (rev {rev!r}): commit, then run again")
+        return 2
     closures = {}
     for item in args.closure:
         system, _, path = item.partition("=")

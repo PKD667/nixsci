@@ -145,9 +145,13 @@ class Native(Backend):
             return False
 
     def stop(self, handle):
+        gone = RuntimeError(f"process {handle.get('pid', '?')} is no longer running")
         if not self.alive(handle):
-            raise RuntimeError(f"process {handle.get('pid', '?')} is no longer running")
-        os.killpg(int(handle["pgid"]), signal.SIGTERM)
+            raise gone
+        try:
+            os.killpg(int(handle["pgid"]), signal.SIGTERM)
+        except ProcessLookupError:  # it exited between the check and the signal
+            raise gone from None
 
     def remove(self, handle):
         shutil.rmtree(self._path(str(handle["workdir"])))

@@ -1,5 +1,5 @@
 view_root <- function() {
-  view <- Sys.getenv("NIX_LAB_VIEW")
+  view <- Sys.getenv("NIXSCI_VIEW", Sys.getenv("NIX_LAB_VIEW"))
   if (!nzchar(view)) {
     stop("not inside a nixsci analysis: NIX_LAB_VIEW is not set", call. = FALSE)
   }
@@ -75,7 +75,16 @@ params <- function(x) {
 
 #' A path inside this pipeline's output directory.
 out <- function(...) {
-  root <- Sys.getenv("NIX_LAB_OUT")
+  root <- Sys.getenv("NIXSCI_OUT", Sys.getenv("NIX_LAB_OUT"))
   if (!nzchar(root)) stop("not inside a nixsci analysis: NIX_LAB_OUT is not set", call. = FALSE)
   file.path(root, ...)
+}
+
+#' Write values.json for a document's \val macro.
+#' @export
+values <- function(data, name = "values.json") {
+  path <- out(name)
+  dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
+  jsonlite::write_json(data, path, auto_unbox = TRUE, pretty = TRUE, null = "null", digits = NA)
+  invisible(path)
 }

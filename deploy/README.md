@@ -1,9 +1,9 @@
 # deploy
 
-Run an immutable Nix experiment on any machine, with one contract everywhere.
+Run an immutable Nix deployment on any machine, with one contract everywhere.
 
-You give it a flake reference and an experiment name. It builds
-`experiments.<system>.<name>`, verifies the whole closure by NAR hash, copies it
+You give it a flake reference and a deployment name. It builds
+`deployments.<system>.<name>`, verifies the whole closure by NAR hash, copies it
 to a target, runs it there, and gives you a handle to watch it, read its files,
 tunnel to its ports and stop it. Where the machines come from (your laptop, ssh
 hosts you already have, a site-specific broker) is a separate, pluggable question:
@@ -22,8 +22,9 @@ controller and, for non-Nix hosts, an ssh client.
 
 | term | meaning |
 |---|---|
-| **experiment** | a store directory built from the flake, containing `experiment.json` |
-| **closure** | the experiment plus everything it needs, identified by path to NAR hash |
+| **deployment** | an executable store directory built from the flake, containing `deployment.json` |
+| **experiment** | lab-only work and its recorded measurements; it is not the deploy contract |
+| **closure** | the deployment plus everything it needs, identified by path to NAR hash |
 | **backend** | something that can stage and run a closure: `native` (this machine), `ssh` (a remote host) |
 | **provider** | gives you hosts and takes them back: `local`, `static`, or a plugin |
 | **lease** | the hosts a provider gave you, plus what is needed to release them |
@@ -40,26 +41,42 @@ and target staging lives under the declared disk-backed `run_root`, not `/tmp`.
 The complete target closure is still byte-verified and its entire NAR identity
 map compared after every transfer, including cache hits.
 
-## The experiment contract
+## The deployment contract (format 2.0)
 
-A flake exposes `experiments.<system>.<name>`, a derivation whose root holds
-`experiment.json`:
+A flake exposes `deployments.<system>.<name>`, a derivation with
+`deployment.json` and `bin/run`. Resolution prefers this output; when absent it
+tries `experiments.<system>.<name>` and warns, and a closure without
+`deployment.json` is read from legacy `experiment.json`. Unversioned legacy
+manifests remain readable; unknown format versions are rejected.
 
 ```json
 {
-  "program": "/nix/store/...-thing/bin/run",
-  "commands": { "inference": "/nix/store/...-thing/bin/infer" },
-  "argv": [],
-  "env": { "KEY": "value" },
-  "resources": { "driver": null, "profile": null },
-  "inputs": {},
-  "metadata": { "anything": "opaque to nixsci.deploy" }
+  "format": "2.0", "name": "worker",
+  "program": "/nix/store/...-thing/bin/worker", "args": [],
+  "runtime": [], "env": {}, "resources": {}, "commands": {},
+  "walltime": null,
+  "restart": {"policy": "no", "max": null, "delay": 5},
+  "metadata": {}
 }
 ```
 
-`program` and every `commands` entry must be a file inside the closure.
-Unknown fields are kept as metadata. Nothing else about the experiment is
-interpreted.
+`walltime` is finite, positive minutes or `null` (persistent); it caps the
+whole restart loop. Restart policy is `no`, `on-failure`, or `always`; `max`
+counts additional attempts (`null` is unlimited), and `delay` is finite,
+nonnegative seconds (default 5). `program` names the closure's `bin/run`
+policy wrapper; the original program and fixed arguments are retained as
+metadata, while manifest `args` is empty so the backend cannot pass them twice. `program` and commands must be files inside the closure.
+
+`hardware` is an optional pin: any subset of `cpu`, `arch`, and `cores` may be
+requested. The target checks exact `/proc/cpuinfo` model name, `uname -m`, and
+`nproc` output before starting the program; a mismatch prints an error and exits
+78. Unknown keys and wrong types are rejected while evaluating the Nix
+constructor. It is empty by default and does not affect recorded lab statistics.
+The target wrapper records one JSON line per attempt in
+`$NIX_DEPLOY_WORKDIR/attempts.jsonl`; TERM stops the child and prevents another
+attempt. Restart is only while the target process lives: there is no reboot
+persistence promise. Deployment policy is not a recorded measurement.
+`nixsci.lib.mkDeployment { inherit pkgs; }` constructs this format.
 
 A flake is only accepted when it is a clean, committed git checkout (or a
 remote ref). A dirty tree is refused rather than copied.
@@ -181,7 +198,7 @@ resources is an error.
 nixsci deploy lease acquire lab warm --walltime 240 --opt hosts=n1,n2,n3,n4   # hosts you reserved
 nixsci deploy lease ls
 nixsci deploy lease show warm
-nixsci deploy --lease warm run . my-experiment run1 --handle run1.json --arg 8 --env SEED=3
+nixsci deploy --lease warm run . my-deployment run1 --handle run1.json --arg 8 --env SEED=3
 nixsci deploy --lease warm status run1.json
 nixsci deploy --lease warm fetch run1.json out/ ./results
 nixsci deploy --lease warm stop run1.json
@@ -222,7 +239,7 @@ lease = providers.acquire("lab", {"walltime": 240}, {"hosts": "n1,n2"})   # or l
 configs = {f"t{i}": c for i, c in enumerate(lease.targets)}
 backends = [factory.backend(name, configs) for name in configs]
 
-closure = resolver.resolve(FLAKE, "my-experiment", lease.targets[0]["system"])
+closure = resolver.resolve(FLAKE, "my-deployment", lease.targets[0]["system"])
 handle = group.launch(backends, lease.hosts, closure, run_id="s1", argv=("a", "b"))
 #   one host? backends[0].stage(closure); backends[0].launch(closure, run_id=..., ...)
 

@@ -151,6 +151,8 @@ def seed() -> int | None:
 def load(run: str | os.PathLike[str], name: str | None = None) -> list[dict[str, Any]]:
     """Read the records of one run directory (the `lab/` dir or its parent)."""
     root = Path(run)
+    if (root / "manifest.json").exists():
+        read_manifest(root / "manifest.json")
     if (root / "lab").is_dir():
         root = root / "lab"
     path = root / "records.jsonl"
@@ -171,7 +173,7 @@ def runs(root: str | os.PathLike[str], **where: Any) -> list[Path]:
     (e.g. `app="toy"`, `seed=3`, `params__lr=0.1`)."""
     found = []
     for manifest in sorted(Path(root).glob("**/manifest.json")):
-        data = json.loads(manifest.read_text())
+        data = read_manifest(manifest)
         if all(_get(data, key) == want for key, want in where.items()):
             found.append(manifest.parent)
     return found
@@ -186,6 +188,6 @@ def _get(data: dict[str, Any], key: str) -> Any:
 
 
 from .home import store_root  # noqa: E402
-from .run import Run, run_name  # noqa: E402  (after record(): Run calls it)
+from .run import Run, run_name, read_manifest  # noqa: E402  (after record(): Run calls it)
 
 __all__ = ["record", "params", "seed", "load", "artifact", "runs", "Run", "run_name", "store_root"]

@@ -173,12 +173,22 @@ def build(nix, flake, installable, system):
 
 
 def manifest(nix, root):
+    """Read deployment format, retaining the old experiment manifest as a warned fallback."""
     try:
-        value = json.loads(run(nix, None, "store", "cat", f"{root}/experiment.json").stdout)
+        raw = run(nix, None, "store", "cat", f"{root}/deployment.json").stdout
+    except NixError:
+        import warnings
+        warnings.warn("deployment closure has no deployment.json; reading legacy experiment.json", RuntimeWarning)
+        try:
+            raw = run(nix, None, "store", "cat", f"{root}/experiment.json").stdout
+        except NixError as error:
+            raise NixError("closure has neither deployment.json nor experiment.json") from error
+    try:
+        value = json.loads(raw)
     except ValueError as error:
-        raise NixError("experiment.json is not valid JSON") from error
+        raise NixError("deployment.json is not valid JSON") from error
     if not isinstance(value, dict):
-        raise NixError("experiment.json at the derivation root must be an object")
+        raise NixError("deployment.json at the derivation root must be an object")
     return value
 
 

@@ -1,11 +1,14 @@
-"""One finished run -> typed Parquet tables and its manifest row.
+"""Finished runs -> typed Parquet tables and their manifest rows.
 
-Nix runs this inside a build, once per locked run:
+Nix runs this inside a build, once per experiment, over the runs its lock names:
 
-    python -m nixsci.lab.compact <run store path> <output directory>
+    python -m nixsci.lab.compact <output directory> <run store path>...
 
     <out>/<dataset>/<run id>.parquet   the columns the experiment declared, plus `run`, `seed`, `time`
-    <out>/row.json                     one run's manifest row: id, state, seed, parameters
+    <out>/runs.json                    one manifest row per run: id, state, seed, parameters
+
+One process for all runs: a derivation per run paid a sandbox and a pyarrow import each, about
+0.7 s, which a sweep of a thousand runs turns into minutes of nothing.
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from nixsci.lab import load
-from nixsci.lab.run import sha256_file
+from nixsci.lab.run import read_manifest, sha256_file
 from nixsci.lab.schema import parse
 
 ARROW = {"int": "int64", "float": "float64", "str": "string", "bool": "bool_"}
@@ -40,12 +43,12 @@ def compact_run(run: str | Path, out: str | Path) -> list[Path]:
     import pyarrow.parquet as pq
 
     run, out = Path(run), Path(out)
-    manifest = json.loads((run / "manifest.json").read_text())
+    manifest = read_manifest(run / "manifest.json")
     if manifest.get("state") != "ok":
         raise ValueError(f"run {manifest.get('run')}: only a finished (ok) run can be compacted")
     records = _records(run)
     expected = manifest.get("records_sha256")
-    if expected and records is not None and sha256_file(records) != expected:
+    if expected and (records is None or sha256_file(records) != expected):
         raise ValueError(
             f"run {manifest['run']}: records.jsonl does not match the hash sealed in its "
             "manifest (the data changed after the run)"
@@ -81,5 +84,37 @@ def compact_run(run: str | Path, out: str | Path) -> list[Path]:
     return written
 
 
+def compact_runs(out: str | Path, runs: list[str | Path], expected: dict | None = None) -> None:
+    """Compact every run into `out` and write their rows, in run order, to `out/runs.json`."""
+    out, rows, seen = Path(out), [], set()
+    for run in runs:
+        manifest = read_manifest(Path(run) / "manifest.json")
+        name = manifest["run"]
+        if name in seen:
+            raise ValueError(f"duplicate run identity {name!r}")
+        seen.add(name)
+        if expected is not None:
+            # A store basename is <32-character store hash>-<run name>.
+            path = Path(run)
+            locked_name = path.name[33:] if path.parent == Path("/nix/store") else path.name
+            if locked_name not in expected or name != locked_name:
+                raise ValueError(f"run {name!r}: no matching locked identity for {locked_name!r}")
+            if expected[locked_name] is not None:
+                from .publish import facts
+                if facts(manifest) != expected[locked_name]:
+                    raise ValueError(f"run {name}: lock facts differ from the sealed manifest")
+        compact_run(run, out)
+        rows.append(json.loads((out / "row.json").read_text()))
+    (out / "row.json").unlink(missing_ok=True)
+    rows.sort(key=lambda r: r["run"])
+    (out / "runs.json").write_text(json.dumps(rows, sort_keys=True))
+
+
 if __name__ == "__main__":
-    compact_run(sys.argv[1], sys.argv[2])
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("out")
+    parser.add_argument("runs", nargs="+")
+    parser.add_argument("--expect", type=Path)
+    args = parser.parse_args()
+    compact_runs(args.out, args.runs, json.loads(args.expect.read_text()) if args.expect else None)

@@ -6,12 +6,13 @@ software or its scientific metadata.
 
 ## Controller boundary
 
-`resolve(flake, experiment, system)` is controller-only. It evaluates and
-captures an immutable flake source first, then builds the derivation
-`experiments.${system}.${experiment}` from that exact store snapshot. A local
-flake is accepted only as a clean Git checkout with a commit; dirty or
-untracked local state is rejected without copying it. The derivation must
-contain `experiment.json` at its root. The manifest's `program` and any `commands` entries are absolute store
+`resolve(flake, deployment, system)` is controller-only. It captures an
+immutable flake source, then builds `deployments.${system}.${deployment}` from
+that exact snapshot. If that output is absent, it warns and falls back to the
+legacy `experiments` output. A local flake is accepted only as a clean Git
+checkout with a commit; dirty or untracked local state is rejected. New
+closures contain `deployment.json`; old unversioned `experiment.json` remains
+readable. The manifest's `program` and `commands` entries are absolute store
 executables; a command may live in any dependency in the complete closure.
 `trainingSpec`, `code`, and other scientific values remain opaque metadata.
 
@@ -21,7 +22,7 @@ its NAR hash in `closure`, locked flake `source` identity, and `system`.
 Resolution verifies Nix's complete recursive closure before returning. A
 backend verifies the same path-to-NAR map again before execution.
 
-No compute target evaluates a flake or builds an experiment. A target only
+No compute target evaluates a flake or builds a deployment. A target only
 stages an already resolved closure. Private datasets and checkpoints are
 copied into a mode-700 run directory outside the Nix store and their hashes
 are recorded in the durable handle; they are never added to the store.

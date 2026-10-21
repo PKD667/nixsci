@@ -1,4 +1,8 @@
-# Record format v1
+# Record and run format v2
+
+Each sealed run has `manifest.json` with `format: "2.0"`. Readers accept additive minor-version
+fields, read unversioned v1/1.1 runs, and reject unknown major versions. Compaction adapts old runs
+without rewriting their hashed bytes. The JSONL record fields below are unchanged from v1.
 
 The contract between an experiment (any language) and `nixsci.lab`. It is a
 directory of files, so a program on a node with no network and no database can
@@ -86,3 +90,17 @@ under the run directory when fetched from a remote host, or directly in it for `
 Implement `record(name, value, **tags)` and artifact storage as above, then
 run `tests/conformance.sh <your-cli>`-style fixtures (`tests/fixtures/`).
 Nothing else in the system needs to change.
+
+## lab.lock v2
+
+```json
+{"format":"2.0", "runs":{"demo":[{"name":"demo-...-r1", "path":"/nix/store/...",
+ "sha256":"sha256-...", "facts":{"format":"2.0", "run":"demo-...-r1", "state":"ok",
+ "closure":"/nix/store/...", "seed":0, "params":{}, "input_id":"...", "replicate":1}}]}}
+```
+
+`facts` copies identity fields from the sealed manifest so evaluation need not fetch data.
+Compaction rejects a mismatch. `path` is the fixed-output store path derived from `name` and
+`sha256`, not a location on one machine. A legacy `{experiment: [entries]}` lock remains readable;
+its manifest must be fetched to recover these facts. Peer addresses are machine-local configuration,
+not part of the lock. A format change does not change the identity of an already recorded run.

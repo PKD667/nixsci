@@ -2,7 +2,7 @@
 
 nixsci deploy lease acquire <provider> <name> [--hosts N] [--walltime MIN] [--opt KEY=VALUE]...
 nixsci deploy lease ls | show <name> | release <name>
-nixsci deploy (--lease NAME | --config FILE --target T) run <flake> <experiment> <run_id> --handle FILE
+nixsci deploy (--lease NAME | --config FILE --target T) run <flake> <deployment> <run_id> --handle FILE
 nixsci deploy (--lease NAME | --config FILE --target T) status|stop|fetch ...
 nixsci deploy (--lease NAME | --config FILE --target T) shell <flake> <experiment> [-- CMD ...]
 """
@@ -13,6 +13,7 @@ import io
 import json
 import sys
 import time
+import warnings
 from pathlib import Path
 
 from . import factory, group, leases
@@ -58,7 +59,7 @@ def main(argv=None):
     lease.add_argument("--opt", action="append", default=[], help="provider option KEY=VALUE")
     run = commands.add_parser("run")
     run.add_argument("flake")
-    run.add_argument("experiment")
+    run.add_argument("deployment")
     run.add_argument("run_id")
     run.add_argument("--program", default="run")
     run.add_argument("--arg", action="append", default=[])
@@ -119,7 +120,12 @@ def main(argv=None):
 
         return shell_main(args, names, configs, backends, expires)
     if args.command == "run":
-        closure = resolve(args.flake, args.experiment, configs[names[0]]["system"])
+        closure = resolve(args.flake, args.deployment, configs[names[0]]["system"])
+        walltime = closure.metadata.get("walltime")
+        if expires and walltime is not None and walltime * 60 > expires - time.time():
+            raise SystemExit("deployment walltime exceeds the lease's remaining time")
+        if expires and walltime is None:
+            warnings.warn("persistent deployment on a bounded lease: the lease may end first", RuntimeWarning)
         env = dict(item.split("=", 1) for item in args.env)
         if expires:
             if time.time() >= expires:
@@ -144,7 +150,11 @@ def main(argv=None):
     if handle["target"] != names[0]:
         raise ValueError("handle belongs to a different deployment target")
     if args.command == "status":
-        print(json.dumps({"id": handle["id"], "alive": transport.alive(handle)}))
+        result = {"id": handle["id"], "alive": transport.alive(handle)}
+        attempts = transport.read_file(handle, "attempts.jsonl")
+        if attempts:
+            result["attempts"] = [json.loads(line) for line in attempts.splitlines() if line]
+        print(json.dumps(result))
     elif args.command == "stop":
         transport.stop(handle)
     else:

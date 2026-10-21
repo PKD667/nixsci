@@ -15,7 +15,7 @@ Also here: `driver.sh`, which lets a Nix-built CUDA program find the *host's* dr
 ## Run it
 
 ```sh
-nix build .#experiments.x86_64-linux.gpu-probe          # or .#gpu-probe for the bare binary
+nix build .#deployments.x86_64-linux.gpu-probe          # or .#gpu-probe for the bare binary
 nixsci deploy --config targets.json --target box run . gpu-probe r1 --handle r1.json
 nixsci deploy --config targets.json --target box fetch r1.json lab ./out     # lab/gpu.json, lab/records.jsonl
 ```
