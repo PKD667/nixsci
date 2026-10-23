@@ -14,7 +14,7 @@ let
     (cd ${d.src} && find . -type f | sed 's|^\./||' | LC_ALL=C sort) > user
     while read -r e; do
       case "$e" in
-        README.txt|nixsci.sty|nixsci.cls|nixsci/*) ;;
+        README.txt|nixsci.sty|nixsci.cls|*.cls|nixsci/*) ;;
         *) grep -qxF "$e" user || { echo "layout: ${d.name}: $e" >&2; exit 1; } ;;
       esac
     done < entries

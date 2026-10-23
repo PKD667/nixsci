@@ -253,10 +253,13 @@ rec {
       regularFiles = dir: lib.attrNames (lib.filterAttrs (_: ty: ty == "regular" || ty == "symlink") (builtins.readDir dir));
       putFiles = dir: to: lib.concatMapStrings (n: "put ${to}${n} ${dir}/${n}\n") (regularFiles dir);
       putShims = lib.concatMapStrings (n: "put ${n} ${toolkit}/shim/${n}\n") (regularFiles (toolkit + "/shim"));
-      templatePuts =
-        if t.files == null then ""
-        else if lib.isList t.files then lib.concatMapStrings (f: "put nixsci/${baseNameOf (toString f)} ${f}\n") t.files
-        else putFiles t.files "nixsci/";
+      # A class is read by \documentclass before nixsci runs, so it stays at the root of the tree.
+      templateFiles =
+        if t.files == null then { }
+        else if lib.isList t.files then lib.listToAttrs (map (f: lib.nameValuePair (baseNameOf (toString f)) f) t.files)
+        else lib.mapAttrs (n: _: t.files + "/${n}") (builtins.readDir t.files);
+      templatePuts = lib.concatStrings (lib.mapAttrsToList
+        (n: f: "put ${if lib.hasSuffix ".cls" n then n else "nixsci/${n}"} ${f}\n") templateFiles);
       fontFiles = fonts.files t.fonts;
       fontPuts = lib.optionalString (t.fonts != { }) "put nixsci/fonts.tex ${pkgs.writeText "${name}-fonts.tex" (fonts.fontsTex t.fonts)}\n"
         + lib.concatMapStrings (f: "put ${f.to} ${f.from}\n") fontFiles;

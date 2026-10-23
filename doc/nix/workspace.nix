@@ -32,7 +32,7 @@ let
 
   schema = {
     project = [ "name" "style" "packages" "files" "data" "figures" "values" "bib" "passthru" ];
-    template = [ "name" "fonts" "class" "use" "style" "engine" "medium" "meta" "render" "figure" "packages" ];
+    template = [ "name" "files" "fonts" "class" "use" "style" "engine" "medium" "meta" "render" "figure" "packages" ];
     document = [ "name" "src" "entry" "template" "meta" "projects" "figures" "packages" "apps" "checks" ];
   };
 
