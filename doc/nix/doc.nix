@@ -378,7 +378,9 @@ rec {
         ${pkgs.coreutils}/bin/env -i PATH=${texEnv'}/bin:${pkgs.coreutils}/bin:${pkgs.bash}/bin \
           TEXMFHOME=/nonexistent HOME=$TMPDIR FORCE_SOURCE_DATE=1 SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH \
           sh -c "$line" > build.out 2>&1 || { cat build.out; echo "doc: ${name}: the README's command failed" >&2; exit 1; }
-        if grep -n undefined ${stem}.log; then echo "doc: ${name}: undefined in ${stem}.log" >&2; exit 1; fi
+        if grep -nE "There were undefined references|Citation .* undefined|Reference .* undefined" ${stem}.log; then
+          echo "doc: ${name}: the README\'s command leaves an undefined reference" >&2; exit 1
+        fi
         mkdir $out
         cp ${stem}.pdf $out/${name}.pdf
       '';
