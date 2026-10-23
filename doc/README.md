@@ -46,11 +46,15 @@ Each `values` entry is a JSON file. Its scalars become `\val{p/<entry>.<path>}`,
 
 `unclean` lists every input marked `static`, and every lab analysis that is not clean. If the list is not empty, each page of the PDF gets a DRAFT line. `crate` is the RO-Crate; `publish` is the four-file directory above. Its build fails with `refusals` when `unclean` is not empty, when `source` is missing, or when the flake has uncommitted changes. `zip` remains the LaTeX source archive.
 
+## Workspace
+
+`nixsci.lib.workspace { inherit inputs; root = ./.; }` is a whole flake. It finds each document by convention: a directory with `project.nix`, `document.nix` or `template.nix`. A project's `flake.nix` is one line that calls it.
+
 ## Editing
 
-`nix run .#<doc>` links the assembled tree to `<flake root>/.nixsci/doc/<doc>`, puts it on `TEXINPUTS` and runs `latexmk -pvc` in `srcDir`. The flake root is the git toplevel, else the nearest directory with a `flake.nix`; nothing else is written. The shell's `latexmk` passes `\nixsciroot`, the absolute path of `nixsci/` in that link. After editing a figure source, run `nix run` again. The zip has `nixsci.cls`, `nixsci.sty`, `nixsci/` and `README.txt` at its root.
+`nix run .#<doc>` links the assembled tree to `<flake root>/.nixsci/doc/<doc>`, sets `TEXINPUTS` and runs `latexmk -pvc` in `srcDir`. The flake root is the git toplevel, else the nearest directory with a `flake.nix`. Nothing else is written. The shell's `latexmk` passes `\nixsciroot`, the absolute path of `nixsci/` in that link. After editing a figure source, run `nix run` again.
 
-`nixsci doc <dir>` prints prose warnings (WRITING.md budgets and deny-list). It always exits 0.
+The zip has `nixsci.cls`, `nixsci.sty`, `nixsci/` and `README.txt` at its root. A class sits at the root because `\documentclass` runs before `\usepackage{nixsci}`. The README names the engine and says how to select it on Overleaf.
 
 ## Remeasure
 
