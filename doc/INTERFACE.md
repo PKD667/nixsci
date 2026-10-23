@@ -131,7 +131,8 @@ slides = doc.document {
   package that ships them, found by kpathsea) is set; both or neither is an evaluation error.
 - `faces` maps `regular|bold|italic|bolditalic` to file stems. Omitted: fontspec's own defaults
   (`<family>`, `<family>-Bold` ...) are used and none of the four options are written.
-- `fake.bold`, `fake.slant`: fontspec's `FakeBold`, `FakeSlant`.
+- `fake.bold`, `fake.slant`: fontspec's `FakeBold`, `FakeSlant`. `options`: further fontspec
+  options, verbatim (`"Scale=0.90"`, `"LetterSpace=12"`).
 - A `dir` font puts in the zip the files its faces name: a named face's stem with `ext`, or for an
   unnamed face fontspec's default stem when the directory has that file. The regular face must exist.
   Every font in the zip ships; there is no option to leave one out.
@@ -219,7 +220,7 @@ Fonts live in their own file, `nixsci/fonts.tex`, one line per role, so the docu
 share one implementation (`nixsci-fonts.sty`):
 
 ```
-\nixsci@font{role}{family}{path}{ext}{regular}{bold}{italic}{bolditalic}{fakebold}{fakeslant}
+\nixsci@font{role}{family}{path}{ext}{regular}{bold}{italic}{bolditalic}{fakebold}{fakeslant}{options}
 ```
 `nixsci-fonts.sty` reads `\nixsci@font` lines from `nixsci/fonts.tex` (the document) or `fonts.tex` in
 the figure's build directory (the wrapper), loads `fontspec`, and applies them. `path` is relative to the tree root (`nixsci/fonts/<family>/`), or empty for a `tex` font. An

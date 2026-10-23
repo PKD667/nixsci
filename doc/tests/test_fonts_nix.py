@@ -10,7 +10,7 @@ import pytest
 pytestmark = pytest.mark.skipif(os.environ.get("NIXSCI_INTEGRATION") != "1", reason="opt-in Nix integration")
 ROOT = Path(__file__).resolve().parents[2]
 SEEDS, FACES = range(40), ["regular", "bold", "italic", "bolditalic"]
-FONT_KEYS, BAD = {"family", "dir", "tex", "ext", "faces", "fake"}, set("{}\\%#/\n")
+FONT_KEYS, BAD = {"family", "dir", "tex", "ext", "faces", "fake", "options"}, set("{}\\%#/\n")
 FAMILIES = ["Berkeley", "Lib Erty", "Ok2", "Berkeley", "Other", "Ok2", "a{b", "c/d", "e\\f", "g%h", "h#i"]
 
 
@@ -46,6 +46,8 @@ def gen_mk(rng, d):
             c["faces"] = {k: rng.choice(names) for k in rng.sample(FACES, rng.randint(0, 4))}
     else:
         c = {"family": rng.choice(["Lib Erty", "Ok2"]), "tex": rng.choice(["libertine", "inconsolata"])}
+    if rng.random() < 0.5:
+        c["options"] = rng.choice(["Scale=0.9", "LetterSpace=12, Scale=0.98"])
     if rng.random() < 0.6:
         c["fake"] = {k: rng.choice([1.4, 0, 2.5, "x", True, None]) for k in rng.sample(["bold", "slant"], rng.randint(1, 2))}
     if rng.random() < 0.33:
@@ -58,6 +60,7 @@ def gen_mk(rng, d):
             lambda: c.update(dir="/nonexistent-nixsci" if "dir" in c else "x"),
             lambda: c.update(dir=3),
             lambda: c.update(fake={"bold": rng.choice(["x", True])}),
+            lambda: c.update(options=3),
         ])()
     return c
 
@@ -77,6 +80,8 @@ def accepts(c):
     if tex is not None and not isinstance(tex, str):
         return False
     if not isinstance(ext, str):
+        return False
+    if not isinstance(c.get("options", ""), str):
         return False
     if not isinstance(faces, dict) or set(faces) - set(FACES) or any(not isinstance(v, str) or BAD & set(v) for v in faces.values()):
         return False
@@ -119,18 +124,19 @@ def gen_roles(rng, d):
 
 
 def parse(line):
-    """Fields of one fontsTex line; fails unless it is \\nixsci@font with exactly 10 brace groups."""
-    assert re.fullmatch(r"\\nixsci@font(\{[^{}]*\}){10}", line), line
+    """Fields of one fontsTex line; fails unless it is \\nixsci@font with exactly 11 brace groups."""
+    assert re.fullmatch(r"\\nixsci@font(\{[^{}]*\}){11}", line), line
     g = re.findall(r"\{([^{}]*)\}", line)
     return {"role": g[0], "family": g[1], "path": g[2], "ext": g[3], "faces": g[4:8],
-            "bold": float(g[8]) if g[8] else None, "slant": float(g[9]) if g[9] else None}
+            "bold": float(g[8]) if g[8] else None, "slant": float(g[9]) if g[9] else None,
+            "options": g[10]}
 
 
 def expected(role, f):
     fake = f.get("fake", {})
     return {"role": role, "family": f["family"], "path": f"nixsci/fonts/{f['family']}/" if "dir" in f else "",
             "ext": f.get("ext", ".ttf"), "faces": [f.get("faces", {}).get(k, "") for k in FACES],
-            "bold": fake.get("bold"), "slant": fake.get("slant")}
+            "bold": fake.get("bold"), "slant": fake.get("slant"), "options": f.get("options", "")}
 
 
 def shipped(f):
@@ -148,7 +154,7 @@ def shipped(f):
 
 
 def test_bc_fontsTex_round_trips_and_files_packages_are_exact(dirs, tmp_path):
-    """Law (b): each fontsTex line has 10 brace groups, and parsing it returns the input's fields.
+    """Law (b): each fontsTex line has 11 brace groups, and parsing it returns the input's fields.
     Law (c): files = exactly the shipped() files of each dir font, each once, nothing else;
     texPackages = sorted set of tex names; mk (mk f) == mk f for every font."""
     roles = [gen_roles(random.Random(s), dirs) for s in SEEDS]

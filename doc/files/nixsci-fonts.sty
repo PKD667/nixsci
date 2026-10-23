@@ -9,6 +9,9 @@
   \fi\fi
   \RequirePackage{fontspec}}
 
+\def\nixsci@addraw#1{\edef\nixsci@tmp{#1}\ifx\nixsci@tmp\empty\else
+  \edef\nixsci@opts{\nixsci@opts#1,}\fi}
+
 \def\nixsci@addopt#1#2{\edef\nixsci@tmp{#2}\ifx\nixsci@tmp\empty\else
   \edef\nixsci@opts{\nixsci@opts#1=\nixsci@tmp,}\fi}
 
@@ -18,7 +21,7 @@
   \def\nixsci@fe{#5}\def\nixsci@ff{#6}\def\nixsci@fg{#7}\def\nixsci@fh{#8}%
   \nixsci@fontfakes}
 
-\def\nixsci@fontfakes#1#2{%
+\def\nixsci@fontfakes#1#2#3{%
   \nixsci@checkengine
   \def\nixsci@opts{}%
   \ifx\nixsci@fc\empty\else
@@ -31,6 +34,7 @@
   \nixsci@addopt{BoldItalicFont}{\nixsci@fh}%
   \nixsci@addopt{FakeBold}{#1}%
   \nixsci@addopt{FakeSlant}{#2}%
+  \nixsci@addraw{#3}%
   \def\nixsci@m{main}\def\nixsci@s{sans}\def\nixsci@t{mono}%
   \ifx\nixsci@fa\nixsci@m
     \setmainfont{\nixsci@fb}[\nixsci@opts]%

@@ -14,7 +14,7 @@
 let
   faceKeys = [ "regular" "bold" "italic" "bolditalic" ];
   fakeKeys = [ "bold" "slant" ];
-  fontKeys = [ "family" "dir" "tex" "ext" "faces" "fake" ];
+  fontKeys = [ "family" "dir" "tex" "ext" "faces" "fake" "options" ];
 
   unknownIn = known: attrs: lib.subtractLists known (lib.attrNames attrs);
 
@@ -64,6 +64,7 @@ let
       unknown = unknownIn fontKeys f;
       faces = f.faces or { };
       fake = f.fake or { };
+      options = f.options or "";
       ext = f.ext or ".ttf";
       hasDir = (f.dir or null) != null;
       hasTex = (f.tex or null) != null;
@@ -90,6 +91,7 @@ let
     else if checkDir && !(builtins.pathExists f.dir && builtins.readFileType f.dir == "directory")
       then err "dir ${toString f.dir} is not a directory"
     else if hasTex && !(builtins.isString f.tex) then err "tex must be a TeX Live package name"
+    else if !(builtins.isString options) then err "options must be a string of fontspec options"
     else
       let
         font = {
@@ -98,6 +100,7 @@ let
           tex = if hasTex then f.tex else null;
           faces = lib.genAttrs faceKeys (k: if faces ? ${k} then faceValue k faces.${k} else "");
           fake = { bold = fake.bold or null; slant = fake.slant or null; };
+          inherit options;
         };
       in
       if checkDir then builtins.seq (shipped font dirFiles) font else font;
@@ -114,7 +117,7 @@ let
     let f = r.font; in
     "\\nixsci@font{${r.role}}{${f.family}}{${fontPath f}}{${f.ext}}"
       + lib.concatMapStrings (k: "{${f.faces.${k}}}") faceKeys
-      + "{${num f.fake.bold}}{${num f.fake.slant}}";
+      + "{${num f.fake.bold}}{${num f.fake.slant}}{${f.options}}";
 in
 {
   inherit mk;
