@@ -351,7 +351,7 @@ rec {
         ""
         "    ${lib.escapeShellArgs command}"
         ""
-        "That writes ${stem}.pdf. It needs these TeX Live packages (texliveSmall; the packages they depend on come with them): ${lib.concatStringsSep ", " texNames}."
+        "That writes ${stem}.pdf. ${if texNames == [ ] then "It needs no TeX Live packages beyond the base install." else "It needs these TeX Live packages (texliveSmall; the packages they depend on come with them): ${lib.concatStringsSep ", " texNames}."}"
         ""
         "For the same bytes as the published PDF, set FORCE_SOURCE_DATE=1 and SOURCE_DATE_EPOCH=315532800 first."
       ] ++ lib.optionals (engineName != null) [
