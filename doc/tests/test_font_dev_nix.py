@@ -1,4 +1,8 @@
-"""Opt-in XeLaTeX regression test for fonts in the assembled document tree.
+"""Opt-in XeLaTeX regression test for a project font in the dev loop.
+
+The font is a project file, so it is at nixsci/fixture-fonts/ in the linked tree. The document names
+it by \nixsciroot, which the dev shell's latexmk wrapper sets (the shell exports no TTFONTS or
+NIXSCI_TREE any more; doc/nix/doc.nix, env). A build that finds the font has used that path.
 
 NIXSCI_INTEGRATION=1 pytest -q doc/tests/test_font_dev_nix.py
 """
@@ -19,16 +23,16 @@ def run(*args, cwd=None):
     return result.stdout.strip()
 
 
-def test_dev_shell_finds_project_font_by_filename(tmp_path):
+def test_dev_shell_finds_project_font_through_nixsciroot(tmp_path):
     fixture = tmp_path / "fixture"
     (fixture / "tex").mkdir(parents=True)
     (fixture / "tex/main.tex").write_text(r"""\documentclass{article}
 \usepackage{fontspec}
-\newfontfamily\fixturefont{DejaVuSans.ttf}
+\newfontfamily\fixturefont[Path=\nixsciroot nixsci/fixture-fonts/]{DejaVuSans.ttf}
 \begin{document}{\fixturefont Font lookup works.}\end{document}
 """)
     (fixture / "flake.nix").write_text("""{
-  inputs.nixsci.url = """ + json.dumps("git+file://" + str(ROOT) + "?ref=main") + """;
+  inputs.nixsci.url = """ + json.dumps("path:" + str(ROOT)) + """;
   inputs.nixpkgs.follows = "nixsci/nixpkgs";
   outputs = { self, nixsci, nixpkgs }: let
     system = """ + json.dumps(run("nix", "eval", "--impure", "--raw", "--expr", "builtins.currentSystem")) + """;
@@ -45,19 +49,18 @@ def test_dev_shell_finds_project_font_by_filename(tmp_path):
 }
 """)
     run("nix", "flake", "lock", str(fixture))
-    outdir = tmp_path / "shell-cwd"
+    # The shell starts in a subdirectory of the flake: the root is the flake's, not this one.
+    outdir = fixture / "sub"
     outdir.mkdir()
     builddir = tmp_path / "output"
     builddir.mkdir()
+    # latexmk here is the shell's wrapper, which passes -usepretex; the build runs outside the tree.
     command = (
         'cd ' + json.dumps(str(builddir)) + '; '
-        'found=$(kpsewhich --format=\'truetype fonts\' DejaVuSans.ttf); '
-        'echo "kpsewhich: $found"; '
-        'test "$(readlink -f "$found")" = "$(readlink -f "$NIXSCI_TREE/fixture-fonts/DejaVuSans.ttf")"; '
         'latexmk -g -xelatex -interaction=nonstopmode -halt-on-error '
         '"' + str(fixture / "tex/main.tex") + '"'
     )
-    output = run("nix", "develop", str(fixture) + "#default", "--command", "bash", "-c", command,
-                 cwd=outdir)
-    assert "DejaVuSans.ttf" in output
+    run("nix", "develop", str(fixture) + "#default", "--command", "bash", "-c", command, cwd=outdir)
     assert (builddir / "main.pdf").is_file()
+    assert not (outdir / ".nixsci").exists()
+    assert (fixture / ".nixsci" / "doc" / "font-fixture" / "nixsci" / "fixture-fonts" / "DejaVuSans.ttf").is_file()

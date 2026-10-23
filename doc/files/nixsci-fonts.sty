@@ -1,0 +1,46 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{nixsci-fonts}
+\providecommand\nixsciroot{}
+
+\def\nixsci@checkengine{%
+  \ifdefined\luatexversion\else\ifdefined\XeTeXrevision\else
+    \PackageError{nixsci-fonts}{fonts need lualatex or xelatex}{The document declares fonts in\MessageBreak
+    nixsci/fonts.tex; pdflatex cannot load them. Build with lualatex or xelatex.}%
+  \fi\fi
+  \RequirePackage{fontspec}}
+
+\def\nixsci@addopt#1#2{\edef\nixsci@tmp{#2}\ifx\nixsci@tmp\empty\else
+  \edef\nixsci@opts{\nixsci@opts#1=\nixsci@tmp,}\fi}
+
+% TeX takes at most nine arguments: the last two are read from the next line.
+\def\nixsci@font#1#2#3#4#5#6#7#8{%
+  \def\nixsci@fa{#1}\def\nixsci@fb{#2}\def\nixsci@fc{#3}\def\nixsci@fd{#4}%
+  \def\nixsci@fe{#5}\def\nixsci@ff{#6}\def\nixsci@fg{#7}\def\nixsci@fh{#8}%
+  \nixsci@fontfakes}
+
+\def\nixsci@fontfakes#1#2{%
+  \nixsci@checkengine
+  \def\nixsci@opts{}%
+  \ifx\nixsci@fc\empty\else
+    \nixsci@addopt{Path}{\nixsciroot\nixsci@fc/}%
+  \fi
+  \nixsci@addopt{Extension}{\nixsci@fd}%
+  \nixsci@addopt{UprightFont}{\nixsci@fe}%
+  \nixsci@addopt{BoldFont}{\nixsci@ff}%
+  \nixsci@addopt{ItalicFont}{\nixsci@fg}%
+  \nixsci@addopt{BoldItalicFont}{\nixsci@fh}%
+  \nixsci@addopt{FakeBold}{#1}%
+  \nixsci@addopt{FakeSlant}{#2}%
+  \def\nixsci@m{main}\def\nixsci@s{sans}\def\nixsci@t{mono}%
+  \ifx\nixsci@fa\nixsci@m
+    \setmainfont{\nixsci@fb}[\nixsci@opts]%
+  \else\ifx\nixsci@fa\nixsci@s
+    \setsansfont{\nixsci@fb}[\nixsci@opts]%
+  \else\ifx\nixsci@fa\nixsci@t
+    \setmonofont{\nixsci@fb}[\nixsci@opts]%
+  \else
+    \expandafter\newfontfamily\csname\nixsci@fa font\endcsname[\nixsci@opts]{\nixsci@fb}%
+  \fi\fi\fi}
+
+\IfFileExists{\nixsciroot nixsci/fonts.tex}{\input{\nixsciroot nixsci/fonts.tex}}{%
+  \IfFileExists{fonts.tex}{\input{fonts.tex}}{}}
