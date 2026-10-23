@@ -73,6 +73,9 @@
 
       # Documents: `doc = nixsci.lib.doc { inherit pkgs; }; doc.document { ... }` (see doc/nix/doc.nix).
       lib.doc = { pkgs }: import ./doc/nix/doc.nix { inherit pkgs; crateTool = self.packages.${pkgs.stdenv.hostPlatform.system}.crate-python; cliTool = self.packages.${pkgs.stdenv.hostPlatform.system}.nixsci; };
+      # A flake of declarations by directory convention (doc/nix/workspace.nix):
+      #   outputs = inputs: inputs.nixsci.lib.workspace { inherit inputs; root = ./.; };
+      lib.workspace = import ./doc/nix/workspace.nix { nixsci = self; };
       # Compatibility for flakes pinned before the module was named doc.
       lib.out = self.lib.doc;
 
@@ -250,6 +253,19 @@
             '';
         example-paper = self.packages.${pkgs.stdenv.hostPlatform.system}.example-paper;
         example-draft = self.packages.${pkgs.stdenv.hostPlatform.system}.example-draft;
+        # The zip compiles alone with its README's command (doc.zipCheck), for each example document.
+        zip-check-example = (exampleDocument pkgs { static = false; }).zipCheck;
+        zip-check-example-draft = (exampleDocument pkgs { static = true; }).zipCheck;
+        # Layout laws (doc/nix/laws.nix) over every example document: closure, layout, hygiene.
+        layout-laws =
+          let
+            docOf = name: src: d: { inherit name src; inherit (d) pdf zip zipCheck; };
+            examplePaper = exampleDocument pkgs { static = false; };
+            exampleDraft = exampleDocument pkgs { static = true; };
+          in import ./doc/nix/laws.nix { inherit pkgs; } [
+            (docOf "example" ./doc/examples/demo/tex examplePaper)
+            (docOf "example-draft" ./doc/examples/demo/tex exampleDraft)
+          ];
         publish-refuses-draft =
           let draft = exampleDocument pkgs { static = true; };
           in assert draft.refusals != [ ] && draft.publish.name == "example-draft-publish-refused"; pkgs.runCommand "publish-refuses-draft" { } "touch $out";

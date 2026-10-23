@@ -1,0 +1,27 @@
+The loss falls to 0.3 by epoch 3.
+
+
+       0.8
+
+
+
+loss   0.6
+
+
+                                                                                                   0.8
+       0.4
+                                                                                            loss   0.6
+                                                                                                   0.4
+         0.8   1   1.2   1.4    1.6    1.8      2   2.2      2.4      2.6   2.8   3   3.2                1     2
+                                              epoch                                                          epoch
+
+
+
+
+                                          1
+
+
+
+
+                    DRAFT: 1 untraced input(s); not for publication
+

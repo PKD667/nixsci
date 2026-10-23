@@ -48,7 +48,7 @@ Each `values` entry is a JSON file. Its scalars become `\val{p/<entry>.<path>}`,
 
 ## Editing
 
-`nix run .#<doc>` links the assembled tree (template files, `nixsci.sty`, projects, compiled figures) to `.nixsci/doc/<doc>`, puts it on `TEXINPUTS`, `BIBINPUTS` and `BSTINPUTS`, exports `NIXSCI_TREE`, and runs `latexmk -pvc` in `srcDir`. After editing a figure source, run `nix run` again.
+`nix run .#<doc>` links the assembled tree to `<flake root>/.nixsci/doc/<doc>`, puts it on `TEXINPUTS` and runs `latexmk -pvc` in `srcDir`. The flake root is the git toplevel, else the nearest directory with a `flake.nix`; nothing else is written. The shell's `latexmk` passes `\nixsciroot`, the absolute path of `nixsci/` in that link. After editing a figure source, run `nix run` again. The zip has `nixsci.cls`, `nixsci.sty`, `nixsci/` and `README.txt` at its root.
 
 `nixsci doc <dir>` prints prose warnings (WRITING.md budgets and deny-list). It always exits 0.
 

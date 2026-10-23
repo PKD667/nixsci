@@ -1,11 +1,8 @@
-% nixsci: the document toolkit. It carries mechanisms, not identity: pick a medium once with
-% \nixscistyle{slides} (paper, poster to come). Colours, fonts and the house style stay in the
-% project that owns them.
 \NeedsTeXFormat{LaTeX2e}
 \ProvidesPackage{nixsci}
 
-% \nixscistyle{name}: load the toolkit's mechanisms for one medium. Called once, after
-% \usepackage{nixsci}. An unknown name is an error, not a silent no-op.
+\providecommand\nixsciroot{}
+
 \newcommand{\nixscistyle}[1]{%
   \ifcsname nixsci@style@#1\endcsname
     \csname nixsci@style@#1\endcsname
@@ -13,33 +10,93 @@
     \PackageError{nixsci}{unknown nixsci style `#1'}{The toolkit knows: slides.}%
   \fi}
 
-% \val{project/key.path}: a number an analysis wrote, from the document's generated file. An
-% unknown key is an error, never a blank: a number in the text is either traced or the build fails.
 \newcommand{\nixsci@defval}[2]{\expandafter\def\csname nixsci@val@#1\endcsname{#2}}
 \newcommand{\val}[1]{\ifcsname nixsci@val@#1\endcsname\csname nixsci@val@#1\endcsname
   \else\PackageError{nixsci}{no value `#1'}{The document's projects publish no value with this key.}\fi}
 
-% A draft: some input could not be traced (a static file, an unclean analysis). Every page says
-% so, at its foot, so a draft cannot pass for the published document.
 \newcommand{\nixsci@draft}[1]{\AddToHook{shipout/foreground}{\put(0.5\paperwidth,-\paperheight+4mm){%
   \makebox[0pt]{\normalfont\tiny DRAFT: #1 untraced input(s); not for publication}}}}
 
-% Remeasurements carry a concise, machine-generated claim warning on every page.
 \newcommand{\nixsci@remeasure}[1]{\AddToHook{shipout/foreground}{\put(0.5\paperwidth,-\paperheight+8mm){%
   \makebox[0pt]{\normalfont\tiny REMEASURED: #1}}}}
 
-% The generated file: the template's metadata, the projects' values, the draft mark.
-\InputIfFileExists{nixsci-generated}{}{}
+\newcommand{\nixscipath}[1]{\nixsciroot nixsci/#1}
+\newcommand{\nixscibib}[1]{\@ifpackageloaded{biblatex}
+  {\addbibresource{\nixscipath{#1}.bib}}
+  {\bibliography{\nixscipath{#1}}}}
 
-% \nixsciproject{name}: load a project's exported style. The project flake publishes it as the
-% library key of the same name, so the document tree holds `<name>.sty` and the document writes one
-% line for the whole project. The key must be in the flake's `use` list for it to be there.
 \newcommand{\nixsciproject}[1]{\usepackage{#1}}
 
-% slides: a figure source a paper also \inputs, typeset on a slide. The paper sets its figures at
-% 9pt; \input into a 12pt slide would inflate the fonts until they collide with the figure's fixed
-% coordinates, so the standard sizes are reset to the paper's, and \columnwidth is set to the
-% requested width. The path is explicit, so the flake key the deck `use`s stays visible.
+
+\newread\nixsci@in
+\newcommand\nixsci@genbuf{}
+\newcommand\nixsci@genname{}
+\newcommand\nixsci@tclass{}
+\newcommand\nixsci@tclassopts{}
+\newcommand\nixsci@tmedium{}
+\newcommand\nixsci@tstyle{}
+\newcommand\nixsci@tuses{}
+\newcommand\nixsci@tprojects{}
+
+\IfFileExists{\nixsciroot nixsci/generated.tex}
+  {\gdef\nixsci@genname{\nixsciroot nixsci/generated.tex}}
+  {\IfFileExists{nixsci-generated.tex}{\gdef\nixsci@genname{nixsci-generated.tex}}{}}
+
+\def\nixsci@slurp{%
+  \gdef\nixsci@genbuf{}%
+  \ifx\nixsci@genname\empty\else
+    \openin\nixsci@in=\nixsci@genname\relax
+    \loop\unless\ifeof\nixsci@in
+      \read\nixsci@in to\nixsci@line
+      \expandafter\g@addto@macro\expandafter\nixsci@genbuf\expandafter{\nixsci@line}%
+    \repeat
+    \closein\nixsci@in
+  \fi}
+
+\long\def\nixsci@findclass#1\nixsci@class#2#3#4\nixsci@stop{%
+  \gdef\nixsci@tclass{#2}\gdef\nixsci@tclassopts{#3}}
+\def\nixsci@classscan{%
+  \ifx\nixsci@genbuf\empty \else
+    \expandafter\nixsci@findclass\nixsci@genbuf\nixsci@class{}{}\nixsci@stop
+  \fi}
+
+\def\nixsci@class#1#2{\gdef\nixsci@tclass{#1}\gdef\nixsci@tclassopts{#2}}
+\def\nixsci@medium#1{\gdef\nixsci@tmedium{#1}}
+\def\nixsci@style#1{\gdef\nixsci@tstyle{#1}}
+\def\nixsci@use#1#2{\g@addto@macro\nixsci@tuses{\nixsci@usepkg{#1}{#2}}}
+\def\nixsci@project#1{\g@addto@macro\nixsci@tprojects{\usepackage{#1}}}
+\def\nixsci@bib#1{}
+
+\def\nixsci@usepkg#1#2{\ifx\relax#2\relax\usepackage{#1}\else\usepackage[#2]{#1}\fi}
+
+\def\nixsci@fonts{\RequirePackage{nixsci-fonts}}
+
+\def\nixsci@loadall{%
+  \nixsci@slurp
+  \nixsci@classscan
+  \let\nixsci@line\relax
+  \nixsci@genbuf
+  \nixsci@tuses
+  \nixsci@fonts
+  \ifx\nixsci@tmedium\empty\else
+    \ifcsname nixsci@style@\nixsci@tmedium\endcsname
+      \csname nixsci@style@\nixsci@tmedium\endcsname
+    \else
+      \PackageError{nixsci}{unknown medium `\nixsci@tmedium'}{The toolkit knows: slides.}%
+    \fi
+  \fi
+  \nixsci@tprojects
+  \ifx\nixsci@tstyle\empty\else\usepackage{\nixsci@tstyle}\fi}
+
+\ifx\nixsci@inclass\@undefined
+  \nixsci@slurp
+  \nixsci@classscan
+  \nixsci@loadall
+\else
+  \nixsci@slurp
+  \nixsci@classscan
+\fi
+
 \newcommand{\nixsci@style@slides}{%
   \providecommand{\paperfig}[2]{{\centering\rmfamily
     \renewcommand\normalsize{\fontsize{9}{11}\selectfont}\renewcommand\small{\fontsize{8}{9.5}\selectfont}
@@ -47,28 +104,12 @@
     \renewcommand\tiny{\fontsize{5.5}{6.5}\selectfont}\normalsize
     \setlength{\columnwidth}{##2}\input{##1}\par}}%
 
-  % Citations. \citehere{key} sets the full entry of key at the foot of the slide, from the .bbl
-  % that bibentry reads, so a slide carries its sources and prints the reference the paper prints:
-  % one .bib, one style, no second copy of either. The document declares the file with
-  % \nobibliography{...}; the project's style names the BibTeX style with \bibliographystyle{...}
-  % and its flake publishes the .bib as a library key, which the dev loop finds through BIBINPUTS.
-  % natbib is what ships bibentry.sty in nixpkgs, so the slides template carries it.
   \RequirePackage{natbib}
   \RequirePackage{bibentry}
 
-  % No footnote mark: it would point at nothing the full entry does not already say, and it costs a
-  % line on a slide that has few. The entry is set at \nixscifootnotesize, which a document that
-  % wants another size renews: one macro, not this template. Beamer prints the mark in the text as
-  % well as in front of the entry, so \citehere drops the number too.
   \providecommand{\nixscifootnotesize}{\fontsize{5}{6}\selectfont}
   \setbeamertemplate{footnote}{\parindent 0pt\noindent\raggedright\nixscifootnotesize\insertfootnotetext\par}
 
-  % The ACM style prints a URL line with each entry. On a page it is part of the reference; at the
-  % foot of a slide it costs a line and carries nothing a talk needs, so it goes. \def, not
-  % \renewcommand: the project's style defines \showURL, and it may load after this one.
   \def\showURL##1{\unskip}
 
-  % \citehere[full]{key}: the reference for this slide, at its foot. By default it is the entry's
-  % own label from the .bbl -- author and year, at most one line, which is all a talk needs to say;
-  % a slide with the room for the whole entry asks for it with [full].
   \newcommand{\citehere}[2][]{\begingroup\renewcommand{\thefootnote}{}\footnote{\ifx\relax##1\relax\citeauthor{##2}~\citeyear{##2}\else\bibentry{##2}\fi}\endgroup}}
