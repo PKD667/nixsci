@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import time
 from typing import Any, Mapping
-from . import fanout, nix
+from . import nix
 from .backend import Backend
 from .model import Closure
 
@@ -20,6 +20,29 @@ def _argv(name: str, value) -> tuple[str, ...]:
     if not words or not all(isinstance(w, str) and w for w in words):
         raise ValueError(f"{name} must be an executable, optionally followed by arguments")
     return words
+
+
+# Staging a multi-host job from its first host (`stage = "fanout"`). Used by SSH.receive.
+# Why it works with rootless stores: each export and import runs with that host's own bootstrap
+# against that host's own store, under the user's own privileges. The stream is Nix's export
+# format; a corrupt or incomplete copy fails the NAR-hash check on the receiving host, so the
+# first host is trusted for transport only, never for identity.
+
+def _pipe(source: Any, setup: str, producer: str, peer: str, rsh: str, consumer: str, cleanup: str) -> None:
+    """On the source host: `setup`, then `producer | rsh peer consumer`, then `cleanup`.
+
+    The exit status of the pipe is the consumer's; cleanup runs either way.
+    """
+    source._remote(
+        f"{setup}; {producer} | {rsh} {shlex.quote(peer)} {shlex.quote(consumer)}; "
+        f"rc=$?; {cleanup}; exit $rc"
+    )
+
+
+def _frontend(directory: str, store: str, *args: str) -> str:
+    """A `nix-store` frontend (the bootstrap under that name) with the store's flags, as shell text."""
+    argv = nix.command(f"{directory}/nix-store", store, *args)
+    return f'"{directory}/nix-store"' + "".join(f" {shlex.quote(a)}" for a in argv[1:])
 
 
 class SSH(Backend):
@@ -152,8 +175,47 @@ class SSH(Backend):
             raise RuntimeError(f"remote Nix bootstrap verification failed: {check!r}")
 
     def receive(self, closure: Closure, *, source: "SSH", peer: str, rsh: str) -> dict[str, Any]:
-        """Stage from `source` (another host of the job), not from the controller. See fanout.py."""
-        return fanout.receive(self, closure, source=source, peer=peer, rsh=rsh)
+        """Make `closure` present and verified here, copying from `source` (the job's first host).
+        Only the transport goes through `source`; identity is checked here, against NAR hashes."""
+        self._admit(closure)
+        self._wait_ready()
+        if not self._bootstrap_shipped:
+            parent = str(Path(self.remote_bootstrap).parent)
+            _pipe(
+                source,
+                "true",
+                f"cat {shlex.quote(source.remote_bootstrap)}",
+                peer,
+                rsh,
+                f"umask 077; mkdir -p {shlex.quote(parent)}; cat > {shlex.quote(self.remote_bootstrap)}; "
+                f"chmod 700 {shlex.quote(self.remote_bootstrap)}",
+                "true",
+            )
+            self._check_bootstrap()
+            self._bootstrap_shipped = True
+        cached = self._remote_hashes()
+        for path, expected in closure.closure.items():
+            if path in cached and cached[path] != expected:
+                raise RuntimeError(f"preexisting target path NAR identity differs: {path}")
+        missing = [path for path in closure.closure if path not in cached]
+        if missing:
+            src_stage, dst_stage = f"{source.run_root}/.stage", f"{self.run_root}/.stage"
+            _pipe(
+                source,
+                f"umask 077; mkdir -p {shlex.quote(src_stage)}; "
+                f"d=$(mktemp -d {shlex.quote(src_stage)}/fanout-XXXXXXXX); "
+                f"ln -s {shlex.quote(source.remote_bootstrap)} \"$d/nix-store\"",
+                _frontend("$d", source.store, "--export", *missing),
+                peer,
+                rsh,
+                f"umask 077; mkdir -p {shlex.quote(dst_stage)}; "
+                f"d=$(mktemp -d {shlex.quote(dst_stage)}/fanout-XXXXXXXX); "
+                f"ln -s {shlex.quote(self.remote_bootstrap)} \"$d/nix-store\"; "
+                f"{_frontend('$d', self.store, '--import')}; rm -rf -- \"$d\"",
+                'rm -rf -- "$d"',
+            )
+        self._verify(closure)
+        return {"path": closure.path, "closure": dict(closure.closure), "system": closure.system}
 
     def _remote_hashes(self, root: str | None = None) -> dict[str, str]:
         # --all enumerates registered paths without probing missing paths (a

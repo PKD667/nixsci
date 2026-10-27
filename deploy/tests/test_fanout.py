@@ -41,7 +41,7 @@ def closure():
 class Stage(unittest.TestCase):
     def test_the_controller_stages_the_first_host_once_and_the_others_copy_from_it(self):
         nodes = [Node(n) for n in ("a", "b", "c", "d")]
-        group.fanout.stage_all(nodes, ["h0", "h1", "h2", "h3"], closure(), "RSH")
+        group.stage_all(nodes, ["h0", "h1", "h2", "h3"], closure(), "RSH")
         self.assertEqual(nodes[0].calls, [("stage",)])
         for node, peer in zip(nodes[1:], ("h1", "h2", "h3")):
             self.assertEqual(node.calls, [("receive", "a", peer, "RSH")])
@@ -110,6 +110,34 @@ class Receive(unittest.TestCase):
         # Only the bootstrap moved: the peer's path-info needs it, the closure stream did not start.
         self.assertEqual(self.src._remote.call_count, 1)
         self.assertNotIn("--export", self.src._remote.call_args.args[0])
+
+
+class Wiring(unittest.TestCase):
+    """`stage` set on a static provider reaches the backend the lab's span run builds."""
+
+    def test_static_hosts_pass_stage_to_every_target_and_the_factory_builds_fanout(self):
+        from nixsci.deploy import factory
+        from nixsci.deploy.providers import Resources, Static
+
+        lease = Static().acquire(Resources(hosts=2), {"hosts": "h0,h1", "user": "u", "stage": "fanout"})
+        self.assertEqual([t["stage"] for t in lease.targets], ["fanout", "fanout"])
+        backend = factory.backend("t0", {"t0": lease.targets[0]})
+        self.assertEqual(backend.stage_mode, "fanout")
+
+    def test_static_hosts_default_to_direct(self):
+        from nixsci.deploy import factory
+        from nixsci.deploy.providers import Resources, Static
+
+        lease = Static().acquire(Resources(hosts=1), {"hosts": "h0", "user": "u"})
+        self.assertEqual(factory.backend("t0", {"t0": lease.targets[0]}).stage_mode, "direct")
+
+    def test_an_unknown_stage_is_refused_when_the_backend_is_built(self):
+        from nixsci.deploy import factory
+        from nixsci.deploy.providers import Resources, Static
+
+        lease = Static().acquire(Resources(hosts=1), {"hosts": "h0", "user": "u", "stage": "broadcast"})
+        with self.assertRaisesRegex(ValueError, "stage must be"):
+            factory.backend("t0", {"t0": lease.targets[0]})
 
 
 if __name__ == "__main__":

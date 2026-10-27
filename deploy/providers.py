@@ -113,7 +113,8 @@ class Static:
 
     Either name targets from a targets file:      targets = ["box1", "box2"], config = "path.json"
     or list ssh hosts sharing one template:       hosts = ["a", "b"] (or "a,b"), and optionally user,
-        workdir, jump, ssh_command, scp_command, ssh_options, rsh, ready_timeout, bootstrap.
+        workdir, jump, ssh_command, scp_command, ssh_options, rsh, ready_timeout, bootstrap, stage.
+        `stage` ("direct" or "fanout") is how a multi-host job copies its closure; see deploy/README.md.
         `workdir` (default /tmp/<user>-nix-deploy) is an absolute path on the hosts that holds the
         rootless store, the run directories and the shipped Nix; every listed host is used. The
         shipped static Nix is `nixpkgs#nixStatic` unless `bootstrap` names another flake reference
@@ -156,6 +157,7 @@ class Static:
                 "ssh_options",
                 "rsh",
                 "ready_timeout",
+                "stage",
             },
         )
         hosts = o["hosts"].split(",") if isinstance(o["hosts"], str) else list(o["hosts"])
@@ -187,6 +189,7 @@ class Static:
             "ssh_options",
             "rsh",
             "ready_timeout",
+            "stage",
         ):
             if key in o:
                 base[key] = o[key]
