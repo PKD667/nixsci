@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import time
 from typing import Any, Mapping
-from . import nix
+from . import fanout, nix
 from .backend import Backend
 from .model import Closure
 
@@ -34,7 +34,11 @@ class SSH(Backend):
         ready_timeout: float = 0,
         driver: str | None = None,
         profiles: tuple[str, ...] = (),
+        stage: str = "direct",
     ):
+        if stage not in ("direct", "fanout"):
+            raise ValueError("stage must be 'direct' or 'fanout'")
+        self.stage_mode = stage
         if not remote_bootstrap.startswith("/"):
             raise ValueError("remote_bootstrap must be an absolute declared target path")
         super().__init__(
@@ -117,6 +121,10 @@ class SSH(Backend):
             raise RuntimeError(
                 f"cannot ship Nix bootstrap: {result.stderr.decode(errors='replace')[-2000:]}"
             )
+        self._check_bootstrap()
+        self._bootstrap_shipped = True
+
+    def _check_bootstrap(self) -> None:
         check = (
             self._remote(
                 f"chmod 700 {shlex.quote(self.remote_bootstrap)}; sha256sum {shlex.quote(self.remote_bootstrap)}; uname -s; uname -m"
@@ -132,7 +140,10 @@ class SSH(Backend):
             or check[2] != expected_arch
         ):
             raise RuntimeError(f"remote Nix bootstrap verification failed: {check!r}")
-        self._bootstrap_shipped = True
+
+    def receive(self, closure: Closure, *, source: "SSH", peer: str, rsh: str) -> dict[str, Any]:
+        """Stage from `source` (another host of the job), not from the controller. See fanout.py."""
+        return fanout.receive(self, closure, source=source, peer=peer, rsh=rsh)
 
     def _remote_hashes(self, root: str | None = None) -> dict[str, str]:
         # --all enumerates registered paths without probing missing paths (a
