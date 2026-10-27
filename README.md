@@ -2,6 +2,8 @@
 
 nixsci deploys Nix closures, records experiments, runs R or Python analyses over locked data, and builds documents from their outputs.
 
+Deterministic pass/fail checks (a compile, a bounded model check, a seeded fuzzer) are verdicts: `nixsci validate` builds them, and the Nix store holds each one. See [validate/README.md](validate/README.md).
+
 ```sh
 nix run github:PKD667/nixsci -- --help
 ```
@@ -10,6 +12,7 @@ nix run github:PKD667/nixsci -- --help
 |---|---|---|
 | `nixsci deploy` | `nixsci.deploy` | [deploy/README.md](deploy/README.md), [deploy/DESIGN.md](deploy/DESIGN.md) |
 | `nixsci lab` | `nixsci.lab` | [lab/README.md](lab/README.md), [lab/SPEC.md](lab/SPEC.md), [lab/DESIGN.md](lab/DESIGN.md) |
+| `nixsci validate` | `nixsci.validate` | [validate/README.md](validate/README.md) |
 | statistics | `nixsci.stats` | [stats/README.md](stats/README.md) |
 | `nixsci doc` | `nixsci.doc` | [doc/README.md](doc/README.md) |
 | `nixsci <command>` | `nixsci.cli` | [cli/README.md](cli/README.md) |

@@ -2,6 +2,8 @@
 
 Experiments and analyses as Nix values. An experiment, in any language, records what it measured in one line. Nix describes the experiment (seeds, sweeps, declared data) and builds everything pure: the compaction of records into Parquet and R or Python analyses are derivations over the finished runs, built in the sandbox. Python only executes: it runs the jobs on hosts and adds each finished run to the Nix store.
 
+A check whose subject is deterministic (a compile, a bounded model check) is not a measurement: it is a verdict, see [`nixsci.validate`](../validate/README.md).
+
 The record side has no dependencies. Running on hosts uses [`nixsci.deploy`](../deploy/README.md); `nixsci.lab` never reimplements deployment.
 
 ## The pipeline
