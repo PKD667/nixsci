@@ -13,6 +13,7 @@ nix run github:PKD667/nixsci -- --help
 | statistics | `nixsci.stats` | [stats/README.md](stats/README.md) |
 | `nixsci doc` | `nixsci.doc` | [doc/README.md](doc/README.md) |
 | `nixsci <command>` | `nixsci.cli` | [cli/README.md](cli/README.md) |
+| GPU probe (`experiments.<system>.gpu-probe`) | `gpu/` | [gpu/README.md](gpu/README.md) |
 
 Nix pins the toolchain. Peer stores share sealed runs by content hash. No machine or organisation
 has a distinguished role.
