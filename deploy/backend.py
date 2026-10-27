@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 from .model import Closure
 
-#: Host tools (ssh, oarsh, ip) a job may call; closures bring everything else themselves.
+#: Host tools (ssh, a site login wrapper, ip) a job may call; closures bring everything else themselves.
 HOST_PATH = "/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin"
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 _RUN = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
@@ -176,6 +176,14 @@ def resolve_bootstrap(ref: str, nix: str = "nix") -> str:
 
 
 class Backend:
+    """What a target can do. One optional method is deliberately not defined here:
+
+    `shell(self, closure, *, run_id, program, env, inputs, cmd, show, keep) -> int`. A backend
+    whose hosts are reached some other way (allocations, gateways, no direct login) may define
+    it; `nixsci deploy shell` then calls it instead of the built-in path, and its return value
+    is the exit status.
+    """
+
     backend_name = "backend"
 
     def __init__(
@@ -282,16 +290,20 @@ class Backend:
             raise KeyError(f"deployment does not declare program {name!r}")
         return commands[name]
 
-    def launch(
+    def job_env(
         self,
         closure: Closure,
-        *,
         run_id: str,
         argv: tuple[str, ...] = (),
         env: Mapping[str, str] | None = None,
         inputs: Mapping[str, Any] | None = None,
         program: str = "run",
-    ) -> dict[str, Any]:
+    ) -> tuple[str, tuple[str, ...], dict[str, str], list[dict[str, str]]]:
+        """What a job sees: `(program path, args, environment, input records)`.
+
+        Checks the closure, creates the workdir and stages the inputs into it. `launch` and
+        `nixsci deploy shell` both build the environment here, so they cannot drift.
+        """
         self._admit(closure)
         self._verify(closure)
         workdir = self._workdir(run_id)
@@ -319,10 +331,24 @@ class Backend:
         enter = self.enter(closure)
         if enter:
             values["NIX_DEPLOY_ENTER"] = " ".join(shlex.quote(part) for part in enter)
-        self._write_json(workdir, "inputs.json", input_json)
-        handle = self._spawn(
-            closure, workdir, run_id, self._program(closure, program), args, values
+        return self._program(closure, program), args, values, input_json
+
+    def launch(
+        self,
+        closure: Closure,
+        *,
+        run_id: str,
+        argv: tuple[str, ...] = (),
+        env: Mapping[str, str] | None = None,
+        inputs: Mapping[str, Any] | None = None,
+        program: str = "run",
+    ) -> dict[str, Any]:
+        executable, args, values, input_json = self.job_env(
+            closure, run_id, argv, env, inputs, program
         )
+        workdir = self._workdir(run_id)
+        self._write_json(workdir, "inputs.json", input_json)
+        handle = self._spawn(closure, workdir, run_id, executable, args, values)
         handle.update(
             {
                 "id": run_id,

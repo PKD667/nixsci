@@ -4,10 +4,14 @@ nixsci deploy lease acquire <provider> <name> [--hosts N] [--walltime MIN] [--op
 nixsci deploy lease ls | show <name> | release <name>
 nixsci deploy (--lease NAME | --config FILE --target T) run <flake> <deployment> <run_id> --handle FILE
 nixsci deploy (--lease NAME | --config FILE --target T) status|stop|fetch ...
+nixsci deploy (--lease NAME | --config FILE --target T) shell <flake> <experiment> [-- CMD ...]
 """
 
 import argparse
+import contextlib
+import io
 import json
+import sys
 import time
 import warnings
 from pathlib import Path
@@ -62,13 +66,33 @@ def main(argv=None):
     run.add_argument("--env", action="append", default=[])
     run.add_argument("--input", action="append", default=[])
     run.add_argument("--handle", required=True)
+    shell = commands.add_parser("shell", help="an interactive shell in a run's environment")
+    shell.add_argument("flake")
+    shell.add_argument("experiment")
+    shell.add_argument("--program", default="run")
+    shell.add_argument("--env", action="append", default=[])
+    shell.add_argument("--input", action="append", default=[])
+    shell.add_argument("--run-id", default=None)
+    shell.add_argument("--show", action="store_true", help="print the environment, start nothing")
+    shell.add_argument("--keep", action="store_true", help="leave the workdir behind")
     for name in ("status", "stop"):
         commands.add_parser(name).add_argument("handle")
     fetch = commands.add_parser("fetch")
     fetch.add_argument("handle")
     fetch.add_argument("path")
     fetch.add_argument("destination")
-    args = parser.parse_args(argv)
+    raw = list(argv) if argv is not None else sys.argv[1:]
+    cut = raw.index("--") if "--" in raw else len(raw)
+    args = None
+    if "shell" in raw[:cut]:  # `shell ... -- CMD ...`: what follows `--` is the command, not ours
+        with contextlib.redirect_stderr(io.StringIO()):  # a real usage error shows on the re-parse
+            try:
+                args = parser.parse_args(raw[:cut])
+            except SystemExit:
+                pass
+    if args is None or args.command != "shell":
+        args, cut = parser.parse_args(raw), len(raw)
+    args.cmd = raw[cut + 1 :]
 
     if args.command == "lease":
         if args.action == "acquire" and not (args.provider and args.name):
@@ -91,6 +115,10 @@ def main(argv=None):
     names = list(configs)
     backends = [factory.backend(n, configs) for n in names]
     transport = backends[0]
+    if args.command == "shell":
+        from .shell import main as shell_main
+
+        return shell_main(args, names, configs, backends, expires)
     if args.command == "run":
         closure = resolve(args.flake, args.deployment, configs[names[0]]["system"])
         walltime = closure.metadata.get("walltime")

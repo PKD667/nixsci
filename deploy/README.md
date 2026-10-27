@@ -8,7 +8,7 @@ to a target, runs it there, and gives you a handle to watch it, read its files,
 tunnel to its ports and stop it. Where the machines come from (your laptop, ssh
 hosts you already have, a site-specific broker) is a separate, pluggable question:
 a *provider*. nixsci.deploy contains **no scheduler code**: reserving machines
-(OAR, Slurm, a cloud API...) is somebody else's job, done by hand, by a project's
+(a batch scheduler, a cloud API...) is somebody else's job, done by hand, by a project's
 own script, or by a provider plugin. nixsci.deploy starts at "here are hosts I can ssh to".
 
 It is meant to be the only way experiments are deployed. If a project has its
@@ -98,6 +98,52 @@ directories (the closure should bring everything else). nixsci.deploy adds:
 stdout and stderr go to `process.log` in the workdir. The program stays
 foreground in its own process group; `stop` sends SIGTERM to that group.
 
+## Debugging an environment: `shell`
+
+`nixsci deploy shell` opens an interactive shell in exactly the environment a bare
+`run` of the same experiment would give its program: same closure checks, same
+declared env, inputs, `NIX_DEPLOY_*`, `PATH`, `HOME`, same `nix shell --offline` store
+view, under `env -i`. It is built by the method `run` uses (`Backend.job_env`), so the
+two cannot drift. The program is **not** started; it is available as `$NIX_DEPLOY_PROGRAM`
+(the one variable a job does not get).
+
+```sh
+nixsci deploy [--lease L | --config F --target T] shell FLAKE EXPERIMENT \
+    [--program NAME] [--env K=V]... [--input N=P]... [--run-id ID] [--show] [--keep] [-- CMD ...]
+```
+
+| flag | meaning |
+|---|---|
+| `--program NAME` | which program `$NIX_DEPLOY_PROGRAM` names (`run` or a `commands` entry) |
+| `--env`, `--input` | as for `run` |
+| `--run-id ID` | workdir name under `run_root` (default `shell-<time>-<pid>`); refused if it exists |
+| `--show` | print the environment (`NAME=VALUE`, sorted, secrets included) and the resolved program and argv as JSON; start nothing |
+| `--keep` | do not remove the workdir on exit |
+| `-- CMD ...` | run this instead of `bash --noprofile --norc -i` (found on the closure's `PATH`, then the host's) |
+
+A line on stderr names the target, closure and workdir. The exit status is the shell's;
+the workdir is removed unless `--keep`. The ssh backend runs it with `ssh -t` (a real
+pty; resizes and the exit status are ssh's), with the target's own ssh options. A flake
+that `run` would refuse as dirty is refused. A lease or target with several hosts is
+refused: a multi-host `run` also sets `NIX_DEPLOY_HOSTFILE`. On ssh, `HOME` is the remote
+user's and is not in `--show`'s `env` (listed under `env_from_target`). A backend whose hosts are
+reached some other way (allocations, gateways, no direct login) may define
+`shell(self, closure, *, run_id, program, env, inputs, cmd, show, keep) -> int`, returning the
+exit status; `nixsci deploy shell` calls it instead of the built-in path (after the same
+one-line header). The base `Backend` does not define it.
+
+```sh
+$ nixsci deploy --config targets.json --target box shell . my-experiment --env SEED=3
+nixsci deploy shell: target=box closure=/nix/store/...-my-experiment workdir=/tmp/me-runs/shell-1760-4242
+bash-5.2$ echo $NIX_DEPLOY_WORKDIR; "$NIX_DEPLOY_PROGRAM" --dry-run; exit
+```
+
+What it does not prove: `deploy/tests/test_shell.py` uses a fake `nix` and a fake `ssh`
+(which runs the remote command with `sh -c` here), so it shows the command lines and
+environment are right and the exit status travels, not that a real sshd allocates the pty
+or that real `nix shell` puts the closure on `PATH`. It reproduces the environment `launch` builds, not the process around it
+(process group, log redirection, the walltime).
+
 ## Machine configuration
 
 What a provider *name* means is configured per machine, in
@@ -113,7 +159,7 @@ pkgs.writeText "providers.json" (builtins.toJSON { providers.lab = {
   # bootstrap defaults to "nixpkgs#nixStatic" (see below): no binary path, no hash to maintain
   ssh_options = [ "-o" "StrictHostKeyChecking=accept-new" ];
   ready_timeout = 180;             # hosts that just booted may refuse ssh for a while
-  # ssh_command = [ "oarsh" ];     # a site's own ssh wrapper; scp_command, rsh likewise
+  # ssh_command = [ "sitessh" ];  # a site's own ssh wrapper; scp_command, rsh likewise
 }; })
 ```
 
@@ -131,10 +177,10 @@ controller, hashes it itself, and the flake lock is what pins it. A plain file p
 works, but then it must come with its `bootstrap_sha256`.
 
 **The ssh layer is configuration, not code.** Per target (or per provider default):
-`ssh_command` and `scp_command` (default `ssh` and `scp -q`), `ssh_options` (extra
+`ssh_command` and `scp_command` (default `ssh` and `scp -q`; a word list, or one string split like a shell would, e.g. `"env OAR_JOB_ID=7 oarsh"`), `ssh_options` (extra
 `-o ...`), `jump` (ProxyJump chain), `rsh` (what jobs use to reach their peers,
-becomes `NIX_DEPLOY_RSH`) and `ready_timeout`. That is how Grid'5000 (a gateway
-plus `oarsh` or plain ssh), a cloud VM or a laptop on the LAN are all
+becomes `NIX_DEPLOY_RSH`) and `ready_timeout`. That is how a cluster (a gateway
+plus a login wrapper or plain ssh), a cloud VM or a laptop on the LAN are all
 different values.
 
 **Staging a multi-host job.** `stage = "direct"` (default) copies the closure from the controller to every host. `stage = "fanout"`, set on the first target of a job, copies it to that host only; the other hosts copy the missing paths from the first host through `rsh` (`nix-store --export | rsh peer 'nix-store --import'`), and each host verifies its own NAR hashes. The first host's link to its peers must work: the controller's `jump` and `ssh_options` do not apply to that hop. See `deploy/fanout.py`.
@@ -251,11 +297,11 @@ Verified end to end:
 
 - `local` provider and `native` backend, on a laptop and on a server.
 - The refactored design (no scheduler code, flake-reference bootstrap `nixpkgs#nixStatic`, `static`
-  provider with a gateway `jump`) end to end on 2 hand-reserved Grid'5000 nodes at Lille: group
+  provider with a gateway `jump`) end to end on 2 hand-reserved nodes of a remote cluster: group
   launch, node-to-node ssh through `NIX_DEPLOY_RSH`, command in the peer's store view through
   `NIX_DEPLOY_ENTER`, job released afterwards.
-- The `ssh` backend on real Grid'5000 nodes (1 and 2 Lille nodes, reserved by hand, reached
-  through the site gateway): ship a static Nix, ship and verify the closure by NAR hash
+- The `ssh` backend on a remote cluster (1 and 2 nodes, reserved by hand, reached
+  through a gateway): ship a static Nix, ship and verify the closure by NAR hash
   under a rootless store, run it inside that store view, read its log, fetch results.
 - Multi-host: `group.launch` stages the closure on both nodes and starts the program on
   the first; from there the program reached the second node with `$NIX_DEPLOY_RSH` and ran
@@ -273,7 +319,7 @@ user namespace where root-owned `/etc` files look owned by `nobody`, so ssh refu
 system config, which is why the default `NIX_DEPLOY_RSH` is `ssh -F /dev/null ...`.
 
 Limits to know: the ssh backend needs unprivileged user namespaces on the target
-(`nix --store` with a local root; present on Grid'5000 nodes); a bare static Nix has no
+(`nix --store` with a local root; present on the cluster nodes tried); a bare static Nix has no
 config, so every invocation passes `--extra-experimental-features nix-command` itself;
 `x86_64-linux` and `aarch64-linux` only; GPU toolchains are the experiment's business,
 not nixsci.deploy's.

@@ -2,6 +2,7 @@ import base64
 import hashlib
 import os
 import stat
+import subprocess
 import tempfile
 import unittest
 import unittest.mock
@@ -49,6 +50,49 @@ class Bootstrap(unittest.TestCase):
                     bootstrap="nixpkgs#nixStatic",
                     bootstrap_sha256="0" * 64,
                 )
+
+
+class Executable(unittest.TestCase):
+    """The ssh and scp executables are configuration: a word list or one string, never letters."""
+
+    def setUp(self):  # no nix here: the default bootstrap is resolved to a file that exists
+        path = os.path.join(tempfile.mkdtemp(), "nix")
+        with open(path, "wb") as f:
+            f.write(b"#!/bin/sh\n")
+        os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
+        patch = unittest.mock.patch("nixsci.deploy.backend.resolve_bootstrap",
+                                    lambda ref, nix="nix": path)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def make(self, **kw):
+        return SSH(host="me@a", system="x86_64-linux", store="/s", run_root="/r",
+                   remote_bootstrap="/b/nix", **kw)
+
+    def test_a_string_is_split_like_a_shell_and_a_list_is_kept(self):
+        b = self.make(ssh_command="env JOB=7 oarsh", scp_command=["env", "JOB=7", "oarcp", "-q"])
+        self.assertEqual(b._ssh[:3], ("env", "JOB=7", "oarsh"))
+        self.assertEqual(b._scp[:4], ("env", "JOB=7", "oarcp", "-q"))
+        self.assertEqual(self.make(ssh_command="my ssh")._ssh[:2], ("my", "ssh"))
+        self.assertEqual(self.make(ssh_command="'my ssh'")._ssh[0], "my ssh")
+
+    def test_the_default_is_plain_ssh_and_scp(self):
+        b = self.make()
+        self.assertEqual((b._ssh[0], b._scp[:2]), ("ssh", ("scp", "-q")))
+
+    def test_nothing_that_is_not_an_executable_is_accepted(self):
+        for bad in ("", "   ", [], [""], [1]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.make(ssh_command=bad)
+
+    def test_every_remote_call_goes_through_the_configured_executable(self):
+        b = self.make(ssh_command="WRAP ssh", ready_timeout=1)
+        seen = []
+        with unittest.mock.patch("subprocess.run", lambda argv, *a, **k: seen.append(list(argv))
+                                 or subprocess.CompletedProcess(argv, 0, b"", b"")):
+            b._wait_ready()
+            b.exists({"workdir": "/r/x"}, ".")
+        self.assertTrue(seen and all(a[:2] == ["WRAP", "ssh"] for a in seen), seen)
 
 
 STORE = "/nix/store/" + "a" * 32 + "-exp"
