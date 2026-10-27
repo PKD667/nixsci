@@ -14,13 +14,27 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Mapping, Sequence
 
-from . import fanout
 from .backend import Backend
 from .model import Closure
 
 # -F /dev/null: inside a rootless store's user namespace root-owned /etc files look owned by
 # nobody and ssh refuses the system config.
 DEFAULT_RSH = "ssh -F /dev/null -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+
+
+def stage_all(backends: Sequence[Backend], hosts: Sequence[str], closure: Closure, rsh: str) -> None:
+    """`stage = "fanout"`: the controller stages `backends[0]`; every other host copies from it.
+
+    The first host's link to its peers is `rsh`; the controller's jump and ssh options do not
+    apply to that hop. See SSH.receive for what each copy does and what is verified.
+    """
+    first = backends[0]
+    first.stage(closure)
+    peers = list(zip(hosts[1:], backends[1:]))
+    if not peers:
+        return
+    with ThreadPoolExecutor(max_workers=len(peers)) as pool:
+        list(pool.map(lambda pair: pair[1].receive(closure, source=first, peer=pair[0], rsh=rsh), peers))
 
 
 def launch(
@@ -39,7 +53,7 @@ def launch(
         raise ValueError("need one backend per host name")
     rsh = rsh or getattr(backends[0], "rsh", None) or DEFAULT_RSH
     if getattr(backends[0], "stage_mode", "direct") == "fanout":
-        fanout.stage_all(backends, hosts, closure, rsh)
+        stage_all(backends, hosts, closure, rsh)
     else:
         with ThreadPoolExecutor(max_workers=len(backends)) as pool:
             list(pool.map(lambda b: b.stage(closure), backends))

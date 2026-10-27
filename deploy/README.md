@@ -183,7 +183,7 @@ becomes `NIX_DEPLOY_RSH`) and `ready_timeout`. That is how a cluster (a gateway
 plus a login wrapper or plain ssh), a cloud VM or a laptop on the LAN are all
 different values.
 
-**Staging a multi-host job.** `stage = "direct"` (default) copies the closure from the controller to every host. `stage = "fanout"`, set on the first target of a job, copies it to that host only; the other hosts copy the missing paths from the first host through `rsh` (`nix-store --export | rsh peer 'nix-store --import'`), and each host verifies its own NAR hashes. The first host's link to its peers must work: the controller's `jump` and `ssh_options` do not apply to that hop. See `deploy/fanout.py`.
+**Staging a multi-host job.** `stage = "direct"` (default) copies the closure from the controller to every host. `stage = "fanout"`, set on the first target of a job, copies it to that host only; the other hosts copy the missing paths from the first host through `rsh` (`nix-store --export | rsh peer 'nix-store --import'`), and each host verifies its own NAR hashes. The first host's link to its peers must work: the controller's `jump` and `ssh_options` do not apply to that hop. See `SSH.receive` in `deploy/ssh.py`. Set it with `resources.opts.stage` on `static` hosts, or as `stage` in a targets file entry.
 
 **Walltime.** `walltime` (minutes) is a generic resource. When given, the lease
 records when it ends: `nixsci deploy run` refuses an expired lease, jobs get
