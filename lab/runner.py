@@ -55,9 +55,24 @@ def run(
         missing = {c["system"] for c in configs.values() if "system" in c} - set(closures)
         if missing:
             raise SystemExit(f"no closure for {sorted(missing)}: list them in the experiment's `systems`")
+        # A slot is one target (span 1) or the first target of one slice of `span` targets.
+        members: dict[str, list[tuple[str, str]]] = {}
+        if spec.span > 1:
+            if len(names) < spec.span:
+                raise SystemExit(
+                    f"span {spec.span} needs {spec.span} hosts; the lease has {len(names)}"
+                )
+            if len(lease.hosts) < len(names):
+                raise SystemExit("span needs the lease to name its hosts; this provider does not")
+            for i in range(0, len(names) // spec.span * spec.span, spec.span):
+                group = [(names[k], lease.hosts[k]) for k in range(i, i + spec.span)]
+                members[group[0][0]] = group
+            slots = list(members)
+        else:
+            slots = names
 
         def assign(job):
-            name = names[job.index % len(names)]
+            name = slots[job.index % len(slots)]
             return name, closures[configs[name]["system"]].path
 
         if project is not None:
@@ -89,9 +104,10 @@ def run(
                 timeout,
                 log,
                 lease.expires,
+                members=members.get(name),
             )
 
-        with ThreadPoolExecutor(max_workers=len(names)) as pool:
+        with ThreadPoolExecutor(max_workers=len(slots)) as pool:
             return list(pool.map(one, todo))
     finally:
         lease.release()
@@ -112,9 +128,12 @@ def _run_job(
     timeout,
     log,
     deadline=None,
+    members=None,
 ):
     run_id = f"{spec.name}-{ident[:12]}-r{replicate}"
+    # `members`: (target, host) pairs of a span > 1 slice; the job starts on the first one.
     be = factory.backend(name, configs)
+    backends = [be] + [factory.backend(n, configs) for n, _ in (members or [])[1:]]
     env = {"NIX_LAB_RUN": run_id, "NIX_LAB_PARAMS": json.dumps(job.params, sort_keys=True)}
     if job.seed is not None:
         env["NIX_LAB_SEED"] = str(job.seed)
@@ -123,14 +142,22 @@ def _run_job(
     if spec.keys:
         env["NIX_LAB_KEYS"] = json.dumps(spec.keys, sort_keys=True)
     started = _utc()
-    be.stage(closure)
+    if not members:
+        be.stage(closure)
     if deadline:
         env["NIX_DEPLOY_DEADLINE"] = str(int(deadline))
         timeout = min(timeout, max(0.0, deadline - time.time()))
     if be.clear(run_id):
         log(f"[{run_id}] removed the workdir an interrupted attempt left on {name}")
-    handle = be.launch(closure, run_id=run_id, env=env)
-    log(f"[{run_id}] launched on {name}")
+    if members:
+        from nixsci.deploy import group
+
+        hosts = [host for _, host in members]
+        handle = group.launch(backends, hosts, closure, run_id=run_id, env=env)
+        log(f"[{run_id}] launched on {', '.join(n for n, _ in members)}")
+    else:
+        handle = be.launch(closure, run_id=run_id, env=env)
+        log(f"[{run_id}] launched on {name}")
     give_up = time.monotonic() + timeout
     while be.alive(handle):
         if time.monotonic() > give_up:
@@ -164,6 +191,9 @@ def _run_job(
         "replicate": replicate,
         "tolerance": spec.tolerance,
     }
+    if members:
+        manifest["span"] = spec.span
+        manifest["hosts"] = [host for _, host in members]
     spec_bytes = spec.json_bytes()
     (dest / "spec.json").write_bytes(spec_bytes)
     manifest["spec_sha256"] = hashlib.sha256(spec_bytes).hexdigest()

@@ -30,6 +30,7 @@ let lab = nixsci.lib.lab { inherit pkgs; project = self; }; in {
     sweep.epsilon = [ 0.1 0.3 ];                            # every combination is a job
     params.size = 32;                                       # fixed, visible to lab.params()
     resources = { provider = "g5k"; hosts = 2; walltime = 120; opts.queue = "besteffort"; };
+    span = 4;  # each job runs on 4 hosts of the lease (NIX_DEPLOY_HOSTFILE lists them)
     data.loss.columns = { epoch = "int"; value = "float"; split = "str?"; };   # ? = may be null
   };
   apps.${system}.demo = self.lab.${system}.experiments.demo.run;
@@ -37,6 +38,8 @@ let lab = nixsci.lib.lab { inherit pkgs; project = self; }; in {
 ```
 
 `closures` maps each system you deploy to a built deployment; `systems` (default: this machine's) names which of them to build. `resources.provider` is a name from `~/.config/nixsci/providers.json`, and provider-specific settings go only under `resources.opts`. Unknown fields and a malformed name are evaluation errors.
+
+`span` (default 1) is how many hosts one job runs on: the lease's hosts are cut into consecutive groups of `span`, and a job starts on the first host of its group and reaches the others through `NIX_DEPLOY_RSH` (see `deploy/README.md`, "What a job sees").
 
 `nix run .#demo` resolves nothing at run time: Nix already built the closures. The executor leases hosts, spreads the jobs over them, waits, fetches each run's `lab/` directory, writes its `manifest.json` (state `ok`, `failed` or `incomplete`, seed, parameters, target, times, the flake's source identity and the closure path), adds the run directory to the Nix store and lists it in `lab.lock`. Flakes only see git-tracked files, so `git add lab.lock`.
 

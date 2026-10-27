@@ -17,7 +17,7 @@ from typing import Any
 from nixsci.lab import schema
 
 _NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
-_KNOWN = {"kind", "name", "systems", "seeds", "replicates", "params", "sweep", "resources", "outputs", "data"}
+_KNOWN = {"kind", "name", "systems", "seeds", "replicates", "params", "sweep", "resources", "outputs", "data", "span"}
 
 
 @dataclass(frozen=True)
@@ -39,6 +39,7 @@ class Spec:
     keys: dict[str, list[str]] = field(default_factory=dict)
     tolerance: dict[str, dict[str, float]] = field(default_factory=dict)
     replicates: int = 1
+    span: int = 1
 
     @property
     def provider(self) -> str:
@@ -79,11 +80,15 @@ def from_json(raw: dict[str, Any]) -> Spec:
     replicates = raw.get("replicates", 1)
     if isinstance(replicates, bool) or not isinstance(replicates, int) or replicates < 1:
         raise ValueError(f"{where}: replicates must be an integer >= 1")
+    span = raw.get("span", 1)
+    if isinstance(span, bool) or not isinstance(span, int) or span < 1:
+        raise ValueError(f"{where}: span must be an integer >= 1")
     data, keys = schema.declared(raw.get("data", {}))
     return Spec(
         name=where, seeds=tuple(seeds), params=dict(raw.get("params", {})), sweep=dict(sweep),
         resources=dict(raw.get("resources", {})), raw=raw, data=data, keys=keys,
         tolerance=schema.tolerances(raw.get("data", {})), replicates=replicates,
+        span=span,
     )
 
 
