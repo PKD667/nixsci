@@ -90,6 +90,7 @@ rec {
     , systems ? builtins.attrNames closures
     , seeds ? [ ]
     , replicates ? 1
+    , span ? 1
     , params ? { }
     , sweep ? { }
     , resources ? { }
@@ -97,7 +98,8 @@ rec {
     , data ? { }
     }:
     let
-      spec = { kind = "experiment"; name = name' "experiment" name; inherit systems seeds replicates params sweep resources outputs data; };
+      # `span` is written only when it differs from 1, so the spec of every other experiment is unchanged.
+      spec = { kind = "experiment"; name = name' "experiment" name; inherit systems seeds replicates params sweep resources outputs data; } // lib.optionalAttrs (span != 1) { inherit span; };
       specFile = pkgs.writeText "${name}-spec.json" (builtins.toJSON spec);
       source = builtins.toJSON { rev = project.rev or project.dirtyRev or null; narHash = project.narHash or null; };
     in
