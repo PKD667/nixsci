@@ -2,7 +2,9 @@
 # `bin/run` wrapper that provisions $NIX_LAB_DIR, runs the program, forwards
 # SIGTERM, and records status.json however the program was written.
 { pkgs }:
-{ name, program, args ? [ ], runtime ? [ ], metadata ? { }, resources ? { }, env ? { } }:
+# `commands` names further programs of the closure (`{ inference = "${drv}/bin/serve"; }`) that a launcher
+# may start beside the experiment with nixsci.deploy's `program = <name>`.
+{ name, program, args ? [ ], runtime ? [ ], metadata ? { }, resources ? { }, env ? { }, commands ? { } }:
 pkgs.runCommand "experiment-${name}" {
   nativeBuildInputs = [ pkgs.jq ];
   inherit program;
@@ -11,6 +13,7 @@ pkgs.runCommand "experiment-${name}" {
   meta_json = builtins.toJSON metadata;
   resources_json = builtins.toJSON resources;
   env_json = builtins.toJSON env;
+  commands_json = builtins.toJSON commands;
 } ''
   mkdir -p $out/bin
   cat > $out/bin/run <<WRAP
@@ -41,7 +44,7 @@ pkgs.runCommand "experiment-${name}" {
   chmod +x $out/bin/run
   jq -n --arg program "$out/bin/run" --arg name "${name}" \
         --argjson metadata "$meta_json" --argjson resources "$resources_json" \
-        --argjson env "$env_json" \
+        --argjson env "$env_json" --argjson commands "$commands_json" \
     '{program: $program, metadata: ($metadata + {lab: {name: $name}}),
-      resources: $resources, env: $env}' > $out/experiment.json
+      resources: $resources, env: $env} + (if $commands == {} then {} else {commands: $commands} end)' > $out/experiment.json
 ''
