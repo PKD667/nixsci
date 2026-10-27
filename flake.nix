@@ -19,7 +19,7 @@
           pyproject = true;
           build-system = [ py.setuptools ];
           dependencies = [ py.pyarrow ];
-          pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" "nixsci.doc" "nixsci.stats" ];
+          pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" "nixsci.doc" "nixsci.stats" "nixsci.validate" ];
           # A store path is immutable: bytecode written into one changes its hash and Nix then refuses it.
           makeWrapperArgs = [ "--set" "PYTHONDONTWRITEBYTECODE" "1" ];
           meta.mainProgram = "nixsci";
@@ -68,6 +68,11 @@
       # Experiments and analyses as Nix values. `project` is the calling flake's `self`.
       #   lab = nixsci.lib.lab { inherit pkgs; project = self; };
       lib.fetchRun = pkgs: import ./lab/nix/fetch-run.nix { inherit pkgs; };
+      # Verdicts for deterministic checks: `v = lib.validate { inherit pkgs; }; v.check {...}; v.suite {...}`.
+      lib.validate = { pkgs }: import ./validate/nix/validate.nix {
+        inherit pkgs;
+        python = self.packages.${pkgs.stdenv.hostPlatform.system}.python;
+      };
       lib.lab = { pkgs, project }:
         import ./lab/nix/lab.nix {
           inherit pkgs project;
@@ -184,6 +189,11 @@
       # in lab.lock, which this repository does not ship, and `nix flake check` evaluates packages.
       legacyPackages = forAll (pkgs: { demo-curves = self.lab.${pkgs.stdenv.hostPlatform.system}.analyses.demo-curves; });
 
+      # Verdicts of the examples (validate/examples): `nixsci validate` reads them.
+      validate = forAll (pkgs:
+        let v = self.lib.validate { inherit pkgs; };
+        in v.suite (import ./validate/examples { inherit pkgs v; }));
+
       # `nix flake check`: the fixtures build, and a draft cannot be published.
       checks = forAll (pkgs:
         let
@@ -262,6 +272,8 @@
                 --ignore=deploy/tests/test_source.py > $out 2>&1 || { cat $out; exit 1; }
               printf 'skipped deploy/tests/test_source.py: needs a writable Nix store\n' >> $out
             '';
+        # A deterministic check (validate/README.md). `validate.<system>.checks.broken` is left out on purpose.
+        validate-sorted = self.validate.${pkgs.stdenv.hostPlatform.system}.checks.sorted;
         example-paper = self.packages.${pkgs.stdenv.hostPlatform.system}.example-paper;
         example-draft = self.packages.${pkgs.stdenv.hostPlatform.system}.example-draft;
         # The zip compiles alone with its README's command (doc.zipCheck), for each example document.
