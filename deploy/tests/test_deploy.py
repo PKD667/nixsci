@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 from nixsci.deploy import providers
 from nixsci.deploy.backend import Backend, normalize_manifest
 from nixsci.deploy.model import Closure
+from nixsci.deploy.native import Native
 from nixsci.deploy.ssh import SSH
 
 HOST = st.from_regex(r"[a-z][a-z0-9-]{0,15}", fullmatch=True)
@@ -30,6 +31,32 @@ class StaticHosts(unittest.TestCase):
 
     def test_there_is_no_scheduler(self):
         self.assertEqual(sorted(providers._BUILTIN), ["local", "static"])
+
+    def test_local_target_declares_a_private_store(self):
+        target = providers.Local().acquire(providers.Resources(), {}).targets[0]
+        self.assertTrue(target["rootless"])
+        self.assertNotEqual(target["store"], "/nix/store")
+
+    def test_global_store_and_non_rootless_modes_are_rejected(self):
+        for store, rootless in (("/tmp/private-store", False), ("/nix/store", True)):
+            with self.subTest(store=store, rootless=rootless), self.assertRaises(ValueError):
+                SSH(
+                    host="me@a",
+                    system="x86_64-linux",
+                    store=store,
+                    run_root="/tmp/runs",
+                    remote_bootstrap="/tmp/bin/nix",
+                    rootless=rootless,
+                )
+
+    def test_native_rejects_host_root(self):
+        with unittest.mock.patch("nixsci.deploy.native.os.getuid", return_value=0):
+            with self.assertRaisesRegex(ValueError, "unprivileged host user"):
+                Native(
+                    system="x86_64-linux",
+                    store="/tmp/private-store",
+                    run_root="/tmp/runs",
+                )
 
 
 class Bootstrap(unittest.TestCase):

@@ -52,15 +52,24 @@ the training layer; it performs one selected installable lookup, never attr fall
 `env`, and `resources` are deployment values; deployment does not interpret
 training fields.
 
-A native target declares either the existing `/nix/store` or an explicit
-rootless store. These modes are not selected by fallback. Rootless targets
-require a locally hash-verified static Nix bootstrap. SSH stages that exact
-bootstrap at the declared target path, copies the full closure through a
-controller-created Nix binary cache, verifies every remote NAR hash, then
-starts the payload through upstream `nix shell --offline`. The SSH client is
-backgrounded after authentication while the remote script remains foreground;
-there is no detached `cd && background` command whose inherited channel can
-block the launch.
+Every target uses an explicit user-owned private store and a private
+mount-namespace root at canonical `/nix/store`. Only the controller uses its
+global store to resolve a closure; compute targets never read or mount it. The
+Nix-built `nixsci` package carries the static Nix 2.34.8 helper pinned by this
+flake. The helper requires unprivileged user and mount namespaces, maps the caller's UID/GID to the same host IDs, makes mounts private,
+binds the target store at `/nix/store`, and uses `pivot_root`. The target
+process retains its unprivileged host identity with zero effective setup
+capabilities. Nested namespaces remain the candidate sandbox; the store view is
+not a security boundary. The helper never falls back to host-store execution or a
+mount-only namespace.
+
+SSH first verifies the bootstrap hash, then imports only absent closure paths
+into the declared store. Nix verifies the recursive NAR contents and the target
+path-to-NAR map after staging and again before launch. A framed export carries
+path, reference and NAR metadata without a temporary binary cache. Transport
+never changes uncompressed NAR identity. The SSH client is backgrounded after
+authentication while the remote script remains foreground; there is no detached
+`cd && background` command whose inherited channel can block the launch.
 
 The public interface is `python -m nixsci.deploy` (the `run`, `status`, `stop`,
 and `fetch` commands). Handles are JSON, mode 600, and contain enough
