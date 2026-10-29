@@ -12,15 +12,19 @@ class Native(Backend):
         self,
         *,
         system: str,
-        store: str = "/nix/store",
+        store: str | None = None,
         run_root: str,
         nix_executable: str = "nix",
-        rootless: bool = False,
+        rootless: bool = True,
         bootstrap: str | None = None,
         bootstrap_sha256: str | None = None,
         driver: str | None = None,
         profiles: tuple[str, ...] = (),
     ):
+        if os.getuid() == 0:
+            raise ValueError("rootless native targets require an unprivileged host user")
+        if store is None:
+            store = run_root.rstrip("/") + "-store"
         super().__init__(
             system=system,
             store=store,
@@ -32,13 +36,23 @@ class Native(Backend):
             driver=driver,
             profiles=profiles,
         )
-        Path(run_root).mkdir(parents=True, exist_ok=True)
+        run_path, store_root = Path(run_root), Path(self.store)
+        for target_path in (run_path, store_root):
+            resolved = target_path.resolve()
+            if resolved == Path("/nix") or Path("/nix") in resolved.parents:
+                raise ValueError(f"private target path resolves inside the host /nix tree: {resolved}")
+        run_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        store_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if store_root.is_symlink():
+            raise ValueError(f"private store root must not be a symlink: {store_root}")
+        store_stat = store_root.stat()
+        if store_stat.st_uid != os.getuid() or store_stat.st_mode & 0o777 != 0o700:
+            raise ValueError(f"private store root must be owned by this user with mode 700: {store_root}")
         self.nix = shutil.which(self.nix) or self.nix
 
     def stage(self, closure: Closure) -> dict[str, Any]:
         self._admit(closure)
-        if self.rootless:
-            nix.copy_to(self.nix, self.store, closure.path)
+        nix.copy_to(self.nix, self.store, closure.path)
         self._verify(closure)
         return {"path": closure.path, "closure": dict(closure.closure), "system": closure.system}
 

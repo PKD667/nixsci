@@ -155,8 +155,8 @@ pkgs.writeText "providers.json" (builtins.toJSON { providers.lab = {
   use = "static";                  # hosts you reserved yourself, reached over ssh
   user = "me";
   jump = "me@gateway";             # ProxyJump chain, optional
-  # workdir defaults to /tmp/<user>-nix-deploy: rootless store, runs and shipped nix live there
-  # bootstrap defaults to "nixpkgs#nixStatic" (see below): no binary path, no hash to maintain
+  # workdir defaults to /tmp/<user>-nix-deploy: private store, runs and shipped nix live there
+  # the patched static Nix helper is embedded in the Nix-built nixsci package
   ssh_options = [ "-o" "StrictHostKeyChecking=accept-new" ];
   ready_timeout = 180;             # hosts that just booted may refuse ssh for a while
   # ssh_command = [ "sitessh" ];  # a site's own ssh wrapper; scp_command, rsh likewise
@@ -171,10 +171,11 @@ with a shared-credential broker, the same name can instead say
 A machine-wide file, `/etc/nixsci/providers.json`, has the same format and
 fills in names the user's own file does not set; the user's file wins.
 
-**The shipped Nix is a flake reference.** Hosts that have no Nix get a static `nix` binary.
-`bootstrap` is a flake reference (default `nixpkgs#nixStatic`): nixsci.deploy builds it on the
-controller, hashes it itself, and the flake lock is what pins it. A plain file path still
-works, but then it must come with its `bootstrap_sha256`.
+**The shipped Nix belongs to nixsci.** Hosts that have no Nix get the static Nix 2.34.8
+binary embedded in the Nix-built `nixsci` package. Its source revision is fixed by
+`flake.lock`, and its namespace-root patch is in `deploy/nix-namespace-root.patch`.
+The controller hashes that binary before shipping it; any explicit bootstrap path must
+match the embedded binary byte for byte.
 
 **The ssh layer is configuration, not code.** Per target (or per provider default):
 `ssh_command` and `scp_command` (default `ssh` and `scp -q`; a word list, or one string split like a shell would, e.g. `"env OAR_JOB_ID=7 oarsh"`), `ssh_options` (extra
@@ -219,18 +220,17 @@ The file is `builtins.toJSON` of a value like this one:
   backend = "ssh";
   host = "user@host";
   system = "x86_64-linux";
-  store = "/tmp/user/store";         # rootless store on the host
+  store = "/tmp/user/store";         # private store root on the host
   run_root = "/tmp/user/runs";
-  rootless = true;
-  bootstrap = "/local/path/to/nix-static";
-  bootstrap_sha256 = "...";
+  rootless = true;                    # required; false is rejected
   remote_bootstrap = "/tmp/user/bin/nix";
   ssh_options = [ "-o" "ProxyJump=user@jump" ];
 }; }
 ```
 
-`backend = "native"` runs on the controller's own store (`rootless = false`,
-`store = "/nix/store"`).
+`backend = "native"` also uses a private store. The `local` provider places it
+beside the run directories under the user's state directory; `/nix/store` is never
+a compute-target store.
 
 ## Python API
 
@@ -323,3 +323,4 @@ Limits to know: the ssh backend needs unprivileged user namespaces on the target
 config, so every invocation passes `--extra-experimental-features nix-command` itself;
 `x86_64-linux` and `aarch64-linux` only; GPU toolchains are the experiment's business,
 not nixsci.deploy's.
+Not established on this branch: the namespace-root and nested-user-namespace contract. The namespace proof is `deployments.<system>.namespace-proof` (`deploy/tests/rootless-proof.py`); a pass needs the NAR map, namespace evidence, denial checks and teardown, not only a zero exit. Host results from the experiment are in `.tmp/rootless-experiments/REPORT.md` on that branch.

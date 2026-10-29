@@ -10,8 +10,10 @@
       # CUDA is unfree (redistributable); only the GPU probe needs it.
       cudaPkgs = system: import nixpkgs { inherit system; config.allowUnfree = true; };
 
-      # The python library and its one executable, `nixsci`.
-      library = py: {
+      rootlessBootstrap = pkgs: import ./deploy/nix-bootstrap.nix { inherit pkgs; };
+
+      # The Python library ships the pinned Nix helper used by every compute target.
+      library = pkgs: py: {
         nixsci = py.buildPythonPackage {
           pname = "nixsci";
           version = "0.1.0";
@@ -22,6 +24,11 @@
           pythonImportsCheck = [ "nixsci.cli" "nixsci.deploy" "nixsci.lab" "nixsci.doc" "nixsci.stats" ];
           # A store path is immutable: bytecode written into one changes its hash and Nix then refuses it.
           makeWrapperArgs = [ "--set" "PYTHONDONTWRITEBYTECODE" "1" ];
+          postInstall = ''
+            bootstrap=$out/${pkgs.python3.sitePackages}/nixsci/deploy/_bootstrap
+            mkdir -p "$bootstrap"
+            ln -s "${rootlessBootstrap pkgs}/bin/nix" "$bootstrap/nix"
+          '';
           meta.mainProgram = "nixsci";
         };
       };
@@ -53,12 +60,13 @@
       # `pkgs.python3.withPackages (p: [ p.nixsci ])` in any consumer that applies this.
       overlays.default = final: prev: {
         pythonPackagesExtensions = prev.pythonPackagesExtensions ++ [
-          (pyfinal: pyprev: library pyfinal)
+          (pyfinal: pyprev: library final pyfinal)
         ];
       };
 
       # Wrap a program so it becomes a nixsci experiment closure.
       #   mkExperiment pkgs { name = "x"; program = "${drv}/bin/x"; metadata = {...}; }
+      lib.rootlessBootstrap = { pkgs }: rootlessBootstrap pkgs;
       lib.mkExperiment = pkgs: import ./lab/nix/mk-experiment.nix { inherit pkgs; };
       # The GPU probe: `lib.gpuProbe pkgs` is { probe, driver, experiment } (see gpu/README.md).
       # `pkgs` must allow unfree packages (CUDA); the flake's own output below does that itself.
@@ -96,6 +104,7 @@
           example = exampleDocument pkgs;
           pp = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).pkgs; in rec {
           default = nixsci;
+          nix-rootless = self.lib.rootlessBootstrap { inherit pkgs; };
           nixsci = pp.nixsci;
           example-paper-publish = (example { static = false; }).publish;
           # The interpreter that has nixsci, for derivations that run its modules.
@@ -150,6 +159,12 @@
           name = "hello";
           program = "${pkgs.writeShellScript "hello" ''echo \"hello from $(hostname) workdir=$NIX_DEPLOY_WORKDIR\"''}";
           runtime = [ pkgs.coreutils pkgs.hostname ];
+        };
+        # Qualifies the patched namespace root before a candidate enters bwrap (deploy/tests/rootless-proof.py).
+        namespace-proof = (self.lib.mkDeployment pkgs) {
+          name = "namespace-proof";
+          program = "${pkgs.writeShellScript "namespace-proof" ''exec ${pkgs.python3Minimal}/bin/python3 ${./deploy/tests/rootless-proof.py} "$@"''}";
+          runtime = [ pkgs.python3Minimal pkgs.bubblewrap pkgs.util-linuxMinimal pkgs.coreutils pkgs.tinycc ];
         };
         demo = (self.lib.mkExperiment pkgs) {
           name = "demo";
@@ -285,11 +300,20 @@
       apps = forAll (pkgs: {
         default = { type = "app"; program = "${self.packages.${pkgs.system}.nixsci}/bin/nixsci"; };
         demo = self.lab.${pkgs.system}.experiments.demo.run;
+        rootless-lifecycle =
+          let
+            run = pkgs.writeShellApplication {
+              name = "rootless-lifecycle";
+              runtimeInputs = [ self.packages.${pkgs.system}.python pkgs.nix pkgs.openssh ];
+              text = ''
+                exec ${self.packages.${pkgs.system}.python}/bin/python ${./deploy/tests/rootless-lifecycle.py} "$@"
+              '';
+            };
+          in { type = "app"; program = "${run}/bin/rootless-lifecycle"; };
       });
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
-          packages = [ pkgs.python3 pkgs.python3Packages.pytest pkgs.python3Packages.hypothesis pkgs.python3Packages.pyarrow pkgs.git ];
-          shellHook = ''export PYTHONPATH="$(dirname "$PWD"):$PYTHONPATH"'';
+          packages = [ self.packages.${pkgs.system}.python pkgs.python3Packages.pytest pkgs.python3Packages.hypothesis pkgs.python3Packages.pyarrow pkgs.git ];
         };
       });
     };

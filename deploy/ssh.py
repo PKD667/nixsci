@@ -73,6 +73,8 @@ class SSH(Backend):
         self.stage_mode = stage
         if not remote_bootstrap.startswith("/"):
             raise ValueError("remote_bootstrap must be an absolute declared target path")
+        if remote_bootstrap == "/nix" or remote_bootstrap.startswith("/nix/"):
+            raise ValueError("remote_bootstrap must not use the host /nix tree")
         super().__init__(
             system=system,
             store=store,
@@ -144,7 +146,7 @@ class SSH(Backend):
         if self._bootstrap_shipped:
             return
         parent = str(Path(self.remote_bootstrap).parent)
-        self._remote(f"mkdir -m 700 -p {shlex.quote(parent)}")
+        self._remote(f"umask 077; mkdir -m 700 -p {shlex.quote(parent)}")
         result = subprocess.run(
             [*self._scp, self.nix, f"{self.host}:{self.remote_bootstrap}"],
             stdout=subprocess.PIPE,
@@ -253,7 +255,23 @@ class SSH(Backend):
     def stage(self, closure: Closure) -> dict[str, Any]:
         self._admit(closure)
         self._wait_ready()
+        remote_uid = self._remote("id -u").stdout.decode().strip()
+        if not remote_uid.isdecimal() or int(remote_uid) == 0:
+            raise RuntimeError(f"rootless SSH targets require a non-root host user, got {remote_uid!r}")
+        for target_path in (self.store, self.run_root, self.remote_bootstrap):
+            resolved = self._remote(
+                f"realpath -m -- {shlex.quote(target_path)}"
+            ).stdout.decode().strip()
+            if resolved == "/nix" or resolved.startswith("/nix/"):
+                raise RuntimeError(f"private target path resolves inside the host /nix tree: {resolved}")
         self._ship_bootstrap()
+        # Private store root: created 0700 and owned by this (non-root) user.
+        self._remote(f"umask 077; mkdir -m 700 -p {shlex.quote(self.store)}")
+        identity = self._remote(
+            f"stat -c '%u %a' {shlex.quote(self.store)}; id -u"
+        ).stdout.decode().splitlines()
+        if len(identity) != 2 or identity[0] != identity[1] + " 700":
+            raise RuntimeError(f"remote private store root is not owned mode 700: {identity!r}")
         cached = self._remote_hashes()
         missing = []
         for path, expected in closure.closure.items():
