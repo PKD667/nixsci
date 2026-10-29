@@ -205,8 +205,9 @@ meta = {META!r}
 c = Closure({STORE!r}, {STORE + "/bin/run"!r}, meta, {{{STORE!r}: {ZERO!r}}}, "src", "x86_64-linux")
 for target in ("nixsci.deploy.shell.resolve", "nixsci.deploy.cli.resolve"):
     mock.patch(target, lambda *a, **k: c).start()
-if os.environ.get("NS_NOSTAGE"):  # staging over ssh needs a real host
+if os.environ.get("NS_NOSTAGE"):  # staging copies to a real store or host; these tests check the CLI
     mock.patch("nixsci.deploy.ssh.SSH.stage", lambda self, c: None).start()
+    mock.patch("nixsci.deploy.native.Native.stage", lambda self, c: None).start()
 sys.exit(cli.main(sys.argv[1:]))
 """
 
