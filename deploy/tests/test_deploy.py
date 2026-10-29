@@ -56,6 +56,7 @@ class StaticHosts(unittest.TestCase):
                     system="x86_64-linux",
                     store="/tmp/private-store",
                     run_root="/tmp/runs",
+                    rootless=True,
                 )
 
 
