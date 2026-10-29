@@ -107,13 +107,13 @@
       packages = forAll (pkgs:
         let
           example = exampleDocument pkgs;
-          pp = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).pkgs; in rec {
+          pp = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pkgs pyfinal; }).pkgs; in rec {
           default = nixsci;
           nix-rootless = self.lib.rootlessBootstrap { inherit pkgs; };
           nixsci = pp.nixsci;
           example-paper-publish = (example { static = false; }).publish;
           # The interpreter that has nixsci, for derivations that run its modules.
-          python = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pyfinal; }).withPackages (p: [ p.nixsci ]);
+          python = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pkgs pyfinal; }).withPackages (p: [ p.nixsci ]);
           # `from nixsci import lab` with no dependencies: safe to put in any experiment closure.
           lab-py = pkgs.runCommand "nixsci-lab-py" { } ''
             site=$out/${pkgs.python3.sitePackages}/nixsci
