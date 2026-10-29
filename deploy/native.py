@@ -12,19 +12,17 @@ class Native(Backend):
         self,
         *,
         system: str,
-        store: str | None = None,
+        store: str = "/nix/store",
         run_root: str,
         nix_executable: str = "nix",
-        rootless: bool = True,
+        rootless: bool = False,
         bootstrap: str | None = None,
         bootstrap_sha256: str | None = None,
         driver: str | None = None,
         profiles: tuple[str, ...] = (),
     ):
-        if os.getuid() == 0:
+        if rootless and os.getuid() == 0:
             raise ValueError("rootless native targets require an unprivileged host user")
-        if store is None:
-            store = run_root.rstrip("/") + "-store"
         super().__init__(
             system=system,
             store=store,
@@ -36,6 +34,10 @@ class Native(Backend):
             driver=driver,
             profiles=profiles,
         )
+        if not rootless:
+            Path(run_root).mkdir(parents=True, exist_ok=True)
+            self.nix = shutil.which(self.nix) or self.nix
+            return
         run_path, store_root = Path(run_root), Path(self.store)
         for target_path in (run_path, store_root):
             resolved = target_path.resolve()

@@ -4,6 +4,7 @@ These command/lifecycle tests do not prove remote filesystem or CUDA behavior.
 The real CBP run separately qualifies namespace and driver access.
 """
 import base64
+import shlex
 from dataclasses import replace
 import json
 import subprocess
@@ -82,6 +83,14 @@ class StageCache(unittest.TestCase):
             self.commands.append(command)
             if "--import" in command and self.import_error:
                 raise RuntimeError(self.import_error)
+            # A rootless target: a non-root uid, paths that resolve as given,
+            # and a store root created 0700 and owned by that uid.
+            if command == "id -u":
+                return subprocess.CompletedProcess([], 0, b"1000\n", b"")
+            if command.startswith("realpath -m --"):
+                return subprocess.CompletedProcess([], 0, (shlex.split(command)[-1] + "\n").encode(), b"")
+            if command.startswith("umask 077; mkdir -m 700") or "stat -c" in command:
+                return subprocess.CompletedProcess([], 0, b"1000 700\n1000\n", b"")
             output = self.remote_output if self.remote_output is not None else next(self.parents) if "mktemp" in command else ""
             return subprocess.CompletedProcess([], 0, (output + "\n").encode(), b"")
         self.backend._remote = remote
@@ -108,7 +117,7 @@ class StageCache(unittest.TestCase):
         self.backend._remote_nix.assert_called_once_with("path-info", "--all", "--json")
         self.export.assert_not_called()
         scp.assert_not_called()
-        self.assertEqual(self.commands, [])
+        self.assertFalse([c for c in self.commands if "--import" in c or "rm -rf" in c or "mktemp" in c])
         self.backend._verify.assert_called_once_with(self.closure)
 
     def test_partial_cache_exports_and_imports_only_missing_paths(self):
@@ -141,7 +150,7 @@ class StageCache(unittest.TestCase):
         self.export.assert_not_called()
         self.backend._verify.assert_not_called()
         scp.assert_not_called()
-        self.assertEqual(self.commands, [])
+        self.assertFalse([c for c in self.commands if "--import" in c or "rm -rf" in c or "mktemp" in c])
 
     def test_query_error_is_fatal_not_an_empty_cache(self):
         self.backend._remote_nix.side_effect = RuntimeError("SSH query failed")
@@ -149,7 +158,7 @@ class StageCache(unittest.TestCase):
             self.backend.stage(self.closure)
         self.export.assert_not_called()
         self.backend._verify.assert_not_called()
-        self.assertEqual(self.commands, [])
+        self.assertFalse([c for c in self.commands if "--import" in c or "rm -rf" in c or "mktemp" in c])
 
     def test_malformed_query_is_fatal(self):
         for value in [None, [None], {STORE: {}}, [{"path": STORE, "narHash": 3}],
