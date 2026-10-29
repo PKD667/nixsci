@@ -82,7 +82,7 @@ def system() -> str:
 
 
 class Local:
-    """This machine's own Nix store; no privileges, no ssh."""
+    """This machine with its own private Nix store; no privileges, no ssh."""
 
     def release(self, state):
         pass
@@ -99,9 +99,9 @@ class Local:
                 {
                     "backend": "native",
                     "system": system(),
-                    "store": "/nix/store",
+                    "store": str(state / f"slot{i}-store"),
                     "run_root": str(state / f"slot{i}"),
-                    "rootless": False,
+                    "rootless": True,
                 }
                 for i in range(resources.hosts)
             ]
@@ -117,8 +117,8 @@ class Static:
         `stage` ("direct" or "fanout") is how a multi-host job copies its closure; see deploy/README.md.
         `workdir` (default /tmp/<user>-nix-deploy) is an absolute path on the hosts that holds the
         rootless store, the run directories and the shipped Nix; every listed host is used. The
-        shipped static Nix is `nixpkgs#nixStatic` unless `bootstrap` names another flake reference
-        (or a file, then with its `bootstrap_sha256`).
+        shipped Nix is the static, namespace-patched binary embedded in the Nix-built nixsci package;
+        an explicit bootstrap path is accepted only when its bytes match that pinned binary.
     """
 
     def release(self, state):

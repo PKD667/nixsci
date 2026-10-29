@@ -205,6 +205,8 @@ class Backend:
             bootstrap = DEFAULT_BOOTSTRAP
         if not rootless and store != "/nix/store":
             raise ValueError("existing-store targets must declare /nix/store")
+        if rootless and any(path == "/nix" or path.startswith("/nix/") for path in (store, run_root)):
+            raise ValueError("private store and run roots must not use the host /nix tree")
         self.system, self.store, self.run_root, self.nix, self.rootless = (
             system,
             store,
