@@ -217,3 +217,43 @@ class StageCache(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShipBootstrap(unittest.TestCase):
+    """The static Nix is shipped only when the target's copy is missing or wrong, and replaced by rename.
+
+    Overwriting it in place failed with 'Text file busy' while a job ran it, and cost 41 MB per backend
+    object (one per job of a sweep) through the site gateway."""
+
+    def setUp(self):
+        self.backend = object.__new__(SSH)
+        self.backend.__dict__.update(host="me@node", remote_bootstrap="/remote/bin/nix", nix="/local/nix",
+                                     bootstrap_sha256="0" * 64, _scp=("scp", "-q"), _bootstrap_shipped=False)
+        self.commands = []
+        self.backend._remote = lambda command, **kw: (self.commands.append(command),
+                                                       subprocess.CompletedProcess([], 0, b"", b""))[1]
+
+    def test_a_verified_remote_copy_is_not_shipped_again(self):
+        self.backend._check_bootstrap = Mock()          # verification passes: present, right hash
+        with patch("nixsci.deploy.ssh.subprocess.run") as scp:
+            self.backend._ship_bootstrap()
+        scp.assert_not_called()
+        self.assertTrue(self.backend._bootstrap_shipped)
+
+    def test_a_missing_or_wrong_copy_is_shipped_to_a_temporary_name_and_renamed(self):
+        calls = iter([RuntimeError("remote Nix bootstrap verification failed: []"), None])
+        def check():
+            outcome = next(calls)
+            if outcome:
+                raise outcome
+        self.backend._check_bootstrap = Mock(side_effect=check)
+        with patch("nixsci.deploy.ssh.subprocess.run",
+                   return_value=subprocess.CompletedProcess([], 0, b"", b"")) as scp:
+            self.backend._ship_bootstrap()
+        target = scp.call_args.args[0][-1]
+        self.assertNotEqual(target, "me@node:/remote/bin/nix")      # never over the file a job may be running
+        self.assertTrue(target.startswith("me@node:/remote/bin/nix."))
+        rename = [c for c in self.commands if "mv -f" in c]
+        self.assertEqual(len(rename), 1)
+        self.assertIn("/remote/bin/nix", rename[0])
+        self.assertTrue(self.backend._bootstrap_shipped)

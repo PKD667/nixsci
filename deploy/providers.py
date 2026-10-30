@@ -164,6 +164,8 @@ class Static:
         hosts = [h.strip() for h in hosts if h.strip()]
         if len(hosts) < resources.hosts:
             raise ValueError(f"asked for {resources.hosts} hosts, {len(hosts)} listed")
+        # `hosts` is a generic resource: lease what was asked for, not everything that was listed.
+        hosts = hosts[: resources.hosts]
         workdir = o.get("workdir") or (f"/tmp/{o['user']}-nix-deploy" if "user" in o else None)
         if not workdir:
             raise ValueError(

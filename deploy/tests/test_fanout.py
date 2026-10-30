@@ -96,6 +96,16 @@ class Receive(unittest.TestCase):
         self.dest._verify.assert_called_once()
         self.assertEqual(result["path"], STORE)
 
+    def test_the_peers_store_root_is_made_0700_before_the_import(self):
+        # nix creates the store's parent directory 0755 on its own. stage() refuses a store root that is
+        # not owned mode 700, so a host first staged by fanout could never be staged directly afterwards
+        # (observed on Grid'5000: store/ was 755 on every fanout peer, 700 on directly staged hosts).
+        with patch("nixsci.deploy.nix.export_paths"), patch("nixsci.deploy.ssh.subprocess.run"):
+            self.dest.receive(closure(), source=self.src, peer="peer1", rsh="RSH")
+        transfer = self.src._remote.call_args_list[-1].args[0]
+        self.assertIn("mkdir -m 700 -p /s/dst", transfer)
+        self.assertLess(transfer.index("mkdir -m 700 -p /s/dst"), transfer.index("--import"))
+
     def test_paths_the_peer_already_has_are_not_sent(self):
         self.dest._remote_hashes = Mock(return_value={STORE: HASH})
         self.dest._bootstrap_shipped = True
