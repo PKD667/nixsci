@@ -384,6 +384,10 @@ class Backend:
         _, manifest = self._stage_inputs(str(handle["workdir"]), [(n, data, digest)], existing=True)
         return manifest[0]["path"]
 
+    def put_script(self, workdir: str, relpath: str, text: str) -> str:
+        """Write an executable script under `workdir` (created 0700 when missing); returns its path."""
+        raise NotImplementedError
+
     def _stage_inputs(self, workdir: str, records, existing: bool = False):
         raise NotImplementedError
 
