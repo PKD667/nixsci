@@ -7,6 +7,7 @@ import socket
 import subprocess
 import tempfile
 import time
+import uuid
 from typing import Any, Mapping
 from . import nix
 from .backend import Backend
@@ -143,19 +144,36 @@ class SSH(Backend):
         return self._remote(command, data=data, check=check)
 
     def _ship_bootstrap(self) -> None:
+        """Make the static Nix present and verified at `remote_bootstrap`.
+
+        A copy that already verifies is left alone: a job may be executing it ('Text file busy'), and
+        shipping it costs tens of MB through the site gateway for every backend object (one per job of
+        a sweep). A missing or wrong copy is shipped to a temporary name and renamed into place, so a
+        running binary keeps its inode."""
         if self._bootstrap_shipped:
             return
-        parent = str(Path(self.remote_bootstrap).parent)
+        try:
+            self._check_bootstrap()
+        except RuntimeError:
+            pass
+        else:
+            self._bootstrap_shipped = True
+            return
+        target = self.remote_bootstrap
+        parent = str(Path(target).parent)
+        part = f"{target}.{uuid.uuid4().hex[:12]}.part"
         self._remote(f"umask 077; mkdir -m 700 -p {shlex.quote(parent)}")
         result = subprocess.run(
-            [*self._scp, self.nix, f"{self.host}:{self.remote_bootstrap}"],
+            [*self._scp, self.nix, f"{self.host}:{part}"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
         if result.returncode:
+            self._remote(f"rm -f -- {shlex.quote(part)}", check=False)
             raise RuntimeError(
                 f"cannot ship Nix bootstrap: {result.stderr.decode(errors='replace')[-2000:]}"
             )
+        self._remote(f"chmod 700 {shlex.quote(part)}; mv -f -- {shlex.quote(part)} {shlex.quote(target)}")
         self._check_bootstrap()
         self._bootstrap_shipped = True
 
@@ -210,7 +228,8 @@ class SSH(Backend):
                 _frontend("$d", source.store, "--export", *missing),
                 peer,
                 rsh,
-                f"umask 077; mkdir -p {shlex.quote(dst_stage)}; "
+                # nix creates the store's parent 0755; stage() refuses a store root that is not 0700.
+                f"umask 077; mkdir -m 700 -p {shlex.quote(self.store)}; mkdir -p {shlex.quote(dst_stage)}; "
                 f"d=$(mktemp -d {shlex.quote(dst_stage)}/fanout-XXXXXXXX); "
                 f"ln -s {shlex.quote(self.remote_bootstrap)} \"$d/nix-store\"; "
                 f"{_frontend('$d', self.store, '--import')}; rm -rf -- \"$d\"",

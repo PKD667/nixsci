@@ -20,6 +20,14 @@ HOST = st.from_regex(r"[a-z][a-z0-9-]{0,15}", fullmatch=True)
 
 
 class StaticHosts(unittest.TestCase):
+    def test_a_lease_has_the_number_of_hosts_the_resources_ask_for_not_every_listed_host(self):
+        # `hosts` is a generic resource. Four listed hosts and hosts = 1 used to lease all four, so a sweep of
+        # one-host jobs spread over four machines and each paid a cold staging.
+        lease = providers.Static().acquire(providers.Resources(hosts=2),
+                                           {"hosts": "a,b,c,d", "user": "me"})
+        self.assertEqual(lease.hosts, ["a", "b"])
+        self.assertEqual([t["host"] for t in lease.targets], ["me@a", "me@b"])
+
     @given(st.lists(HOST, min_size=1, max_size=8, unique=True))
     def test_every_listed_host_becomes_a_target_and_all_share_one_store(self, hosts):
         lease = providers.Static().acquire(
