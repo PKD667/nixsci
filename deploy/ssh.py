@@ -347,6 +347,16 @@ class SSH(Backend):
             raise ValueError("path escapes the remote workdir")
         return workdir.rstrip("/") + ("/" + relpath if relpath else "")
 
+    def put_script(self, workdir: str, relpath: str, text: str) -> str:
+        target = self._workdir_path(workdir, relpath)
+        parent = str(Path(target).parent)
+        self._remote(
+            f"umask 077; mkdir -m 700 -p {shlex.quote(workdir)}; mkdir -m 700 -p {shlex.quote(parent)}; "
+            f"cat > {shlex.quote(target)}; chmod 700 {shlex.quote(target)}",
+            data=text.encode(),
+        )
+        return target
+
     def _stage_inputs(
         self, workdir: str, records: list[tuple[str, Any, str]], existing: bool = False
     ) -> tuple[dict[str, str], list[dict[str, str]]]:

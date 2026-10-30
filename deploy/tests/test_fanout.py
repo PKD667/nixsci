@@ -21,10 +21,22 @@ HASH = "sha256-" + base64.b64encode(bytes(32)).decode()
 class Node:
     def __init__(self, name, mode="direct"):
         self.name, self.stage_mode, self.calls = name, mode, []
-        self.run_root = "/run/" + name
+        self.run_root = "/run"  # hosts of one job share a run_root: a static lease's hosts do
 
     def stage(self, closure):
         self.calls.append(("stage",))
+
+    def enter(self, closure):
+        return ["/bin/nix-" + self.name, "shell", closure.path, "--command"]
+
+    def put_script(self, workdir, relpath, text):
+        self.calls.append(("put_script", workdir, relpath, text))
+        return f"{workdir}/{relpath}"
+
+    @property
+    def effects(self):
+        """The calls that move the closure or start the job, without the agent writes."""
+        return [c for c in self.calls if c[0] != "put_script"]
 
     def receive(self, closure, *, source, peer, rsh):
         self.calls.append(("receive", source.name, peer, rsh))
@@ -49,19 +61,55 @@ class Stage(unittest.TestCase):
     def test_direct_staging_still_stages_every_host_from_the_controller(self):
         nodes = [Node("a"), Node("b")]
         group.launch(nodes, ["h0", "h1"], closure(), run_id="r1")
-        self.assertEqual([n.calls[0] for n in nodes], [("stage",), ("stage",)])
-        self.assertEqual(nodes[0].calls[1], ("launch", "r1"))
+        self.assertEqual([n.effects[0] for n in nodes], [("stage",), ("stage",)])
+        self.assertEqual(nodes[0].effects[1], ("launch", "r1"))
 
     def test_fanout_is_chosen_by_the_first_target_only(self):
         nodes = [Node("a", "fanout"), Node("b")]
         group.launch(nodes, ["h0", "h1"], closure(), run_id="r2", rsh="RSH")
-        self.assertEqual(nodes[0].calls, [("stage",), ("launch", "r2")])
-        self.assertEqual(nodes[1].calls, [("receive", "a", "h1", "RSH")])
+        self.assertEqual(nodes[0].effects, [("stage",), ("launch", "r2")])
+        self.assertEqual(nodes[1].effects, [("receive", "a", "h1", "RSH")])
 
     def test_stage_must_be_direct_or_fanout(self):
         with self.assertRaisesRegex(ValueError, "stage must be"):
             SSH(host="h", system="x86_64-linux", store="/s", run_root="/r",
                 remote_bootstrap="/b/nix", rootless=False, stage="broadcast")
+
+
+class Agent(unittest.TestCase):
+    """PRRTE hands `plm_ssh_agent <path>` to every daemon it starts, and a daemon whose node has no executable
+    at that path selects no plm component and dies with a NULL call (prted's node_regex_report, observed on
+    Grid'5000 with PRRTE 4.1.0 and 3.0.12 alike). So the agent must exist at one path on every host."""
+
+    def test_every_host_gets_the_same_agent_path_with_its_own_enter_prefix(self):
+        nodes = [Node("a"), Node("b"), Node("c")]
+        handle = group.launch(nodes, ["h0", "h1", "h2"], closure(), run_id="r3", rsh="RSH -x")
+        for node in nodes:
+            put = [c for c in node.calls if c[0] == "put_script"]
+            self.assertEqual(len(put), 1, node.name)
+            _, workdir, relpath, text = put[0]
+            self.assertEqual((workdir, relpath), ("/run/r3", "inputs/agent"))
+            self.assertIn('exec RSH -x "$host" /bin/nix-%s shell %s --command "$@"' % (node.name, STORE), text)
+            self.assertTrue(text.startswith("#!/bin/sh\n"))
+        launched = [c for c in nodes[0].calls if c[0] == "launch"]
+        self.assertEqual(len(launched), 1)
+
+    def test_the_agent_path_is_exported_to_the_job(self):
+        seen = {}
+        class First(Node):
+            def launch(self, closure, **kwargs):
+                seen.update(kwargs["env"])
+                return {}
+        nodes = [First("a"), Node("b")]
+        group.launch(nodes, ["h0", "h1"], closure(), run_id="r4", rsh="RSH")
+        self.assertEqual(seen["NIX_DEPLOY_AGENT"], "/run/r4/inputs/agent")
+
+    def test_hosts_that_disagree_on_the_run_root_are_refused(self):
+        nodes = [Node("a"), Node("b")]
+        nodes[1].run_root = "/elsewhere"
+        # a path that is the same on every host is the whole point of the agent
+        with self.assertRaisesRegex(ValueError, "run_root"):
+            group.launch(nodes, ["h0", "h1"], closure(), run_id="r5", rsh="RSH")
 
 
 class Receive(unittest.TestCase):

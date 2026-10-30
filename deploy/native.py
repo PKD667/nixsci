@@ -64,6 +64,13 @@ class Native(Backend):
             raise ValueError("handle path escapes the declared run root")
         return path
 
+    def put_script(self, workdir, relpath, text):
+        target = self._path(workdir, relpath)
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        target.write_text(text)
+        target.chmod(0o700)
+        return str(target)
+
     def _stage_inputs(self, workdir, records, existing=False):
         root = self._path(workdir)
         root.mkdir(mode=0o700, parents=False, exist_ok=existing)
