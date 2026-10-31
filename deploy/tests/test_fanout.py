@@ -86,7 +86,7 @@ class Stage(unittest.TestCase):
 class Agent(unittest.TestCase):
     """PRRTE hands `plm_ssh_agent <path>` to every daemon it starts, and a daemon whose node has no executable
     at that path selects no plm component and dies with a NULL call (prted's node_regex_report, observed on
-    Grid'5000 with PRRTE 4.1.0 and 3.0.12 alike). So the agent must exist at one path on every host."""
+    a cluster with PRRTE 4.1.0 and 3.0.12 alike). So the agent must exist at one path on every host."""
 
     def test_every_host_gets_the_same_agent_path_with_its_own_enter_prefix(self):
         nodes = [Node("a"), Node("b"), Node("c")]
@@ -181,7 +181,7 @@ class Receive(unittest.TestCase):
     def test_the_peers_store_root_is_made_0700_before_the_import(self):
         # nix creates the store's parent directory 0755 on its own. stage() refuses a store root that is
         # not owned mode 700, so a host first staged by fanout could never be staged directly afterwards
-        # (observed on Grid'5000: store/ was 755 on every fanout peer, 700 on directly staged hosts).
+        # (observed on a cluster: store/ was 755 on every fanout peer, 700 on directly staged hosts).
         with patch("nixsci.deploy.nix.export_paths"), patch("nixsci.deploy.ssh.subprocess.run"):
             self.dest.receive(closure(), source=self.src, peer="peer1", rsh="RSH")
         transfer = self.src._remote.call_args_list[-1].args[0]

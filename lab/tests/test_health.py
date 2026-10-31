@@ -1,6 +1,6 @@
 """A job that exits 0 can still have failed: its rows say so. nixsci notices without being asked.
 
-Grid'5000 history: 69 of 69 launches died in 0.05 s (a launcher misconfiguration), the runner exited 0 because
+History: 69 of 69 launches died in 0.05 s (a launcher misconfiguration), the runner exited 0 because
 it records failures as data, and nixsci printed "1/1 new run(s) ok" and offered the run for lab.lock. The rule is
 a convention, not a configuration: a dataset with a boolean column named `ok` says, row by row, whether it worked."""
 import json
