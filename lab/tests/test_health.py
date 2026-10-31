@@ -8,8 +8,8 @@ import unittest
 
 from nixsci.lab import health
 
-SCHEMA = {"run": {"columns": {"program": "str", "ok": "bool", "verdict": "str"}},
-          "cfg": {"columns": {"text": "str"}}}
+# The shape a manifest seals (spec.data), taken from a real run: columns directly under the dataset.
+SCHEMA = {"run": {"program": "str", "ok": "bool", "verdict": "str"}, "cfg": {"text": "str"}}
 
 
 def rows(dataset, *oks, verdict="exit"):
@@ -46,6 +46,10 @@ class Judge(unittest.TestCase):
         data = rows("run", False, False, False, verdict="timeout") + rows("run", False, verdict="exit")
         _, notes = health.judge(data, SCHEMA)
         self.assertIn("verdict: timeout 3, exit 1", notes[0])
+
+    def test_the_declaration_shape_with_a_columns_wrapper_is_read_too(self):
+        wrapped = {"run": {"columns": SCHEMA["run"]}}
+        self.assertTrue(health.judge(rows("run", False), wrapped)[0])
 
     def test_reads_a_records_file(self):
         import tempfile, pathlib

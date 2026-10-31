@@ -14,8 +14,16 @@ from typing import Any, Iterable, Mapping
 
 
 def _ok_datasets(schema: Mapping[str, Any]) -> list[str]:
-    return [name for name, body in schema.items()
-            if isinstance(body, Mapping) and body.get("columns", {}).get("ok") == "bool"]
+    """Datasets with a bool column `ok`. `schema` is spec.data: {dataset: {column: type}}, as sealed in a
+    manifest (the Nix declaration's `{"columns": {...}}` wrapper is accepted too)."""
+    found = []
+    for name, body in schema.items():
+        if not isinstance(body, Mapping):
+            continue
+        columns = body["columns"] if isinstance(body.get("columns"), Mapping) else body
+        if columns.get("ok") == "bool":
+            found.append(name)
+    return found
 
 
 def judge(records: Iterable[Mapping[str, Any]], schema: Mapping[str, Any]) -> tuple[bool, list[str]]:
