@@ -1,7 +1,7 @@
-"""Opt-in property tests for figures (doc/nix/figures.nix). Seeded random inputs, no hypothesis
+"""Property tests for figures (doc/nix/figures.nix). Seeded random inputs, no hypothesis
 (not in pyproject.toml).
 
-NIXSCI_INTEGRATION=1 nix develop path:/home/pkd/code/nixsci --command python3 -m pytest -q doc/tests/test_figures_nix.py
+nix develop path:/home/pkd/code/nixsci --command python3 -m pytest -q doc/tests/test_figures_nix.py
 """
 import json
 import os
@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(os.environ.get("NIXSCI_INTEGRATION") != "1", reason="opt-in Nix integration")
 ROOT = Path(__file__).resolve().parents[2]
 SEED = 20260101
 N = 200

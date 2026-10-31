@@ -1,4 +1,4 @@
-"""Laws of the workspace, on generated trees. Opt-in: NIXSCI_INTEGRATION=1."""
+"""Laws of the workspace, on generated trees."""
 import json
 import os
 import shutil
@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 from workspace_gen import gen
 
-pytestmark = pytest.mark.skipif(os.environ.get("NIXSCI_INTEGRATION") != "1", reason="opt-in Nix integration")
 ROOT = Path(__file__).resolve().parents[2]
 SYSTEM = "x86_64-linux"
 SEEDS = list(range(20))

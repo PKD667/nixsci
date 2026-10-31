@@ -7,7 +7,7 @@ driven from here, because it needs an interactive-style shell in a checkout.
 Law 4: starting the dev shell from any subdirectory of a checkout creates .nixsci only at the flake
 root, never in the directory the command was started in.
 
-NIXSCI_INTEGRATION=1 pytest -q doc/tests/test_layout_nix.py
+pytest -q doc/tests/test_layout_nix.py
 """
 import json
 import os
@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(os.environ.get("NIXSCI_INTEGRATION") != "1", reason="opt-in Nix integration")
 ROOT = Path(__file__).resolve().parents[2]
 
 

@@ -4,7 +4,7 @@ The font is a project file, so it is at nixsci/fixture-fonts/ in the linked tree
 it by \nixsciroot, which the dev shell's latexmk wrapper sets (the shell exports no TTFONTS or
 NIXSCI_TREE any more; doc/nix/doc.nix, env). A build that finds the font has used that path.
 
-NIXSCI_INTEGRATION=1 pytest -q doc/tests/test_font_dev_nix.py
+pytest -q doc/tests/test_font_dev_nix.py
 """
 import json
 import os
@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(os.environ.get("NIXSCI_INTEGRATION") != "1", reason="opt-in Nix integration")
 ROOT = Path(__file__).resolve().parents[2]
 
 
