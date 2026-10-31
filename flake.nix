@@ -120,7 +120,7 @@
             mkdir -p $site
             mkdir $site/lab
             ${pkgs.lib.concatMapStringsSep "\n" (f: "cp ${f} $site/lab/${baseNameOf f}")
-              [ ./lab/__init__.py ./lab/schema.py ./lab/run.py ./lab/home.py ./lab/health.py ]}
+              [ ./lab/__init__.py ./lab/schema.py ./lab/run.py ./lab/home.py ./lab/health.py ./lab/mpi.py ./lab/proc.py ]}
           '';
           # The Python that writes a document's RO-Crate (rocrate is not in nixpkgs).
           crate-python =
