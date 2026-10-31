@@ -92,6 +92,7 @@ def main(argv=None) -> int:
     e.add_argument("--closure", action="append", default=[], metavar="SYSTEM=PATH", help="the built closure for a system")
     e.add_argument("--source", default="{}", help="the flake's source identity, as JSON")
     e.add_argument("--again", action="store_true", help="add one more replicate per input")
+    e.add_argument("--hosts", help="ssh host names to run on instead of the spec's provider (or $NIXSCI_HOSTS)")
     p = sub.add_parser("plan", help="print the jobs a spec expands to")
     p.add_argument("--spec", required=True)
     sub.add_parser("ls", help="what the runs directory holds").add_argument("app", nargs="?")
@@ -181,7 +182,18 @@ def main(argv=None) -> int:
         return 2
     from .runner import run
 
-    runs = run(spec, closures, home.runs_dir(project), project=project, again=args.again)
+    from nixsci.deploy import adhoc
+
+    try:
+        hosts = adhoc.hosts_from(args.hosts)
+    except ValueError as error:
+        _err(f"nixsci lab exec: {error}")
+        return 2
+    try:
+        runs = run(spec, closures, home.runs_dir(project), project=project, again=args.again, hosts=hosts)
+    except adhoc.AdhocError as error:  # a host that cannot be used: say so in one line, not a traceback
+        _err(f"nixsci lab exec: {error}")
+        return 2
     bad = [m for m in runs if m["state"] != "ok"]
     print(f"{len(runs) - len(bad)}/{len(runs)} new run(s) ok" if runs else "nothing to run: up to date")
     for m in bad:

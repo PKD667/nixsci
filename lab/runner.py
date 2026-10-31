@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -41,15 +42,27 @@ def run(
     poll: float = 1.0,
     timeout: float = 24 * 3600,
     again: bool = False,
+    hosts: list[str] | None = None,
     log: Callable[[str], None] = print,
 ) -> list[dict[str, Any]]:
     """Run what is missing and return the manifests of the new runs.
 
     A run is identified by its inputs (store.input_id); inputs that already have
     `spec.replicates` finished runs are skipped, `again=True` adds one more replicate.
+
+    `hosts` (ad-hoc, see deploy/adhoc.py) replaces the spec's provider. Several hosts make one job
+    spanning all of them, unless the spec sets its own `span`.
     """
     factory, providers = _deploy()
-    lease = providers.acquire(spec.provider, spec.resources, spec.resources.get("opts", {}))
+    if hosts:
+        from nixsci.deploy import adhoc
+
+        lease = adhoc.lease(hosts, spec.resources)
+        log(f"hosts {', '.join(hosts)} replace provider {spec.provider!r}")
+        if len(hosts) > 1 and "span" not in spec.raw:
+            spec = replace(spec, span=len(hosts))
+    else:
+        lease = providers.acquire(spec.provider, spec.resources, spec.resources.get("opts", {}))
     try:
         configs = {f"t{i}": c for i, c in enumerate(lease.targets)}
         names = list(configs)
