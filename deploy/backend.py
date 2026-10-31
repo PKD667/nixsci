@@ -384,6 +384,10 @@ class Backend:
         _, manifest = self._stage_inputs(str(handle["workdir"]), [(n, data, digest)], existing=True)
         return manifest[0]["path"]
 
+    def probe(self, command: str) -> tuple[int, str]:
+        """Run a short shell command on this host; `(exit status, last line of its stderr)`."""
+        raise NotImplementedError
+
     def put_script(self, workdir: str, relpath: str, text: str) -> str:
         """Write an executable script under `workdir` (created 0700 when missing); returns its path."""
         raise NotImplementedError

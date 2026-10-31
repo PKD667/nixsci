@@ -29,6 +29,13 @@ class Node:
     def enter(self, closure):
         return ["/bin/nix-" + self.name, "shell", closure.path, "--command"]
 
+    probes = None
+
+    def probe(self, command):
+        """Run `command` on this host: (exit status, last line of stderr)."""
+        self.calls.append(("probe", command))
+        return (self.probes or {}).get(command.split()[1], (0, ""))
+
     def put_script(self, workdir, relpath, text):
         self.calls.append(("put_script", workdir, relpath, text))
         return f"{workdir}/{relpath}"
@@ -36,7 +43,7 @@ class Node:
     @property
     def effects(self):
         """The calls that move the closure or start the job, without the agent writes."""
-        return [c for c in self.calls if c[0] != "put_script"]
+        return [c for c in self.calls if c[0] not in ("put_script", "probe")]
 
     def receive(self, closure, *, source, peer, rsh):
         self.calls.append(("receive", source.name, peer, rsh))
@@ -110,6 +117,33 @@ class Agent(unittest.TestCase):
         # a path that is the same on every host is the whole point of the agent
         with self.assertRaisesRegex(ValueError, "run_root"):
             group.launch(nodes, ["h0", "h1"], closure(), run_id="r5", rsh="RSH")
+
+
+class Preflight(unittest.TestCase):
+    """A multi-host job first proves that the first host can start a command on every peer through the launch
+    agent (ssh, the store view and the closure, all at once). Otherwise the failure shows up minutes later, inside
+    the launcher, as a crashed daemon with no message."""
+
+    def test_the_first_host_starts_true_on_every_peer_through_the_agent_before_the_job(self):
+        nodes = [Node("a"), Node("b"), Node("c")]
+        group.launch(nodes, ["h0", "h1", "h2"], closure(), run_id="r6", rsh="RSH")
+        probed = [c[1] for c in nodes[0].calls if c[0] == "probe"]
+        self.assertEqual(sorted(probed), ["/run/r6/inputs/agent h1 true", "/run/r6/inputs/agent h2 true"])
+        self.assertEqual([c for c in nodes[1].calls if c[0] == "probe"], [])
+        order = [c[0] for c in nodes[0].calls]
+        self.assertLess(max(i for i, c in enumerate(order) if c == "probe"), order.index("launch"))
+
+    def test_an_unreachable_peer_stops_the_job_with_a_sentence_naming_both_hosts(self):
+        nodes = [Node("a"), Node("b")]
+        nodes[0].probes = {"h1": (255, "ssh: connect to host h1 port 22: Connection refused")}
+        with self.assertRaisesRegex(RuntimeError, r"h0 cannot start a command on h1.*Connection refused.*ssh h1 true"):
+            group.launch(nodes, ["h0", "h1"], closure(), run_id="r7", rsh="RSH")
+        self.assertEqual([c for c in nodes[0].calls if c[0] == "launch"], [])
+
+    def test_a_single_host_job_has_no_peer_to_probe(self):
+        nodes = [Node("a")]
+        group.launch(nodes, ["h0"], closure(), run_id="r8", rsh="RSH")
+        self.assertEqual([c for c in nodes[0].calls if c[0] == "probe"], [])
 
 
 class Receive(unittest.TestCase):
@@ -200,3 +234,11 @@ class Wiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NativeProbe(unittest.TestCase):
+    def test_probe_returns_the_status_and_the_last_stderr_line(self):
+        from nixsci.deploy.native import Native
+        host = object.__new__(Native)
+        self.assertEqual(host.probe("echo first >&2; echo oops >&2; exit 3"), (3, "oops"))
+        self.assertEqual(host.probe("true"), (0, ""))

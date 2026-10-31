@@ -59,6 +59,25 @@ def put_agents(backends: Sequence[Backend], closure: Closure, run_id: str, rsh: 
     return path
 
 
+def preflight(backends: Sequence[Backend], hosts: Sequence[str], agent: str) -> None:
+    """Prove that the first host can start a command on every peer through the launch agent.
+
+    One command, `true`, per peer, started from the first host the way the job's launcher will start its
+    daemons: it exercises ssh between the hosts, the store view and the staged closure at once. Without it a
+    broken link shows up minutes later inside the launcher, as a crashed daemon with no message."""
+    peers = list(hosts[1:])
+    if not peers:
+        return
+    with ThreadPoolExecutor(max_workers=len(peers)) as pool:
+        results = list(pool.map(lambda peer: backends[0].probe(f"{shlex.quote(agent)} {shlex.quote(peer)} true"), peers))
+    for peer, (status, error) in zip(peers, results):
+        if status:
+            raise RuntimeError(
+                f"{hosts[0]} cannot start a command on {peer}: {error or 'exit status ' + str(status)}. "
+                f"Check that 'ssh {peer} true' works from {hosts[0]} without a password."
+            )
+
+
 def launch(
     backends: Sequence[Backend],
     hosts: Sequence[str],
@@ -81,6 +100,7 @@ def launch(
             list(pool.map(lambda b: b.stage(closure), backends))
     hostfile = f"{backends[0].run_root}/{run_id}/inputs/hostfile"
     agent = put_agents(backends, closure, run_id, rsh)
+    preflight(backends, hosts, agent)
     values = {"NIX_DEPLOY_RSH": rsh, "NIX_DEPLOY_HOSTFILE": hostfile, "NIX_DEPLOY_AGENT": agent, **(env or {})}
     handle = backends[0].launch(
         closure,

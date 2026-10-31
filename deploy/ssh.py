@@ -347,6 +347,11 @@ class SSH(Backend):
             raise ValueError("path escapes the remote workdir")
         return workdir.rstrip("/") + ("/" + relpath if relpath else "")
 
+    def probe(self, command: str) -> tuple[int, str]:
+        result = self._remote(command, check=False)
+        lines = result.stderr.decode(errors="replace").strip().splitlines()
+        return result.returncode, (lines[-1] if lines else "")
+
     def put_script(self, workdir: str, relpath: str, text: str) -> str:
         target = self._workdir_path(workdir, relpath)
         parent = str(Path(target).parent)
