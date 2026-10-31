@@ -16,6 +16,7 @@ import hashlib
 
 from nixsci.lab.run import seal
 
+from . import health
 from . import store
 from .publish import publish, retain
 from .spec import Spec
@@ -173,6 +174,12 @@ def _run_job(
         be.fetch(handle, "lab", dest / "lab")
     status = json.loads(be.read_file(handle, "lab/status.json") or "null")
     state = "incomplete" if status is None else ("ok" if status["exit_code"] == 0 else "failed")
+    notes: list[str] = []
+    if state == "ok":
+        # The exit status says the runner finished; the rows say whether the experiment worked.
+        broken, notes = health.check(dest / "lab" / "records.jsonl", spec.data)
+        if broken:
+            state = "failed"
     manifest = {
         "app": spec.name,
         "schema": spec.data,
@@ -191,6 +198,8 @@ def _run_job(
         "replicate": replicate,
         "tolerance": spec.tolerance,
     }
+    if notes:
+        manifest["health"] = notes
     if members:
         manifest["span"] = spec.span
         manifest["hosts"] = [host for _, host in members]
@@ -206,5 +215,7 @@ def _run_job(
         if project is not None:
             entry = publish(dest, project)
             log(f"[{run_id}] in the store: {entry['path']}")
+    for note in notes:
+        log(f"[{run_id}] {'FAILED' if state == 'failed' else 'note'}: {note}")
     log(f"[{run_id}] {state} -> {dest}")
     return manifest

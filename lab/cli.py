@@ -184,7 +184,10 @@ def main(argv=None) -> int:
     runs = run(spec, closures, home.runs_dir(project), project=project, again=args.again)
     bad = [m for m in runs if m["state"] != "ok"]
     print(f"{len(runs) - len(bad)}/{len(runs)} new run(s) ok" if runs else "nothing to run: up to date")
-    if runs:
+    for m in bad:
+        why = "; ".join(m.get("health") or []) or f"state {m['state']}"
+        print(f"  {m['run']}: {m['state']}: {why}", file=sys.stderr)
+    if runs and len(bad) < len(runs):
         print(f"commit {project / 'lab.lock'} to keep these runs")
     return 1 if bad else 0
 
