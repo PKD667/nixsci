@@ -80,6 +80,8 @@ lab.record("lossy", {...})                                       # ValueError: n
 
 Add `key = [ "epoch" "split" ];` to a dataset and each key may appear once per run: a second row with the same key is refused at record time, and compaction re-checks the whole run. Key columns must be declared and not nullable. Types are `int`, `float`, `str`, `bool`. A row carries exactly the declared columns (`run`, `seed` and `time` are reserved: nixsci.lab adds them). The schema travels to the run in `NIX_LAB_SCHEMA` (keys in `NIX_LAB_KEYS`) and is copied into the run's `manifest.json`.
 
+A dataset with a `bool` column named `ran` says, row by row, whether the job got as far as measuring. A job that exits 0 but whose rows all say `ran = false` did not work (a launcher that died, a host that was never reached), so the run is marked `failed`, kept in the runs directory, and left out of `lab.lock`; some rows false is only a note. The name is not `ok`: a measured `ok` is a result, and `false` in every row is allowed to be one.
+
 ## Recording a run by hand
 
 A script that the executor does not launch (a measurement you start yourself, a long service) records through `lab.Run`. Point it at the spec file Nix wrote: `nix build .#lab.<system>.experiments.demo.specFile`. It creates `<root>/<app>/<name>/`, applies the declared datasets and keys, and writes `manifest.json` when the block ends (`ok`, or `failed` if it raised):
