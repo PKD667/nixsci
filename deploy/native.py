@@ -64,6 +64,11 @@ class Native(Backend):
             raise ValueError("handle path escapes the declared run root")
         return path
 
+    def probe(self, command):
+        result = subprocess.run(["sh", "-c", command], capture_output=True, text=True)
+        lines = result.stderr.strip().splitlines()
+        return result.returncode, (lines[-1] if lines else "")
+
     def put_script(self, workdir, relpath, text):
         target = self._path(workdir, relpath)
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
