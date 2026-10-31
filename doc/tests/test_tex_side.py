@@ -1,4 +1,4 @@
-"""TeX-side laws: placement, form, loud failure. NIXSCI_INTEGRATION=1 pytest -q doc/tests/test_tex_side.py"""
+"""TeX-side laws: placement, form, loud failure. pytest -q doc/tests/test_tex_side.py"""
 import json
 import os
 import random
@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(os.environ.get("NIXSCI_INTEGRATION") != "1", reason="opt-in Nix integration")
 ROOT = Path(__file__).resolve().parents[2]
 FILES = ROOT / "doc" / "files"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"

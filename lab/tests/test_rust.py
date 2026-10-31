@@ -1,6 +1,6 @@
 """The Rust crate and the Python module must agree on the format.
 
-Set NIX_LAB_RUST_EMIT to the built `emit` example (cargo build --example emit); skipped otherwise.
+NIX_LAB_RUST_EMIT is the built `emit` example: the dev shell sets it (packages.rust-emit). Unset is a failure, not a skip.
 """
 
 import json
@@ -17,9 +17,9 @@ COLUMNS = {"loss": {"epoch": "int", "split": "str", "value": "float"}}
 EMIT = os.environ.get("NIX_LAB_RUST_EMIT")
 
 
-@unittest.skipUnless(EMIT, "NIX_LAB_RUST_EMIT not set")
 class RustWritesWhatPythonReads(unittest.TestCase):
     def test_round_trip(self):
+        self.assertTrue(EMIT, "NIX_LAB_RUST_EMIT is not set: run inside `nix develop`")
         directory = tempfile.mkdtemp()
         env = {
             **os.environ,

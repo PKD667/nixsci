@@ -11,7 +11,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
-from shape import problems  # noqa: E402
+from shape import lab_dir_problems, problems  # noqa: E402
 
 REAL = json.loads((HERE / "fixtures" / "gtx980.json").read_text())
 
@@ -103,25 +103,24 @@ class Shape(unittest.TestCase):
         self.assertEqual((rec["name"], rec["kind"]), ("gpu", "value"))
         self.assertEqual(problems(rec["data"]), [])
 
-    @unittest.skipUnless(os.environ.get("GPU_PROBE_JSON"), "set GPU_PROBE_JSON to check a real run")
-    def test_given_file(self):
-        self.assertEqual(problems(json.loads(Path(os.environ["GPU_PROBE_JSON"]).read_text())), [])
+    def lab_dir(self, gpu, time="2026-10-21T09:55:07.794189Z"):
+        import tempfile
+        directory = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, directory, True)
+        line = {"id": "1-gpu", "time": time, "name": "gpu", "kind": "value", "data": gpu, "tags": {}}
+        (directory / "gpu.json").write_text(json.dumps(gpu))
+        (directory / "records.jsonl").write_text(json.dumps(line) + "\n")
+        return directory
 
-    @unittest.skipUnless(os.environ.get("GPU_PROBE_LAB_DIR"), "set GPU_PROBE_LAB_DIR to a run's lab/ directory")
-    def test_lab_dir_of_a_real_run(self):
-        """gpu.json and the `gpu` line of records.jsonl agree, and the line follows lab/SPEC.md v1."""
-        import re
-        lab = Path(os.environ["GPU_PROBE_LAB_DIR"])
-        gpu = json.loads((lab / "gpu.json").read_text())
-        lines = [json.loads(l) for l in (lab / "records.jsonl").read_text().splitlines()]
-        rec = [r for r in lines if r["name"] == "gpu"]
-        self.assertEqual(len(rec), 1)
-        r = rec[0]
-        self.assertEqual((r["kind"], r["tags"]), ("value", {}))
-        self.assertRegex(r["time"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$")
-        self.assertIsInstance(r["id"], str)
-        self.assertEqual(r["data"], gpu)
-        self.assertEqual(problems(gpu), [])
+    def test_a_run_directory_whose_record_is_its_gpu_json_has_no_problems(self):
+        self.assertEqual(lab_dir_problems(self.lab_dir(REAL)), [])
+
+    def test_a_record_that_differs_from_gpu_json_or_has_a_bad_time_is_reported(self):
+        directory = self.lab_dir(REAL, time="yesterday")
+        (directory / "gpu.json").write_text(json.dumps({**REAL, "extra": 1}))
+        found = lab_dir_problems(directory)
+        self.assertTrue(any("differs from gpu.json" in f for f in found), found)
+        self.assertTrue(any("timestamp" in f for f in found), found)
 
 
 if __name__ == "__main__":

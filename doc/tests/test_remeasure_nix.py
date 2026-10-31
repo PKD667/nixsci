@@ -1,6 +1,6 @@
-"""Opt-in local whole-pipeline test. Temporary fixture repo, never a development worktree.
+"""Local whole-pipeline test. Temporary fixture repo, never a development worktree.
 
-NIXSCI_INTEGRATION=1 nix develop --command pytest -q doc/tests/test_remeasure_nix.py
+nix develop --command pytest -q doc/tests/test_remeasure_nix.py
 """
 import json
 import hashlib
@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(os.environ.get("NIXSCI_INTEGRATION") != "1", reason="opt-in Nix integration")
 ROOT = Path(__file__).resolve().parents[2]
 
 

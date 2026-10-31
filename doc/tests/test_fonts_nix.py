@@ -1,4 +1,4 @@
-"""Property tests for doc/nix/fonts.nix. Run: NIXSCI_INTEGRATION=1 pytest -q doc/tests/test_fonts_nix.py
+"""Property tests for doc/nix/fonts.nix. Run: pytest -q doc/tests/test_fonts_nix.py
 Each law runs on 40 seeded inputs (random.Random(seed); hypothesis is not in pyproject.toml). Cases
 are JSON read by Nix: one `nix eval --json` per law, plus one per rejected case for its message."""
 import json, os, random, re, subprocess, uuid
@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(os.environ.get("NIXSCI_INTEGRATION") != "1", reason="opt-in Nix integration")
 ROOT = Path(__file__).resolve().parents[2]
 SEEDS, FACES = range(40), ["regular", "bold", "italic", "bolditalic"]
 FONT_KEYS, BAD = {"family", "dir", "tex", "ext", "faces", "fake", "options"}, set("{}\\%#/\n")

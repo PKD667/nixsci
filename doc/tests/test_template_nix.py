@@ -1,9 +1,9 @@
 """Property tests for doc/nix/template.nix, and one build check on the examples.
 
-Opt-in (needs Nix and the pinned nixpkgs; no hypothesis in pyproject, so the cases are drawn from
+(Needs Nix and the pinned nixpkgs; no hypothesis in pyproject, so the cases are drawn from
 seeded `random.Random(seed)`):
 
-    NIXSCI_INTEGRATION=1 nix develop --command pytest -q doc/tests/test_template_nix.py
+    nix develop --command pytest -q doc/tests/test_template_nix.py
 
 Each test states its law in its docstring and checks it over N_CASES seeded inputs. Nix is run once
 per test where the law can be read from a batch; where the law is about an error message, once per
@@ -19,7 +19,6 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(os.environ.get("NIXSCI_INTEGRATION") != "1", reason="opt-in Nix integration")
 ROOT = Path(__file__).resolve().parents[2]
 N_CASES = 32
 FIXTURES = Path(__file__).resolve().parent / "fixtures"

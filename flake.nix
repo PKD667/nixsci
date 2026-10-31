@@ -114,6 +114,19 @@
           example-paper-publish = (example { static = false; }).publish;
           # The interpreter that has nixsci, for derivations that run its modules.
           python = (pkgs.python3.override { packageOverrides = pyfinal: pyprev: library pkgs pyfinal; }).withPackages (p: [ p.nixsci ]);
+          # The Rust recorder's example binary, for its round-trip test (checks.rust-recorder and the dev shell).
+          rust-emit = pkgs.rustPlatform.buildRustPackage {
+            pname = "nixsci-rust-emitter";
+            version = "0.1.0";
+            src = ./lab/rust/lab;
+            cargoLock.lockFile = ./lab/rust/lab/Cargo.lock;
+            cargoBuildFlags = [ "--example" "emit" ];
+            doCheck = false;
+            installPhase = ''
+              mkdir -p $out/bin
+              cp target/${pkgs.stdenv.hostPlatform.rust.rustcTarget}/release/examples/emit $out/bin/emit
+            '';
+          };
           # `from nixsci import lab` with no dependencies: safe to put in any experiment closure.
           lab-py = pkgs.runCommand "nixsci-lab-py" { } ''
             site=$out/${pkgs.python3.sitePackages}/nixsci
@@ -212,19 +225,25 @@
       # `nix flake check`: the fixtures build, and a draft cannot be published.
       checks = forAll (pkgs:
         let
-          rustEmitter = pkgs.rustPlatform.buildRustPackage {
-            pname = "nixsci-rust-emitter";
-            version = "0.1.0";
-            src = ./lab/rust/lab;
-            cargoLock.lockFile = ./lab/rust/lab/Cargo.lock;
-            cargoBuildFlags = [ "--example" "emit" ];
-            doCheck = false;
-            installPhase = ''
-              mkdir -p $out/bin
-              cp target/${pkgs.stdenv.hostPlatform.rust.rustcTarget}/release/examples/emit $out/bin/emit
-            '';
-          };
           testPython = pkgs.python3.withPackages (p: [ p.pytest p.hypothesis p.pyarrow ]);
+          # Tests that need what a sandbox lacks: a real nix and store (or the Rust emitter, which checks.rust-recorder
+          # provides). `nix develop --command pytest` runs every one of them, and conftest.py makes a skip a failure.
+          needsNix = [
+            "deploy/tests/test_native_export.py"
+            "deploy/tests/test_source.py"
+            "deploy/tests/test_wrapper.py"
+            "doc/tests/test_figures_nix.py"
+            "doc/tests/test_font_dev_nix.py"
+            "doc/tests/test_fonts_nix.py"
+            "doc/tests/test_layout_nix.py"
+            "doc/tests/test_remeasure_nix.py"
+            "doc/tests/test_template_nix.py"
+            "doc/tests/test_tex_side.py"
+            "doc/tests/test_workspace_nix.py"
+            "lab/tests/test_nix_integration.py"
+            "lab/tests/test_rust.py"
+          ];
+          ignoreNeedsNix = pkgs.lib.concatMapStringsSep " " (f: "--ignore=${f}") needsNix;
         in {
         rust-recorder = pkgs.runCommand "nixsci-rust-recorder-check" {
           nativeBuildInputs = [ testPython ];
@@ -232,7 +251,7 @@
           cp -R ${./.} nixsci
           chmod -R u+w nixsci
           export PYTHONPATH=$PWD HOME=$TMPDIR/home
-          export NIX_LAB_RUST_EMIT=${rustEmitter}/bin/emit
+          export NIX_LAB_RUST_EMIT=${self.packages.${pkgs.stdenv.hostPlatform.system}.rust-emit}/bin/emit
           mkdir -p "$HOME"
           cd nixsci
           pytest -q lab/tests/test_rust.py
@@ -260,8 +279,7 @@
           export PYTHONPATH=$PWD HOME=$TMPDIR/home
           mkdir -p "$HOME"
           cd nixsci
-          # Wrapper builds and isolated-store smoke tests run outside the sandbox separately.
-          pytest -q deploy/tests lab/tests stats/tests doc/tests --ignore=deploy/tests/test_wrapper.py --ignore=deploy/tests/test_source.py
+          pytest -q deploy/tests lab/tests stats/tests doc/tests ${ignoreNeedsNix}
           touch $out
         '';
 
@@ -281,11 +299,8 @@
               cd $TMPDIR/work/nixsci
               chmod -R u+w .
               export PYTHONPATH=$TMPDIR/work
-              # test_source.py drives `nix flake metadata` against a real store; the sandbox has a
-              # read-only one, so it runs on a machine with a store and not here.
-              python3 -m pytest -q deploy/tests lab/tests cli/tests \
-                --ignore=deploy/tests/test_source.py > $out 2>&1 || { cat $out; exit 1; }
-              printf 'skipped deploy/tests/test_source.py: needs a writable Nix store\n' >> $out
+              python3 -m pytest -q deploy/tests lab/tests cli/tests ${ignoreNeedsNix} > $out 2>&1 || { cat $out; exit 1; }
+              printf 'not run here (need a real nix): %s\n' "${toString needsNix}" >> $out
             '';
         # A deterministic check (validate/README.md). `validate.<system>.checks.broken` is left out on purpose.
         validate-sorted = self.validate.${pkgs.stdenv.hostPlatform.system}.checks.sorted;
@@ -326,6 +341,8 @@
       devShells = forAll (pkgs: {
         default = pkgs.mkShell {
           packages = [ self.packages.${pkgs.system}.python pkgs.python3Packages.pytest pkgs.python3Packages.hypothesis pkgs.python3Packages.pyarrow pkgs.git ];
+          # The Rust recorder's round-trip test runs in every pytest run, so the shell carries the binary it needs.
+          NIX_LAB_RUST_EMIT = "${self.packages.${pkgs.stdenv.hostPlatform.system}.rust-emit}/bin/emit";
         };
       });
     };

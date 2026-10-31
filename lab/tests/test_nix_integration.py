@@ -1,7 +1,5 @@
-"""Local Nix boundary checks; opt in with NIXSCI_INTEGRATION=1. No SSH.
-
-NIXSCI_INTEGRATION=1 nix develop --command pytest -q lab/tests/test_nix_integration.py
-"""
+"""Local Nix boundary checks, against the real nix on PATH. No SSH. Always run; they need nix, so the sandboxed
+flake checks leave them out (flake.nix) and `nix develop --command pytest` runs them."""
 import json
 import os
 import subprocess
@@ -12,7 +10,6 @@ import pytest
 from nixsci import lab
 from nixsci.lab import publish
 
-pytestmark = pytest.mark.skipif(os.environ.get("NIXSCI_INTEGRATION") != "1", reason="opt-in Nix integration")
 REPO = Path(__file__).resolve().parents[2]
 
 

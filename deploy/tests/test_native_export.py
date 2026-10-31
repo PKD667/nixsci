@@ -1,10 +1,11 @@
 """Real Nix regression: a partial graph cannot use an empty binary cache.
 
-Run with NIXSCI_TEST_NIX pointing at the repository-pinned Nix executable.
+Uses the nix on PATH (NIXSCI_TEST_NIX overrides it). Always run; there is no opt-in.
 The replacement native export must import when references exist on the target.
 """
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -13,10 +14,10 @@ import unittest
 from nixsci.deploy import nix as api
 
 
-@unittest.skipUnless(os.environ.get("NIXSCI_TEST_NIX"), "set pinned NIXSCI_TEST_NIX for real Nix")
 class PartialGraphIntegration(unittest.TestCase):
     def test_partial_native_export_preserves_complete_identity(self):
-        nix = os.environ["NIXSCI_TEST_NIX"]
+        nix = os.environ.get("NIXSCI_TEST_NIX") or shutil.which("nix")
+        self.assertTrue(nix, "no nix on PATH")
         expression = '''let d = builtins.toFile "nixsci-export-dep" "verified dependency";
           r = builtins.toFile "nixsci-export-root" "depends on ${d}\\n";
           in { dep = d; root = r; }'''

@@ -9,8 +9,11 @@ entry that names the test, and every number has its `spread` entry.
 """
 from __future__ import annotations
 
+import json
 import math
 import re
+import sys
+from pathlib import Path
 
 TESTS = ("fp32_gemm", "tf32_gemm", "fp16_gemm", "bf16_gemm", "mem_bw")
 MEASURED_KEY = {t: (t + "_tflops" if t.endswith("gemm") else "mem_bw_gbps") for t in TESTS}
@@ -105,3 +108,30 @@ def problems(d) -> list[str]:
             need(m, k, lambda v: isinstance(v, str) and v != "", "a non-empty string", "method.")
     need(d, "units", lambda v: isinstance(v, dict) and all(isinstance(x, str) for x in v.values()) and v, "a non-empty object of strings")
     return out
+
+
+def lab_dir_problems(lab) -> list[str]:
+    """Check a run's lab/ directory: gpu.json is well formed, and it is the one `gpu` line of records.jsonl,
+    which follows lab/SPEC.md v1 (a value record with no tags and a microsecond UTC time)."""
+    lab = Path(lab)
+    gpu = json.loads((lab / "gpu.json").read_text())
+    lines = [json.loads(line) for line in (lab / "records.jsonl").read_text().splitlines()]
+    records = [r for r in lines if r.get("name") == "gpu"]
+    if len(records) != 1:
+        return [f"records.jsonl has {len(records)} gpu lines, not 1"]
+    r, out = records[0], problems(gpu)
+    if (r.get("kind"), r.get("tags")) != ("value", {}):
+        out.append("the gpu record is not a value with no tags")
+    if not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z", str(r.get("time"))):
+        out.append("the gpu record time is not a microsecond UTC timestamp")
+    if not isinstance(r.get("id"), str):
+        out.append("the gpu record id is not a string")
+    if r.get("data") != gpu:
+        out.append("the gpu record differs from gpu.json")
+    return out
+
+
+if __name__ == "__main__":  # python -m shape RUN/lab: the check of a real run, exit 1 on any problem
+    found = lab_dir_problems(sys.argv[1])
+    print("\n".join(found) or "ok")
+    sys.exit(1 if found else 0)
