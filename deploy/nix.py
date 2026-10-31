@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json, re, subprocess, urllib.error, urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -45,7 +46,9 @@ def cache_partition(paths, has=narinfo_exists):
     then exports everything from the controller and reports that one reason."""
     paths = list(paths)
     try:
-        flags = [bool(has(path)) for path in paths]
+        # One HEAD per path: overlapped, since each is a round trip and a closure has dozens of paths.
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            flags = [bool(f) for f in pool.map(has, paths)]
     except CacheUnreachable as error:
         return [], paths, f"controller cannot reach {CACHE_URL}: {error}"
     return ([p for p, f in zip(paths, flags) if f],

@@ -233,3 +233,42 @@ class StageWithCache(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ParallelLookup(unittest.TestCase):
+    """66 sequential HEADs are 66 round trips on a slow uplink: the lookups overlap, and the answer keeps closure order."""
+
+    def test_lookups_overlap_and_order_is_kept(self):
+        import threading, time
+        from nixsci.deploy import nix
+        active, peak, lock = 0, 0, threading.Lock()
+
+        def has(path):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            time.sleep(0.02)
+            with lock:
+                active -= 1
+            return path.endswith("a")
+
+        paths = [f"/nix/store/{i:032d}-p{'a' if i % 2 else 'b'}" for i in range(40)]
+        on_cache, local, reason = nix.cache_partition(paths, has=has)
+        self.assertGreater(peak, 1)
+        self.assertEqual(on_cache, [p for p in paths if p.endswith("a")])
+        self.assertEqual(local, [p for p in paths if p.endswith("b")])
+        self.assertIsNone(reason)
+
+    def test_one_unreachable_answer_sends_everything_to_the_export(self):
+        from nixsci.deploy import nix
+
+        def has(path):
+            if path.endswith("3"):
+                raise nix.CacheUnreachable("timed out")
+            return True
+
+        paths = [f"/nix/store/{i:032d}-p{i}" for i in range(8)]
+        on_cache, local, reason = nix.cache_partition(paths, has=has)
+        self.assertEqual((on_cache, local), ([], paths))
+        self.assertIn("timed out", reason)
