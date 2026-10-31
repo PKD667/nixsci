@@ -64,12 +64,17 @@ not a security boundary. The helper never falls back to host-store execution or 
 mount-only namespace.
 
 SSH first verifies the bootstrap hash, then imports only absent closure paths
-into the declared store. Nix verifies the recursive NAR contents and the target
+into the declared store. Paths that cache.nixos.org holds are fetched by the target itself
+(`nix copy --from`, with the cache's signing key named and signatures checked); the controller exports only the
+rest, and says in one line which paths it shipped itself and why. Nix verifies the recursive NAR contents and the target
 path-to-NAR map after staging and again before launch. A framed export carries
 path, reference and NAR metadata without a temporary binary cache. Transport
 never changes uncompressed NAR identity. The SSH client is backgrounded after
 authentication while the remote script remains foreground; there is no detached
 `cd && background` command whose inherited channel can block the launch.
+Site backends may wrap the verified target command through `SSH._spawn_command`, so supervision does not require a
+second SSH launcher. The default returns the unchanged command; closure admission, NAR verification, transport and
+process-identity recording remain in the common lifecycle.
 
 The public interface is `python -m nixsci.deploy` (the `run`, `status`, `stop`,
 and `fetch` commands). Handles are JSON, mode 600, and contain enough

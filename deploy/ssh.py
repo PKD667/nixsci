@@ -469,6 +469,7 @@ class SSH(Backend):
             executable,
             *argv,
         )
+        command = self._spawn_command(command, workdir)
         exports = " ".join(f"{key}={shlex.quote(value)}" for key, value in sorted(values.items()))
         script = (
             '#!/bin/sh\nset -eu\nstat=$(cat /proc/$$/stat); rest=${stat##*) }; set -- $rest; printf \'%s %s %s\\n\' "$$" "$3" "${20}" > '
@@ -515,6 +516,10 @@ class SSH(Backend):
             "start_time": identity[2],
             "pid_file": pid_file,
         }
+
+    def _spawn_command(self, command: list[str], workdir: str) -> list[str]:
+        """Allow a backend to wrap the verified payload command, without owning SSH launch."""
+        return command
 
     def _write_json(self, workdir: str, name: str, value: Any) -> None:
         self._remote(
