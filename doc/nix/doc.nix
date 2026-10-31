@@ -254,8 +254,10 @@ rec {
       putFiles = dir: to: lib.concatMapStrings (n: "put ${to}${n} ${dir}/${n}\n") (regularFiles dir);
       putShims = lib.concatMapStrings (n: "put ${n} ${toolkit}/shim/${n}\n") (regularFiles (toolkit + "/shim"));
       # A class is read by \documentclass before nixsci runs, so it stays at the root of the tree.
+      # The toolkit is already in the tree (under nixsci/, with the shims at the root): a template that is the toolkit
+      # adds nothing, and its nixsci.cls at the root would clash with the shim.
       templateFiles =
-        if t.files == null then { }
+        if t.files == null || t.files == toolkit then { }
         else if lib.isList t.files then lib.listToAttrs (map (f: lib.nameValuePair (baseNameOf (toString f)) f) t.files)
         else lib.mapAttrs (n: _: t.files + "/${n}") (builtins.readDir t.files);
       templatePuts = lib.concatStrings (lib.mapAttrsToList
