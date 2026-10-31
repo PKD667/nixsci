@@ -46,7 +46,9 @@ values({"nonce": rows[-1]["nonce"]})
 \usepackage{nixsci}
 \begin{document}Nonce: \val{probe/summary.nonce}\end{document}
 ''')
-    repo = "git+file://" + str(ROOT) + "?ref=main"
+    # The revision under test, not a branch name: `?ref=main` tested whatever main was, on every other branch.
+    head = run("git", "-C", str(ROOT), "rev-parse", "HEAD").strip()
+    repo = "git+file://" + str(ROOT) + "?rev=" + head
     (fixture / "flake.nix").write_text('''{
   inputs.nixsci.url = ''' + json.dumps(repo) + ''';
   inputs.nixpkgs.follows = "nixsci/nixpkgs";
