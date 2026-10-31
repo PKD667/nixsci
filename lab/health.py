@@ -1,9 +1,10 @@
 """Did the experiment work, as its own rows say? Judged implicitly, with no configuration.
 
 A runner that records failures as data exits 0 whatever happened, so the exit status alone cannot tell a
-measurement from a launch that never started. The convention: a dataset with a boolean column named `ok` says,
-row by row, whether that row worked. If every row says no, the run failed. If some do, that is a result, and
-the run is only annotated. The notes are plain sentences, shown at the end of the run and kept in the manifest."""
+measurement from a launch that never started. The convention: a dataset with a boolean column named `ran` says,
+row by row, whether the job got as far as measuring. If every row says no, the run failed. If some do, that is
+a result, and the run is only annotated. The name is `ran` and not `ok` on purpose: `ok` is a value an
+experiment may measure (a claim contradicted is `ok=false` in every row), `ran=false` is never a measurement. The notes are plain sentences, shown at the end of the run and kept in the manifest."""
 
 from __future__ import annotations
 
@@ -14,14 +15,14 @@ from typing import Any, Iterable, Mapping
 
 
 def _ok_datasets(schema: Mapping[str, Any]) -> list[str]:
-    """Datasets with a bool column `ok`. `schema` is spec.data: {dataset: {column: type}}, as sealed in a
+    """Datasets with a bool column `ran`. `schema` is spec.data: {dataset: {column: type}}, as sealed in a
     manifest (the Nix declaration's `{"columns": {...}}` wrapper is accepted too)."""
     found = []
     for name, body in schema.items():
         if not isinstance(body, Mapping):
             continue
         columns = body["columns"] if isinstance(body.get("columns"), Mapping) else body
-        if columns.get("ok") == "bool":
+        if columns.get("ran") == "bool":
             found.append(name)
     return found
 
@@ -37,16 +38,16 @@ def judge(records: Iterable[Mapping[str, Any]], schema: Mapping[str, Any]) -> tu
         if not rows:
             notes.append(f"the job recorded no rows of '{name}'")
             continue
-        bad = [r for r in rows if r.get("ok") is not True]
+        bad = [r for r in rows if r.get("ran") is not True]
         if not bad:
             continue
         verdicts = collections.Counter(str(r["verdict"]) for r in bad if "verdict" in r)
         detail = f" (verdict: {', '.join(f'{v} {n}' for v, n in verdicts.most_common())})" if verdicts else ""
         if len(bad) == len(rows):
             failed = True
-            notes.append(f"all {len(rows)} rows of '{name}' have ok=false{detail}")
+            notes.append(f"all {len(rows)} rows of '{name}' have ran=false{detail}")
         else:
-            notes.append(f"{len(bad)} of {len(rows)} rows of '{name}' have ok=false{detail}")
+            notes.append(f"{len(bad)} of {len(rows)} rows of '{name}' have ran=false{detail}")
     return failed, notes
 
 
