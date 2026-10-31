@@ -207,6 +207,20 @@ class Receive(unittest.TestCase):
 class Wiring(unittest.TestCase):
     """`stage` set on a static provider reaches the backend the lab's span run builds."""
 
+    def setUp(self):
+        # The provider's default bootstrap is a flake reference, built with the controller's nix when a backend
+        # is made. A unit test has no nix (the flake check runs it in a sandbox): give it a file instead.
+        import os, stat, tempfile
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = os.path.join(directory.name, "nix")
+        with open(path, "wb") as f:
+            f.write(b"#!/bin/sh\n")
+        os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
+        patcher = patch("nixsci.deploy.backend.resolve_bootstrap", lambda ref, nix="nix": path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_static_hosts_pass_stage_to_every_target_and_the_factory_builds_fanout(self):
         from nixsci.deploy import factory
         from nixsci.deploy.providers import Resources, Static
@@ -232,13 +246,13 @@ class Wiring(unittest.TestCase):
             factory.backend("t0", {"t0": lease.targets[0]})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class NativeProbe(unittest.TestCase):
     def test_probe_returns_the_status_and_the_last_stderr_line(self):
         from nixsci.deploy.native import Native
         host = object.__new__(Native)
         self.assertEqual(host.probe("echo first >&2; echo oops >&2; exit 3"), (3, "oops"))
         self.assertEqual(host.probe("true"), (0, ""))
+
+
+if __name__ == "__main__":
+    unittest.main()
