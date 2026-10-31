@@ -59,8 +59,8 @@ def make_tree(dst, tools, *, classopts, uses, fonts, project, style, hand, body)
         shutil.copy(tools["ttf"], fdir / "BerkeleyPatched.ttf")
         (lib / "fonts.tex").write_text(
             r"\nixsci@font{main}{texgyretermes}{}{.otf}{texgyretermes-regular}{texgyretermes-bold}"
-            r"{texgyretermes-italic}{texgyretermes-bolditalic}{}{}" "\n"
-            r"\nixsci@font{mono}{BerkeleyPatched}{nixsci/fonts/BerkeleyPatched/}{.ttf}{}{}{}{}{1.4}{0.15}" "\n")
+            r"{texgyretermes-italic}{texgyretermes-bolditalic}{}{}{}" "\n"
+            r"\nixsci@font{mono}{BerkeleyPatched}{nixsci/fonts/BerkeleyPatched/}{.ttf}{}{}{}{}{1.4}{0.15}{}" "\n")
     (dst / "main.tex").write_text(body)
     return dst
 
