@@ -1,10 +1,56 @@
 from __future__ import annotations
-import json, subprocess
+import json, re, subprocess, urllib.error, urllib.request
 from pathlib import Path
 
 
 class NixError(RuntimeError):
     pass
+
+
+# The public binary cache and its signing key. A target fetches from here with signatures checked.
+CACHE_URL = "https://cache.nixos.org"
+CACHE_KEY = "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
+_STORE_HASH = re.compile(r"[0-9a-df-np-sv-z]{32}")  # Nix base32: no e, o, t, u
+
+
+class CacheUnreachable(RuntimeError):
+    """The cache could not answer: a network or server error, not a missing path."""
+
+
+def narinfo_exists(path: str, timeout: float = 10) -> bool:
+    """True if CACHE_URL has a narinfo for this store path (a HEAD request, no download).
+
+    A 404 is a miss (the path is project-specific). Any other failure raises CacheUnreachable, so a
+    network outage is never read as an empty cache."""
+    name = path.rsplit("/", 1)[-1]
+    digest = name.split("-", 1)[0]
+    if not _STORE_HASH.fullmatch(digest):
+        return False
+    request = urllib.request.Request(f"{CACHE_URL}/{digest}.narinfo", method="HEAD")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status == 200
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return False
+        raise CacheUnreachable(f"HTTP {error.code} from {CACHE_URL}") from error
+    except (urllib.error.URLError, OSError) as error:
+        raise CacheUnreachable(f"{getattr(error, 'reason', error)}") from error
+
+
+def cache_partition(paths, has=narinfo_exists):
+    """Split `paths` (closure order kept) into (on the cache, not on the cache, reason).
+
+    If the cache cannot be asked, every path is 'not on the cache' and `reason` says why: the caller
+    then exports everything from the controller and reports that one reason."""
+    paths = list(paths)
+    try:
+        flags = [bool(has(path)) for path in paths]
+    except CacheUnreachable as error:
+        return [], paths, f"controller cannot reach {CACHE_URL}: {error}"
+    return ([p for p, f in zip(paths, flags) if f],
+            [p for p, f in zip(paths, flags) if not f],
+            None)
 
 
 def _command(nix, store, *args):

@@ -94,6 +94,10 @@ class StageCache(unittest.TestCase):
             output = self.remote_output if self.remote_output is not None else next(self.parents) if "mktemp" in command else ""
             return subprocess.CompletedProcess([], 0, (output + "\n").encode(), b"")
         self.backend._remote = remote
+        # The existing cases predate the cache fetch: no path is on the cache, so nothing changes.
+        patch("nixsci.deploy.nix.cache_partition",
+              side_effect=lambda paths, has=None: ([], list(paths), None)).start()
+        self.addCleanup(patch.stopall)
         self.cache = patch("nixsci.deploy.ssh.nix.export_paths")
         self.export = self.cache.start()
         self.addCleanup(self.cache.stop)

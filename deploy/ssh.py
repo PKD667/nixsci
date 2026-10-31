@@ -5,6 +5,7 @@ import re
 import shlex
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -238,6 +239,46 @@ class SSH(Backend):
         self._verify(closure)
         return {"path": closure.path, "closure": dict(closure.closure), "system": closure.system}
 
+    def _fetch_from_cache(self, paths: list[str]) -> str | None:
+        """Copy `paths` into the target's store from the public cache, with the target's own Nix.
+
+        Signatures are checked (the cache key is named explicitly; no --no-check-sigs). A failed copy
+        is not an error here: it returns the last line of its stderr, and the caller decides what
+        falls back to the controller. Returns None on success."""
+        argv = nix.command(self.remote_bootstrap, self.store, "--option", "trusted-public-keys",
+                           nix.CACHE_KEY, "copy", "--from", nix.CACHE_URL, *paths)
+        result = self._remote(shlex.join(argv), check=False)
+        if result.returncode == 0:
+            return None
+        lines = result.stderr.decode(errors="replace").strip().splitlines()
+        return lines[-1] if lines else f"exit status {result.returncode}"
+
+    def _cache_fill(self, closure: Closure, missing: list[str]) -> list[str]:
+        """Fetch from the public cache every missing path it has. Return the paths still missing.
+
+        Paths the cache does not have are project-specific and are exported as before, silently. A
+        path the cache has but the target did not register, or a cache that cannot be asked, falls
+        back to the export and prints one line that names the paths and the reason."""
+        candidates, _, reason = nix.cache_partition(missing)
+        if reason is not None:
+            self._fallback_line(missing, reason)
+            return missing
+        if not candidates:
+            return missing
+        why = self._fetch_from_cache(candidates)
+        cached = self._remote_hashes()
+        for path in candidates:
+            if path in cached and cached[path] != closure.closure[path]:
+                raise RuntimeError(f"cache-fetched target path NAR identity differs: {path}")
+        fallback = [p for p in candidates if p not in cached]
+        if fallback:
+            self._fallback_line(fallback, why or "not registered after the fetch")
+        return [p for p in missing if p not in cached]
+
+    def _fallback_line(self, paths: list[str], why: str) -> None:
+        print(f"nixsci: {self.host}: shipped from the controller, not fetched from "
+              f"{nix.CACHE_URL}: {' '.join(paths)}. Reason: {why}", file=sys.stderr)
+
     def _remote_hashes(self, root: str | None = None) -> dict[str, str]:
         # --all enumerates registered paths without probing missing paths (a
         # nonzero path-info result is always an error, never a cache miss).
@@ -298,6 +339,8 @@ class SSH(Backend):
                 missing.append(path)
             elif cached[path] != expected:
                 raise RuntimeError(f"preexisting target path NAR identity differs: {path}")
+        if missing:
+            missing = self._cache_fill(closure, missing)
         if not missing:
             self._verify(closure)
             return {"path": closure.path, "closure": dict(closure.closure), "system": closure.system}
