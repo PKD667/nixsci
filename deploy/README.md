@@ -172,8 +172,10 @@ A machine-wide file, `/etc/nixsci/providers.json`, has the same format and
 fills in names the user's own file does not set; the user's file wins.
 
 **The shipped Nix belongs to nixsci.** Hosts that have no Nix get the static Nix 2.34.8
-binary embedded in the Nix-built `nixsci` package. Its source revision is fixed by
-`flake.lock`, and its namespace-root patch is in `deploy/nix-namespace-root.patch`.
+binary embedded in the Nix-built `nixsci` package. It is the Nix project's own static build (the `nix` input,
+fixed by `flake.lock`, independent of your nixpkgs), plus the namespace-root patch in
+`deploy/nix-namespace-root.patch`. cache.nixos.org holds everything but the patched `nix-cli`, so a clean store
+fetches about 200 MiB and compiles one derivation; the first build on a new machine takes minutes, not an hour.
 The controller hashes that binary before shipping it; any explicit bootstrap path must
 match the embedded binary byte for byte.
 

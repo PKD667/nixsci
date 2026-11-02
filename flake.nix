@@ -2,15 +2,18 @@
   description = "nixsci: a science stack on Nix - deploy, lab, work";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+  # The rootless bootstrap (deploy/nix-bootstrap.nix). Deliberately not `follows = nixpkgs`: the cache holds this
+  # input's build only with this input's own nixpkgs.
+  inputs.nix.url = "github:NixOS/nix/2.34.8";
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, nix }:
     let
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forAll = f: nixpkgs.lib.genAttrs systems (s: f nixpkgs.legacyPackages.${s});
       # CUDA is unfree (redistributable); only the GPU probe needs it.
       cudaPkgs = system: import nixpkgs { inherit system; config.allowUnfree = true; };
 
-      rootlessBootstrap = pkgs: import ./deploy/nix-bootstrap.nix { inherit pkgs; };
+      rootlessBootstrap = pkgs: import ./deploy/nix-bootstrap.nix { inherit pkgs nix; };
 
       # The Python library ships the pinned Nix helper used by every compute target.
       library = pkgs: py: {
@@ -229,6 +232,7 @@
           # Tests that need what a sandbox lacks: a real nix and store (or the Rust emitter, which checks.rust-recorder
           # provides). `nix develop --command pytest` runs every one of them, and conftest.py makes a skip a failure.
           needsNix = [
+            "deploy/tests/test_bootstrap_nix.py"
             "deploy/tests/test_native_export.py"
             "deploy/tests/test_source.py"
             "deploy/tests/test_wrapper.py"
