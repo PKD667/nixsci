@@ -237,6 +237,16 @@ class Wiring(unittest.TestCase):
         lease = Static().acquire(Resources(hosts=1), {"hosts": "h0", "user": "u"})
         self.assertEqual(factory.backend("t0", {"t0": lease.targets[0]}).stage_mode, "direct")
 
+    def test_a_host_list_can_declare_the_nvidia_driver_and_the_backend_admits_a_gpu_experiment(self):
+        from nixsci.deploy import factory
+        from nixsci.deploy.providers import Resources, Static
+
+        lease = Static().acquire(Resources(hosts=1), {"hosts": "h0", "user": "u", "driver": "nvidia"})
+        self.assertEqual(lease.targets[0]["driver"], "nvidia")
+        self.assertEqual(factory.backend("t0", {"t0": lease.targets[0]}).driver, "nvidia")
+        plain = Static().acquire(Resources(hosts=1), {"hosts": "h0", "user": "u"})
+        self.assertNotIn("driver", plain.targets[0])
+
     def test_an_unknown_stage_is_refused_when_the_backend_is_built(self):
         from nixsci.deploy import factory
         from nixsci.deploy.providers import Resources, Static
