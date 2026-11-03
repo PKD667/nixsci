@@ -252,7 +252,9 @@
             "doc/tests/test_remeasure_nix.py"
             "doc/tests/test_template_nix.py"
             "doc/tests/test_tex_side.py"
+            "doc/tests/test_typeset_nix.py"
             "doc/tests/test_workspace_nix.py"
+            "lab/tests/test_identity_nix.py"
             "lab/tests/test_nix_integration.py"
             "lab/tests/test_rust.py"
           ];
@@ -283,38 +285,24 @@
           touch $out
         '';
 
-        unit = pkgs.runCommand "nixsci-unit-tests" {
-          nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.pytest p.hypothesis p.pyarrow ]))
-            pkgs.coreutils pkgs.bash pkgs.procps pkgs.git ];
-        } ''
-          cp -R ${./.} nixsci
-          chmod -R u+w nixsci
-          export PYTHONPATH=$PWD HOME=$TMPDIR/home
-          mkdir -p "$HOME"
-          cd nixsci
-          pytest -q deploy/tests lab/tests stats/tests doc/tests ${ignoreNeedsNix}
-          touch $out
-        '';
-
-        # The suite and the document fixture are the two things a claim in a README rests on, so a
-        # build runs both. (Added by the deploy branch: it also covers cli/tests.)
-        tests =
-          let python = pkgs.python3.withPackages (p: [ p.pytest p.hypothesis p.pyarrow ]);
-          in pkgs.runCommand "nixsci-tests"
-            {
-              nativeBuildInputs = [ python pkgs.git ];
-              env.PYTHONDONTWRITEBYTECODE = "1";
-            }
-            ''
-              export HOME=$TMPDIR
-              mkdir -p $TMPDIR/work
-              cp -r ${self} $TMPDIR/work/nixsci
-              cd $TMPDIR/work/nixsci
-              chmod -R u+w .
-              export PYTHONPATH=$TMPDIR/work
-              python3 -m pytest -q deploy/tests lab/tests cli/tests ${ignoreNeedsNix} > $out 2>&1 || { cat $out; exit 1; }
-              printf 'not run here (need a real nix): %s\n' "${toString needsNix}" >> $out
-            '';
+        # One check runs every pytest directory that can run without a real nix (conftest.py makes the copy
+        # importable as `nixsci`); the rest are listed in `needsNix` above and run in the dev shell.
+        # `validate/tests` is in neither: its Nix cases are `validate-sorted` below, its judge rules run in the dev shell.
+        tests = pkgs.runCommand "nixsci-tests"
+          {
+            nativeBuildInputs = [ (pkgs.python3.withPackages (p: [ p.pytest p.hypothesis p.pyarrow ]))
+              pkgs.coreutils pkgs.bash pkgs.procps pkgs.git ];
+            env.PYTHONDONTWRITEBYTECODE = "1";
+          }
+          ''
+            export HOME=$TMPDIR
+            mkdir -p $TMPDIR/work
+            cp -r ${self} $TMPDIR/work/nixsci
+            cd $TMPDIR/work/nixsci
+            chmod -R u+w .
+            python3 -m pytest -q deploy/tests lab/tests stats/tests doc/tests cli/tests gpu/tests ${ignoreNeedsNix} > $out 2>&1 || { cat $out; exit 1; }
+            printf 'not run here (need a real nix): %s\n' "${toString needsNix}" >> $out
+          '';
         # A deterministic check (validate/README.md). `validate.<system>.checks.broken` is left out on purpose.
         validate-sorted = self.validate.${pkgs.stdenv.hostPlatform.system}.checks.sorted;
         example-paper = self.packages.${pkgs.stdenv.hostPlatform.system}.example-paper;
