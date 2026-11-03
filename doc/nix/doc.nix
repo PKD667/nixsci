@@ -31,467 +31,56 @@
 # Provenance travels as `unclean`, a list of what a reader could not trace to code and locked
 # runs: a file marked `static`, a lab analysis that is not clean. A document with any is a draft:
 # every page says so, and `publish` refuses it, as it refuses an uncommitted tree.
+#
+# This file is the entry point. The work is in modules next to it, one job each:
+#   template.nix, fonts.nix, figures.nix   what a document is typeset with, and its figures' widths
+#   provenance.nix, project.nix             a project, and what its inputs can be traced to
+#   document.nix                            the wiring of a document's stages:
+#     meta.nix        meta against the template's slots
+#     figure-build.nix  each figure variant, compiled on its own
+#     remeasure.nix   the lab analyses it reads and the plan to measure them again
+#     tree.nix        the tree under nixsci/ and the source tree
+#     latex.nix       the TeX environment, the command, the PDF
+#     publish.nix     crate, zip, zipCheck, publish
+#     dev.nix         the dev shell and the apps
+#   workspace.nix                           a whole flake of documents found by directory convention
 { pkgs, crateTool, cliTool ? null }:
 let
   inherit (pkgs) lib;
   toolkit = ../files;
   fonts = import ./fonts.nix { inherit lib; };
   templateLib = import ./template.nix { inherit pkgs toolkit; };
-
-  # A file with its provenance. Plain paths and derivations are clean; a derivation that carries
-  # `unclean` (a lab analysis) passes it on.
-  entry = x:
-    if lib.isAttrs x && x ? path && (x.type or null) != "derivation" then x
-    else { path = x; unclean = if lib.isAttrs x then x.unclean or [ ] else [ ]; };
+  provenance = import ./provenance.nix { inherit lib; };
+  engines = import ./engines.nix { inherit pkgs lib; };
+  inherit (templateLib) templates pkgNames generatedLines;
 
   extension = p: let m = builtins.match ".*/[^/]*\\.([A-Za-z0-9]+)" (toString p); in if m == null then "" else ".${lib.head m}";
 
-  texEnv = packages: pkgs.texliveSmall.withPackages packages;
-
-  engineFlag = engine:
-    { pdflatex = "-pdf"; lualatex = "-lualatex"; xelatex = "-xelatex"; }.${engine}
-      or (throw "doc: engine must be pdflatex, lualatex or xelatex, not ${engine}");
-
-  # A font-aware engine builds a font cache on first use and needs a writable HOME for it
-  # (luaotfload ignores TEXMFVAR and TEXMFCACHE; measured).
-  engineHome = engine: lib.optionalString (engine != "pdflatex") ''export HOME="$TMPDIR"'';
-
-  # The lab analyses among a project's inputs, by key. Each one's `view` (set by lab.nix, carried
-  # by `output`) is what the artifact keeps. Two different analyses under one key would land in one
-  # directory, so that is an error.
-  analysesOf = name: sets:
-    let
-      found = lib.concatLists (map (set: lib.mapAttrsToList (key: e: { inherit key; view = e.view; })
-        (lib.filterAttrs (_: e: (e.view or null) != null) set)) sets);
-      add = acc: a:
-        if acc ? ${a.key} && toString acc.${a.key} != toString a.view
-        then throw "doc: ${name}/${a.key} names two different analyses"
-        else acc // { ${a.key} = a.view; };
-    in lib.foldl' add { } found;
+  # The stages of a document, each a function of explicit inputs (document.nix wires them).
+  modules = {
+    checkMeta = import ./meta.nix { inherit lib; };
+    figureBuild = import ./figure-build.nix { inherit pkgs lib toolkit fonts engines extension; };
+    remeasure = import ./remeasure.nix { inherit pkgs lib provenance; };
+    treeOf = import ./tree.nix { inherit pkgs lib toolkit fonts generatedLines extension; };
+    latexOf = import ./latex.nix { inherit pkgs lib engines pkgNames; };
+    publishOf = import ./publish.nix { inherit pkgs lib crateTool engines; };
+    devOf = import ./dev.nix { inherit pkgs lib cliTool; };
+  };
 in
-rec {
+{
   inherit (templateLib) template templates pkgNames generatedLines usepackages;
 
   # A font: see fonts.nix. doc.font { family; dir? or tex?; faces?; fake? }.
   font = fonts.mk;
 
-  # A file copied by hand: the build cannot say where its numbers came from.
-  static = path: { inherit path; unclean = [ "static" ]; };
+  # Files with their provenance: see provenance.nix.
+  inherit (provenance) static output;
 
-  # One file of a derivation's output, keeping the derivation's provenance and, for a lab analysis,
-  # its view (the tables and run records the analysis read).
-  output = drv: file: { path = "${drv}/${file}"; inherit drv file; unclean = drv.unclean or [ ]; view = drv.view or null; };
+  # What several documents share: see project.nix.
+  project = import ./project.nix { inherit lib provenance pkgNames; };
 
-  project =
-    args@{ name
-    , style ? null
-    , packages ? (_: [ ])
-    , files ? { }
-    , data ? { }
-    , figures ? { }
-    , values ? { }
-    , bib ? null
-    }:
-    let
-      data' = lib.mapAttrs (_: entry) data;
-      figures' = lib.mapAttrs
-        (key: f:
-          let f' = if lib.isAttrs f && f ? src then f else { src = f; };
-          in {
-            src = f'.src;
-            data = map (d: if data' ? ${d} then d else throw "doc: figure ${name}/${key} reads data ${d}, which ${name} does not declare") (f'.data or [ ]);
-            # DEPRECATED: `options` (TeX in a string) is replaced by `params`; deleted once the papers migrate.
-            options = f'.options or "";
-          })
-        figures;
-      tagged = kind: set: lib.concatLists (lib.mapAttrsToList (k: e: map (why: "${name}/${kind}/${k}: ${why}") e.unclean) set);
-      files' = lib.mapAttrs (_: entry) files;
-      values' = lib.mapAttrs (_: entry) values;
-      replaceOutput = replacements: e:
-        let e' = entry e; key = builtins.unsafeDiscardStringContext (toString (e'.drv or null));
-        in if (e'.drv or null) != null && replacements ? ${key}
-          then output replacements.${key} e'.file
-          else e;
-    in
-    {
-      inherit name style bib;
-      packages = pkgNames packages;
-      files = files';
-      data = data';
-      figures = figures';
-      values = values';
-      unclean = tagged "files" files' ++ tagged "data" data' ++ tagged "values" values';
-      analyses = analysesOf name [ files' data' values' ];
-      withAnalyses = replacements:
-        project ((args // {
-          files = lib.mapAttrs (_: e: replaceOutput replacements e) (args.files or { });
-          data = lib.mapAttrs (_: e: replaceOutput replacements e) (args.data or { });
-          values = lib.mapAttrs (_: e: replaceOutput replacements e) (args.values or { });
-        }));
-    };
-
-  document =
-    args@{ name
-    , src
-    , entry ? "main.tex"
-    , template ? templates.plain
-    , meta ? { }
-    , projects ? [ ]
-    , figures ? { }
-    , packages ? (_: [ ])
-    , source ? null
-    , srcDir ? null
-    , _remeasurement ? null
-    }:
-    let
-      t = template;
-      flag = engineFlag t.engine;
-
-      required = lib.attrNames (lib.filterAttrs (_: v: v == "required") t.meta);
-      metaErrors =
-        map (k: "${k} is required") (lib.filter (k: !(meta ? ${k})) required)
-        ++ map (k: "${k} is not a slot of ${t.name} (slots: ${lib.concatStringsSep ", " (lib.attrNames t.meta)})")
-          (lib.filter (k: !(t.meta ? ${k})) (lib.attrNames meta));
-      meta' = if t.meta == null || metaErrors == [ ] then meta else throw "doc: ${name}: meta: ${lib.concatStringsSep "; " metaErrors}";
-
-      byName = lib.listToAttrs (map (p: lib.nameValuePair p.name p) projects);
-      unknownFigures = lib.concatLists (lib.mapAttrsToList
-        (p: fs: if byName ? ${p} then [ ] else [ "project ${p} is not among this document's projects" ]) figures);
-
-      # A width is a length or a fraction of figure.width.
-      variants = p:
-        let
-          figs = import ./figures.nix { inherit lib; };
-          asked = figures.${p.name} or { };
-          spec = key: v:
-            let
-              v' = if lib.isAttrs v then v else { width = v; };
-              from = v'.from or key;
-              where = "${name}: figure ${p.name}/${key}";
-            in
-            if p.figures ? ${from}
-            then {
-              inherit key;
-              fig = p.figures.${from} // lib.optionalAttrs (v' ? options) { inherit (v') options; };
-              width = figs.width where t.figure.width (v'.width or t.figure.width);
-              paramsTeX = figs.paramsTeX where (v'.params or { });
-            }
-            else throw "doc: ${name}: figure ${p.name}/${from} is not a figure of ${p.name}";
-        in
-        lib.mapAttrsToList (key: _: spec key (asked.${key} or t.figure.width)) p.figures
-        ++ lib.mapAttrsToList spec (lib.filterAttrs (k: _: !(p.figures ? ${k})) asked);
-
-      figureEnv = texEnv (ps: [ ps.latexmk ps.standalone ] ++ t.packages ps ++ t.figure.packages ps ++ lib.concatMap (p: p.packages ps) projects);
-      # Paths in fonts.tex are relative here (\nixsciroot is empty), so the files sit where they say.
-      figureFontsSetup = ''
-        cp ${toolkit}/nixsci-fonts.sty .
-        ${lib.optionalString ((t.figure.fonts or { }) != { }) ''
-          cp ${pkgs.writeText "${name}-figure-fonts.tex" (fonts.fontsTex t.figure.fonts)} fonts.tex
-          ${lib.concatMapStrings (f: "mkdir -p ${dirOf f.to}\ncp -L ${f.from} ${f.to}\n") (fonts.files t.figure.fonts)}
-        ''}
-      '';
-      compile = p: v: pkgs.runCommand "${p.name}-${v.key}-${t.name}"
-        { nativeBuildInputs = [ figureEnv ]; FORCE_SOURCE_DATE = "1"; } ''
-        ${engineHome t.engine}
-        mkdir -p data ${p.name}
-        ${lib.concatMapStrings (d: "cp ${p.data.${d}.path} data/${d}${extension p.data.${d}.path}\n") v.fig.data}
-        ${lib.concatStrings (lib.mapAttrsToList (k: e: "cp -RL --no-preserve=mode ${e.path} ${p.name}/${k}${extension e.path}\n") p.files)}
-        ${lib.optionalString (p.style != null) "cp ${p.style} ${p.name}.sty"}
-        cp ${v.fig.src} figure.tex
-        ${figureFontsSetup}
-        cat > wrapper.tex <<'EOF'
-        \documentclass[border=0pt,${t.figure.size}]{standalone}
-        ${t.figure.useTex}${lib.optionalString ((t.figure.fonts or { }) != { }) "\\usepackage{nixsci-fonts}\n"}${t.figure.preamble}
-        \providecommand{\nixscipath}[1]{#1}
-        ${lib.optionalString (p.style != null) "\\usepackage{${p.name}}"}
-        \def\datadir{data}\def\figwidth{${v.width}}
-        ${v.fig.options}
-        ${v.paramsTeX}
-        \begin{document}\input{figure}\end{document}
-        EOF
-        latexmk ${flag} -interaction=nonstopmode -halt-on-error wrapper.tex >/dev/null || { cat wrapper.log; exit 1; }
-        mkdir $out
-        cp wrapper.pdf $out/${v.key}.pdf
-      '';
-
-      unclean = lib.concatMap (p: p.unclean) projects;
-      analysisEntries = lib.concatMap (p: lib.concatLists (map (set: lib.attrValues set)
-        [ p.files p.data p.values ])) projects;
-      analysisDrvs = lib.foldl' (acc: e:
-        let key = builtins.unsafeDiscardStringContext (toString (e.drv or null));
-        in if (e.drv or null) == null || !(e.drv ? withLock) || acc ? ${key}
-        then acc else acc // { ${key} = e.drv; }) { } analysisEntries;
-      measurementPlan =
-        assert lib.assertMsg (!(lib.any (e: (e.unclean or [ ]) != [ ] && !((e.drv or { }) ? withLock)) analysisEntries))
-          "doc: ${name}: cannot remeasure static or untraced inputs";
-        assert lib.assertMsg (lib.all (drv: lib.all (item: item.closures != { }) (lib.attrValues drv.remeasureSpec)) (lib.attrValues analysisDrvs))
-          "doc: ${name}: an experiment recorded by hand has no measurement closure to rerun";
-        pkgs.writeText "${name}-measurement-plan.json" (builtins.toJSON
-        (lib.concatMap (drv: map (item: item // { analysis = builtins.unsafeDiscardStringContext (toString drv); })
-          (lib.attrValues drv.remeasureSpec)) (lib.attrValues analysisDrvs)));
-
-      remeasurementTex = if _remeasurement == null then null else
-        pkgs.writeText "${name}-remeasurement.tex" "\\nixsci@remeasure{${_remeasurement}}";
-
-      # metadata, values and the draft mark, read by nixsci.sty
-      generated = pkgs.runCommand "${name}-generated" { nativeBuildInputs = [ pkgs.jq ]; } ''
-        {
-          echo '% Generated by nixsci doc from the document flake. Edit the flake, not this file.'
-          cat ${pkgs.writeText "${name}-lines.tex" (generatedLines { template = t; inherit projects; })}
-          cat ${pkgs.writeText "${name}-meta.tex" (t.render meta')}
-          ${lib.concatMapStrings (p: lib.concatStrings (lib.mapAttrsToList (k: e: ''
-            jq -r --arg p ${lib.escapeShellArg "${p.name}/${k}"} \
-              'if (type == "object" or type == "array") then (paths(scalars) as $k | "\\nixsci@defval{\($p).\($k | map(tostring) | join("."))}{\(getpath($k))}") else "\\nixsci@defval{\($p)}{\(.)}" end' \
-              ${e.path}
-          '') p.values)) projects}
-          ${lib.optionalString (unclean != [ ]) "echo '\\nixsci@draft{${toString (lib.length unclean)}}'"}
-          ${lib.optionalString (remeasurementTex != null) "cat ${remeasurementTex}"}
-        } > $out
-      '';
-
-      # The two shims sit at the root of the tree; every other file is under nixsci/ (INTERFACE.md, Layout).
-      regularFiles = dir: lib.attrNames (lib.filterAttrs (_: ty: ty == "regular" || ty == "symlink") (builtins.readDir dir));
-      putFiles = dir: to: lib.concatMapStrings (n: "put ${to}${n} ${dir}/${n}\n") (regularFiles dir);
-      putShims = lib.concatMapStrings (n: "put ${n} ${toolkit}/shim/${n}\n") (regularFiles (toolkit + "/shim"));
-      # A class is read by \documentclass before nixsci runs, so it stays at the root of the tree.
-      # The toolkit is already in the tree (under nixsci/, with the shims at the root): a template that is the toolkit
-      # adds nothing, and its nixsci.cls at the root would clash with the shim.
-      templateFiles =
-        if t.files == null || t.files == toolkit then { }
-        else if lib.isList t.files then lib.listToAttrs (map (f: lib.nameValuePair (baseNameOf (toString f)) f) t.files)
-        else lib.mapAttrs (n: _: t.files + "/${n}") (builtins.readDir t.files);
-      templatePuts = lib.concatStrings (lib.mapAttrsToList
-        (n: f: "put ${if lib.hasSuffix ".cls" n then n else "nixsci/${n}"} ${f}\n") templateFiles);
-      fontFiles = fonts.files t.fonts;
-      fontPuts = lib.optionalString (t.fonts != { }) "put nixsci/fonts.tex ${pkgs.writeText "${name}-fonts.tex" (fonts.fontsTex t.fonts)}\n"
-        + lib.concatMapStrings (f: "put ${f.to} ${f.from}\n") fontFiles;
-      projectPuts = lib.concatMapStrings (p:
-        lib.optionalString (p.style != null) "put nixsci/${p.name}.sty ${p.style}\n"
-        + lib.optionalString (p.bib != null) "put nixsci/${p.name}.bib ${p.bib}\n"
-        + lib.concatStrings (lib.mapAttrsToList (k: e: "put ${lib.escapeShellArg "nixsci/${p.name}/${k}${extension e.path}"} ${e.path}\n") p.files)
-        + lib.concatMapStrings (v: "put ${lib.escapeShellArg "nixsci/${p.name}/${v.key}.pdf"} ${compile p v}/${v.key}.pdf\n") (variants p))
-        projects;
-
-      tree = pkgs.runCommand "${name}-tree" { } ''
-        mkdir -p $out/tree/nixsci
-        : > $out/origins.tsv
-        put() { # put <tree path> <store path>
-          if [ -e "$out/tree/$1" ]; then
-            cmp -s "$2" "$out/tree/$1" || { echo "doc: $1 is provided twice, with different contents" >&2; exit 1; }
-            return 0
-          fi
-          mkdir -p "$out/tree/$(dirname "$1")"
-          cp -RL --no-preserve=mode "$2" "$out/tree/$1"
-          printf '%s\t%s\n' "$1" "$2" >> $out/origins.tsv
-        }
-        ${putShims}
-        ${putFiles toolkit "nixsci/"}
-        ${templatePuts}
-        put nixsci/generated.tex ${generated}
-        ${lib.optionalString (t.style != null) "put nixsci/${baseNameOf (toString t.style)} ${t.style}"}
-        ${fontPuts}
-        ${projectPuts}
-      '';
-
-      # texliveSmall has no latexmk binary, and the README's command runs it.
-      texPkgs = ps: t.packages ps ++ pkgNames packages ps ++ lib.concatMap (p: p.packages ps) projects ++ [ ps.latexmk ];
-      texEnv' = texEnv texPkgs;
-      # A TeX Live package's name: an entry of the texlive set carries it in its `pkgs` list.
-      texName = p: p.pname or (lib.head p.pkgs).pname;
-      texNames = lib.sort (a: b: a < b) (lib.unique (map texName (texPkgs pkgs.texlive)));
-
-      sourceTree = pkgs.runCommand "${name}-source" { } ''
-        [ ! -e ${src}/nixsci ] || { echo "doc: ${name}: nixsci/ is reserved for nixsci; rename the directory" >&2; exit 1; }
-        mkdir $out
-        cp -RL --no-preserve=mode ${tree}/tree/. $out/
-        while read -r f; do
-          [ ! -e "$out/$f" ] || { echo "doc: $f is in both the document and its projects or template" >&2; exit 1; }
-        done < <(cd ${src} && find . -type f)
-        cp -RL --no-preserve=mode ${src}/. $out/
-      '';
-
-      command = [ "latexmk" flag "-interaction=nonstopmode" "-file-line-error" "-halt-on-error" entry ];
-      stem = lib.removeSuffix ".tex" entry;
-
-      # FORCE_SOURCE_DATE: the PDF carries the sandbox's fixed date, not the build time. The receipt
-      # is written after latexmk returned, so it records a compile that happened.
-      pdfBase = pkgs.runCommand "${name}-pdf" { nativeBuildInputs = [ texEnv' pkgs.jq ]; FORCE_SOURCE_DATE = "1"; } ''
-        ${engineHome t.engine}
-        cp -RL --no-preserve=mode ${sourceTree}/. .
-        ${lib.escapeShellArgs command}
-        mkdir -p $out
-        cp ${stem}.pdf $out/${name}.pdf
-        jq -n --argjson command ${lib.escapeShellArg (builtins.toJSON command)} \
-          --argjson unclean ${lib.escapeShellArg (builtins.toJSON unclean)} \
-          --arg tex ${texEnv'} --arg version "$(latexmk -v | head -n 2 | tail -n 1)" \
-          '{command: $command, exitStatus: 0, texEnvironment: $tex, latexmk: $version, unclean: $unclean}' > $out/receipt.json
-      '';
-
-      crate = pkgs.runCommand "${name}-ro-crate" { nativeBuildInputs = [ crateTool ]; } ''
-        python ${../crate.py} --name ${lib.escapeShellArg name} --source ${sourceTree} \
-          --pdf ${pdfBase}/${name}.pdf --receipt ${pdfBase}/receipt.json --includes ${pkgs.writeText "none.json" "{}"} \
-          --origins ${tree}/origins.tsv --out $out
-      '';
-
-      dirty = source != null && !(source ? rev);
-      refusals = unclean
-        ++ lib.optional (source == null) "the document does not name its flake (source = self), so its tree cannot be checked"
-        ++ lib.optional dirty "the flake has uncommitted changes";
-      # Refused at build time, not evaluation: the flake still evaluates while you write.
-      publish =
-        if refusals == [ ] then publishDir
-        else pkgs.runCommand "${name}-publish-refused" { } ''
-          echo ${lib.escapeShellArg "doc: ${name} cannot be published:\n  ${lib.concatStringsSep "\n  " refusals}"} >&2
-          exit 1
-        '';
-
-      # zipCheck runs the command line this prints.
-      engineName = { lualatex = "LuaLaTeX"; xelatex = "XeLaTeX"; }.${t.engine} or null;
-      readme = pkgs.writeText "${name}-README.txt" (lib.concatStringsSep "\n" ([
-        "${name}-latex.zip: the LaTeX source of ${name}, with its figures and style files."
-        "Unzip it into an empty directory, then run this in that directory:"
-        ""
-        "    ${lib.escapeShellArgs command}"
-        ""
-        "That writes ${stem}.pdf. ${if texNames == [ ] then "It needs no TeX Live packages beyond the base install." else "It needs these TeX Live packages (texliveSmall; the packages they depend on come with them): ${lib.concatStringsSep ", " texNames}."}"
-        ""
-        "For the same bytes as the published PDF, set FORCE_SOURCE_DATE=1 and SOURCE_DATE_EPOCH=315532800 first."
-      ] ++ lib.optionals (engineName != null) [
-        "The engine is ${engineName}: the command above passes ${flag}, so run it exactly as written."
-        "Overleaf: Menu > Compiler, choose ${engineName}. ${engineName} writes a font cache: set HOME to a writable directory first."
-      ] ++ lib.optional (fontFiles != [ ]) "The fonts under nixsci/fonts keep their own licence.") + "\n");
-
-      # The LaTeX project: the source tree and README.txt. Sorted names and fixed times, so two
-      # builds give the same bytes.
-      zip = pkgs.runCommand "${name}-zip" { nativeBuildInputs = [ pkgs.zip ]; } ''
-        mkdir -p $out work
-        cp -RL --no-preserve=mode ${sourceTree}/. work/
-        [ ! -e work/README.txt ] || { echo "doc: ${name} has a README.txt at its root; the LaTeX zip adds one" >&2; exit 1; }
-        cp ${readme} work/README.txt
-        cd work
-        find . -exec touch -h -d @0 {} +
-        find . -type f -printf '%P\n' | LC_ALL=C sort | zip -X -D -q $out/${name}.zip -@
-      '';
-
-      zipCheck = pkgs.runCommand "${name}-zip-check"
-        { nativeBuildInputs = [ pkgs.unzip pkgs.gnugrep ]; FORCE_SOURCE_DATE = "1"; } ''
-        unzip -q ${zip}/${name}.zip
-        line=$(grep -m1 '^    latexmk ' README.txt) || { echo "doc: ${name}: README.txt prints no latexmk command" >&2; exit 1; }
-        ${pkgs.coreutils}/bin/env -i PATH=${texEnv'}/bin:${pkgs.coreutils}/bin:${pkgs.bash}/bin \
-          TEXMFHOME=/nonexistent HOME=$TMPDIR FORCE_SOURCE_DATE=1 SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH \
-          sh -c "$line" > build.out 2>&1 || { cat build.out; echo "doc: ${name}: the README's command failed" >&2; exit 1; }
-        if grep -nE "There were undefined references|Citation .* undefined|Reference .* undefined" ${stem}.log; then
-          echo "doc: ${name}: the README\'s command leaves an undefined reference" >&2; exit 1
-        fi
-        mkdir $out
-        cp ${stem}.pdf $out/${name}.pdf
-      '';
-
-      analysisViews = lib.concatMap (p: lib.mapAttrsToList (key: view: { project = p.name; inherit key view; }) p.analyses) projects;
-
-      # publish: the document, its LaTeX project, and the reproduction artifact, with SHA256SUMS.
-      publishDir = pkgs.runCommand "${name}-publish" { nativeBuildInputs = [ pkgs.zip ]; } ''
-        mkdir -p $out art
-        cp ${pdfBase}/${name}.pdf $out/${name}.pdf
-        cp ${zip}/${name}.zip $out/${name}-latex.zip
-        cp -RL --no-preserve=mode ${crate}/. art/
-        cat > art/ARTIFACT-README.txt <<'EOF'
-        This archive contains the RO-Crate files and the analysis views listed under data/.
-        These views are not full raw experiment run directories.
-        EOF
-        ${lib.concatMapStrings (a: ''
-          mkdir -p ${lib.escapeShellArg "art/data/${a.project}/${a.key}/view"}
-          cp -RL --no-preserve=mode ${a.view}/. ${lib.escapeShellArg "art/data/${a.project}/${a.key}/view"}/
-        '') analysisViews}
-        find art -exec touch -h -d @0 {} +
-        (cd art && find . -type f -printf '%P\n' | LC_ALL=C sort | zip -X -D -q $out/${name}-artifact.zip -@)
-        cd $out
-        files=$(find . -maxdepth 1 -type f -printf '%f\n' | LC_ALL=C sort)
-        sha256sum $files > SHA256SUMS
-      '';
-
-      # The dev loop edits the checkout: the tree (template, toolkit, projects, compiled figures) is
-      # symlinked under .nixsci/doc/<name> and put on the TeX search paths. A figure source edit
-      # needs `nix run` again, because the figure is a build.
-      sourceDir =
-        if srcDir != null then srcDir
-        else if builtins.typeOf src == "path" then baseNameOf (toString src)
-        else null;
-      # latexmk gets \nixsciroot from -usepretex: there is no environment hook for it.
-      env = ''
-        nixsci_root() {
-          if r=$(git rev-parse --show-toplevel 2>/dev/null); then printf '%s\n' "$r"; return 0; fi
-          d=$PWD
-          while :; do
-            if [ -f "$d/flake.nix" ]; then printf '%s\n' "$d"; return 0; fi
-            [ "$d" = / ] && break
-            d=$(dirname "$d")
-          done
-          echo "doc: no git checkout or flake.nix above $PWD" >&2
-          return 1
-        }
-        root=$(nixsci_root) || exit 1
-        state="$root/.nixsci"
-        mkdir -p "$state/doc" "$state/bin"
-        ln -sfn ${tree}/tree "$state/doc/${name}"
-        nixsciroot="$state/doc/${name}/"
-        cat > "$state/bin/latexmk" <<WRAP
-#!/bin/sh
-exec ${texEnv'}/bin/latexmk '-usepretex=\def\nixsciroot{$nixsciroot}' "\$@"
-WRAP
-        chmod +x "$state/bin/latexmk"
-        export PATH="$state/bin:$PATH"
-        export TEXINPUTS="$state/doc/${name}:''${TEXINPUTS:-}"
-      '';
-      shell = pkgs.mkShell {
-        packages = [ texEnv' pkgs.xdg-utils pkgs.git pkgs.coreutils ];
-        shellHook = env + lib.optionalString (sourceDir != null) ''echo "doc: cd ${sourceDir}; latexmk -pvc ${flag} ${entry}"'';
-      };
-      devApp = pkgs.writeShellApplication {
-        name = "${name}-dev";
-        runtimeInputs = [ texEnv' pkgs.xdg-utils pkgs.git pkgs.coreutils ];
-        text = lib.optionalString (cliTool != null) ''
-          if [ "''${1:-}" = --remeasure ]; then
-            shift
-            exec ${cliTool}/bin/nixsci doc remeasure "$PWD"#${lib.escapeShellArg name} "$@"
-          fi
-        '' + env + (if sourceDir == null then ''
-          echo "doc: ${name} needs srcDir for the dev loop: src is not a plain path" >&2
-          exit 1
-        '' else ''
-          [ -d "$root/${sourceDir}" ] || { echo "doc: $root/${sourceDir} is not a directory: srcDir does not exist in this checkout" >&2; exit 1; }
-          cd "$root/${sourceDir}"
-          # -g: a stale latexmk state file can record an error and then refuse to recompile.
-          latexmk -g ${flag} -interaction=nonstopmode -file-line-error -halt-on-error ${entry}
-          xdg-open "${stem}.pdf" &
-          exec latexmk -pvc ${flag} -interaction=nonstopmode -file-line-error -halt-on-error ${entry}
-        '');
-      };
-      openApp = pkgs.writeShellApplication {
-        name = "${name}-open";
-        runtimeInputs = [ pkgs.xdg-utils ];
-        text = "exec xdg-open ${pdfBase}/${name}.pdf";
-      };
-    in
-    assert lib.assertMsg (unknownFigures == [ ]) "doc: ${name}: ${lib.concatStringsSep "; " unknownFigures}";
-    {
-      pdf = pdfBase // {
-        measurementPlan = measurementPlan;
-        remeasureViews = { locks, level ? 0.95 }:
-          lib.mapAttrs (key: drv: (drv.withLock locks.${key} level).view) analysisDrvs;
-        withMeasurements = { locks, level ? 0.95, remeasurement ? null }:
-          let replacements = lib.mapAttrs (key: drv: drv.withLock locks.${key} level) analysisDrvs;
-              measuredProjects = map (p: p.withAnalyses replacements) projects;
-          in (document (args // { projects = measuredProjects; _remeasurement = remeasurement; })).pdf;
-      };
-      inherit publish refusals crate zip zipCheck shell unclean generated;
-      meta = meta';
-      source = sourceTree;
-      apps = {
-        default = { type = "app"; program = "${devApp}/bin/${name}-dev"; };
-        open = { type = "app"; program = "${openApp}/bin/${name}-open"; };
-      };
-    };
+  # A document: see document.nix.
+  document = import ./document.nix { inherit pkgs lib modules provenance templates; };
 
   inherit toolkit;
   inherit (import ./figures.nix { inherit lib; }) figuresIn;
