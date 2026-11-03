@@ -27,7 +27,7 @@ provenance and executes claim checks. It does not prove R or Python analyses or 
 its statistical procedures. Formal proofs will remain conditional on stated models and sampling
 assumptions. A successful build is not scientific or formal verification.
 
-Layout: each directory is one package of the `nixsci` namespace. Put the parent of your checkout on `PYTHONPATH`, and the checkout directory must be named `nixsci`, to import it from source.
+Layout: each directory is one package of the `nixsci` namespace (`deploy/` is `nixsci.deploy`). `pytest` makes the checkout importable as `nixsci` itself (`conftest.py`); nothing needs to be exported to run the tests.
 
 ## Run on your machines
 
@@ -37,7 +37,7 @@ You need nix here, and `ssh HOST` working without a password to each machine (`~
 2. Run it on your machines, named as in ssh (no provider file):
 
    ```sh
-   nix run .#demo -- --hosts alpha,beta      # or: NIXSCI_HOSTS=alpha,beta nix run .#demo
+   nix run .#demo -- --hosts alpha,beta
    ```
 3. The first machine must reach the others by the same names, without a password.
 4. A machine that asks for a password stops the run before anything is copied, with one line naming it.

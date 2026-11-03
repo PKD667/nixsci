@@ -58,7 +58,7 @@ HPC-focused survey: [arXiv:2402.07530](https://arxiv.org/pdf/2402.07530).
    when the claim fails is already a claim check. Planned: `verify --claims` runs the declared
    pipelines on original + replicates.
 6. **Where data lives** (decided with the user's constraints: no central storage, no `<repo>/data`):
-   - a **per-project store**, `<project>/.nixsci/` (override with `NIXSCI_STORE`); runs are shared by their sealed content hashes; runs are write-once and addressed by `input_id`.
+   - a **per-project store**, `<project>/.nixsci/`; runs are shared by their sealed content hashes; runs are write-once and addressed by `input_id`.
      Inputs (datasets and models) are the shared part and live in a separate store, per grid;
    - **`lab.lock`** next to the flake, committed to git: the finished runs of each experiment, as
      Nix store paths with their hashes. Analyses are derivations over exactly those paths, so a

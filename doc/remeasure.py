@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import shutil
 import subprocess
 import sys
@@ -71,12 +70,9 @@ def main(argv=None) -> int:
             if key not in by_run:
                 project = work / f"run-{len(by_run)}"
                 project.mkdir()
-                store = work / f"store-{len(by_run)}"
                 command = [sys.executable, "-m", "nixsci.lab.cli", "--project", str(project), "exec", "--spec", str(spec_path), "--source", json.dumps(source)]
                 command.extend(_closure_args(closures))
-                env = os.environ.copy()
-                env["NIXSCI_STORE"] = str(store)
-                _run(command, env=env, cwd=project)
+                _run(command, cwd=project)
                 fresh = json.loads((project / "lab.lock").read_text())["runs"]
                 by_run[key] = fresh
             locks.setdefault(item["analysis"], {}).update(by_run[key])

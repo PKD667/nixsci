@@ -7,8 +7,7 @@ or the working directory upwards, that holds a `.git`, or else the directory of 
 
 The directory ignores itself in git. Every finished run is also added to the Nix store and listed in
 `<project>/lab.lock`, which the project commits; analyses are built from those store paths and
-the bytes move between machines with `nixsci lab push|pull`. `$NIXSCI_STORE` puts the directory
-somewhere else.
+the bytes move between machines with `nixsci lab push|pull`.
 
 Inputs (datasets and models) are meant to be shared and live in a separate input store, see
 `inputs_root`.
@@ -18,6 +17,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+
+from . import config
 
 
 def project_root(near: str | os.PathLike[str] | None = None) -> Path:
@@ -32,9 +33,6 @@ def project_root(near: str | os.PathLike[str] | None = None) -> Path:
 
 def store_root(near: str | os.PathLike[str] | None = None) -> Path:
     """The outputs store of the project that holds `near` (default: the working directory)."""
-    explicit = os.environ.get("NIXSCI_STORE")
-    if explicit:
-        return Path(explicit).expanduser()
     root = project_root(near) / ".nixsci"
     if not root.exists():
         root.mkdir(parents=True)
@@ -43,13 +41,13 @@ def store_root(near: str | os.PathLike[str] | None = None) -> Path:
 
 
 def inputs_root() -> Path:
-    """The input store (datasets and models): `$NIXSCI_INPUTS`, else `~/.nixsci`.
+    """The input store (datasets and models): `path` in `inputs.json` (see config.py), else `~/.nixsci`.
 
-    It is meant to be shared, so a grid whose storage is shared by its nodes sets it to a
-    directory there.
+    It is meant to be shared, so a grid whose storage is shared by its nodes puts that directory in the
+    system's `/etc/nixsci/inputs.json`, once. `nixsci lab data --inputs DIR` uses another for one command.
     """
-    explicit = os.environ.get("NIXSCI_INPUTS")
-    return Path(explicit).expanduser() if explicit else Path.home() / ".nixsci"
+    configured = config.setting("inputs", "path")
+    return Path(configured).expanduser() if configured else Path.home() / ".nixsci"
 
 
 def runs_dir(near: str | os.PathLike[str] | None = None) -> Path:

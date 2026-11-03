@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from nixsci.lab import peers, publish
+from nixsci.lab import config, peers, publish
 from nixsci.lab.compact import compact_runs
 
 
@@ -35,11 +35,14 @@ def test_facts_checked_against_manifest(tmp_path):
         compact_runs(tmp_path / "out", [run], {"r": expected})
 
 
-def test_peer_config_is_machine_local(tmp_path, monkeypatch):
-    config = tmp_path / "peers.json"
-    config.write_text('{"peers":["file:///a","ssh-ng://b","file:///a"]}')
-    monkeypatch.setenv("NIXSCI_PEERS_FILE", str(config))
-    assert peers.peers() == ["file:///a", "ssh-ng://b"]
+def test_peer_config_is_machine_local_and_the_users_follows_the_systems(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "SYSTEM", tmp_path / "etc")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "home"))
+    (tmp_path / "etc").mkdir()
+    (tmp_path / "etc" / "peers.json").write_text('{"peers":["file:///system"]}')
+    (tmp_path / "home" / "nixsci").mkdir(parents=True)
+    (tmp_path / "home" / "nixsci" / "peers.json").write_text('{"peers":["file:///a","ssh-ng://b","file:///a"]}')
+    assert peers.peers() == ["file:///system", "file:///a", "ssh-ng://b"]
 
 
 def test_pull_tries_each_peer_then_verifies_and_roots(tmp_path):

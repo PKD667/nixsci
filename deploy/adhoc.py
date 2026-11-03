@@ -1,6 +1,6 @@
 """Ad-hoc hosts: run an experiment on machines you can already `ssh` to, with no provider file.
 
-    nixsci lab exec --hosts a,b ...        or      NIXSCI_HOSTS=a,b nix run .#<experiment>
+    nixsci lab exec --hosts a,b ...        or      nix run .#<experiment> -- --hosts a,b
 
 The names are ssh host names (aliases from ~/.ssh/config are fine). Nothing else is configured: the
 user name comes from `ssh -G <first host>`, and ssh itself applies the rest of the configuration (port,
@@ -13,7 +13,6 @@ would ask for a password fails here, with the ssh error, and not in the middle o
 
 from __future__ import annotations
 
-import os
 import subprocess
 from typing import Mapping
 
@@ -34,10 +33,9 @@ def parse_hosts(value: str) -> list[str]:
     return names
 
 
-def hosts_from(value: str | None, environ: Mapping[str, str] = os.environ) -> list[str] | None:
-    """The ad-hoc hosts the command line or NIXSCI_HOSTS names, or None when neither does."""
-    text = value if value is not None else environ.get("NIXSCI_HOSTS", "")
-    return parse_hosts(text) or None
+def hosts_from(value: str | None) -> list[str] | None:
+    """The ad-hoc hosts `--hosts` names, or None when it was not given."""
+    return parse_hosts(value or "") or None
 
 
 def ssh_config(host: str, ssh=SSH) -> dict[str, str]:

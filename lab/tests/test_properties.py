@@ -18,7 +18,8 @@ KEY = st.from_regex(r"[a-z]{1,6}", fullmatch=True)
 
 
 class Lock(unittest.TestCase):
-    @given(st.lists(ENTRY, max_size=8))
+    # One name is one measurement: a name under other contents is refused (test_storage.py), so the names here are distinct.
+    @given(st.lists(ENTRY, max_size=8, unique_by=lambda e: (e["app"], e["run"])))
     def test_adding_runs_keeps_one_sorted_entry_per_name_and_is_idempotent(self, entries):
         lock: dict = {}
         for e in entries:

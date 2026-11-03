@@ -179,8 +179,7 @@ rec {
             else throw "analysis ${n}/${pname}: language must be r or python";
           environment = if language == "r" then rEnv else python;
         in pkgs.runCommand "${n}-${pname}" { nativeBuildInputs = [ environment ] ++ (p.packages or [ ]); } ''
-          export HOME=$TMPDIR NIX_LAB_VIEW=${view} NIX_LAB_OUT=$out
-          export NIXSCI_VIEW=$NIX_LAB_VIEW NIXSCI_OUT=$NIX_LAB_OUT
+          export HOME=$TMPDIR NIXSCI_VIEW=${view} NIXSCI_OUT=$out
           mkdir $out
           cd $out
           ${runner} ${p.script}

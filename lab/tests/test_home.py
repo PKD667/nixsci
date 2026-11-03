@@ -1,4 +1,3 @@
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,10 +11,6 @@ DIRS = st.lists(st.from_regex(r"[a-z]{1,6}", fullmatch=True), max_size=4)
 
 
 class Project(unittest.TestCase):
-    def setUp(self):
-        self.old = os.environ.pop("NIXSCI_STORE", None)
-        self.addCleanup(lambda: os.environ.__setitem__("NIXSCI_STORE", self.old) if self.old else None)
-
     @given(DIRS)
     def test_a_spec_anywhere_in_a_git_checkout_uses_the_store_at_its_root(self, below):
         root = Path(tempfile.mkdtemp()) / "proj"
@@ -26,14 +21,11 @@ class Project(unittest.TestCase):
         self.assertEqual(home.runs_dir(spec), root.resolve() / ".nixsci" / "runs")
         self.assertEqual((root / ".nixsci" / ".gitignore").read_text(), "*\n")
 
-    def test_without_git_the_spec_directory_is_the_project_and_the_environment_overrides(self):
+    def test_without_git_the_spec_directory_is_the_project(self):
         spec = Path(tempfile.mkdtemp()) / "loose" / "e.toml"
         spec.parent.mkdir()
         spec.write_text("")
         self.assertEqual(home.store_root(spec), spec.parent.resolve() / ".nixsci")
-        os.environ["NIXSCI_STORE"] = "/elsewhere"
-        self.addCleanup(os.environ.pop, "NIXSCI_STORE")
-        self.assertEqual(home.store_root(spec), Path("/elsewhere"))
 
 
 if __name__ == "__main__":

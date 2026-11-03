@@ -2,7 +2,7 @@
 
 Peers are Nix store URLs (ssh-ng://host, file:///cache, s3://bucket, ...). Configure locally:
 ~/.config/nixsci/peers.json = {"peers": ["ssh-ng://a", "ssh-ng://b"]}.
-/etc/nixsci/peers.json supplies defaults; NIXSCI_PEERS_FILE overrides both.
+/etc/nixsci/peers.json supplies defaults (lab/config.py).
 
 Every pull verifies the lock's content hash and roots the run against Nix garbage collection.
 Push roots on ssh/ssh-ng destinations too (requires an ssh login with nix-store). Binary caches
@@ -19,18 +19,16 @@ import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
+from . import config
+
 
 def peers() -> list[str]:
-    override = os.environ.get("NIXSCI_PEERS_FILE")
-    paths = [Path(override)] if override else [Path("/etc/nixsci/peers.json"),
-        Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "nixsci/peers.json"]
     result = []
-    for path in paths:
-        if path.exists():
-            values = json.loads(path.read_text())["peers"]
-            if not isinstance(values, list) or any(not isinstance(v, str) or not v for v in values):
-                raise ValueError(f"{path}: peers must be a list of Nix store URLs")
-            result.extend(values)
+    for path in config.files("peers"):
+        values = json.loads(path.read_text())["peers"]
+        if not isinstance(values, list) or any(not isinstance(v, str) or not v for v in values):
+            raise ValueError(f"{path}: peers must be a list of Nix store URLs")
+        result.extend(values)
     return list(dict.fromkeys(result))
 
 

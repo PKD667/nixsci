@@ -96,7 +96,7 @@ with lab.Run(None, lab.run_name("meas", seed=3), spec="result/demo-spec.json", s
 
 ## Where files live
 
-Runs are staged in `<project>/.nixsci/runs/<app>/<run>/`. `$NIXSCI_STORE` moves that directory.
+Runs are staged in `<project>/.nixsci/runs/<app>/<run>/`, a cache: what counts as measured is what `lab.lock` lists.
 `lab.lock` names finished runs by name and recursive SHA-256; these derive the same Nix store path
 on every machine. `fetchRun` takes that name and hash. Nix uses a local copy or a configured
 substituter. If neither has it, the build asks you to pull from a peer.
@@ -115,7 +115,7 @@ nixsci lab sync                     # pull, then push
 nixsci lab pull file:///cache       # use one explicit peer instead
 ```
 
-`NIXSCI_PEERS_FILE` overrides the configuration path. Peer addresses stay out of the experiment
+Peer addresses stay out of the experiment
 and lock hashes. Peers need not be online when you measure; sync is explicit. The committed lock
 is the inventory, so peers synchronize the same project's locked runs, not every path in a store.
 Nix verifies content-addressed paths without signing keys; SSH still requires host authentication.
@@ -169,7 +169,7 @@ write.csv(summary, out("final.csv"))
 
 ## Inputs: datasets and models
 
-Reference. Inputs are the data an experiment reads and the models it loads. They live in an input store, which is meant to be shared: the default is `~/.nixsci`, `$NIXSCI_INPUTS` or `--inputs` moves it, and a grid whose nodes share storage points it there, so the data is stored once for the whole grid and read in place.
+Reference. Inputs are the data an experiment reads and the models it loads. They live in an input store, which is meant to be shared: the default is `~/.nixsci`; `{"path": "/shared/inputs"}` in `inputs.json` (next to `peers.json`, see `config.py`) or `--inputs` moves it, and a grid whose nodes share storage points it there, so the data is stored once for the whole grid and read in place.
 
 ```sh
 nixsci lab data import dataset shd shd.parquet --unit time=s --source https://example.org/shd
@@ -222,15 +222,15 @@ deployments.${system}.blocks = nixsci.lib.mkExperiment pkgs {
 
 `packages.<system>.lab-py` is the `lab` module alone, with no dependencies, ready to put in any Python environment.
 
-## Environment of a run
+## How a recorder finds its run
 
-`NIX_LAB_DIR` (record directory), `NIX_LAB_RUN` (run id), `NIX_LAB_SEED`, `NIX_LAB_PARAMS` (JSON). The executor sets them.
+An experiment written with `nixsci.lab` (Python), the R package or the Rust crate calls `record`, `params` and `seed` and never reads the environment. Those functions find the run through `NIX_LAB_DIR`, `NIX_LAB_RUN`, `NIX_LAB_SEED`, `NIX_LAB_PARAMS`, `NIX_LAB_SCHEMA` and `NIX_LAB_KEYS`, which the executor sets: that is the contract between the executor and a recorder (SPEC.md), for whoever writes a recorder in another language.
 
 ## Claims and Python analyses
 
 A pipeline ending in `.py` runs with Python; other scripts default to R. Set `language = "r"`
 or `language = "python"` explicitly when needed, and `packages = [ ... ];` for extra Nix packages.
-`NIXSCI_VIEW` and `NIXSCI_OUT` are the file contract; the older `NIX_LAB_*` variables still work.
+A pipeline never reads or sets an environment variable: `use`, `out` and `values` find the view and the output directory the build gives it.
 
 ```python
 from nixsci.lab.analysis import use, out, values

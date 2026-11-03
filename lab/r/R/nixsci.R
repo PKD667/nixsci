@@ -1,7 +1,7 @@
 view_root <- function() {
-  view <- Sys.getenv("NIXSCI_VIEW", Sys.getenv("NIX_LAB_VIEW"))
+  view <- Sys.getenv("NIXSCI_VIEW")
   if (!nzchar(view)) {
-    stop("not inside a nixsci analysis: NIX_LAB_VIEW is not set", call. = FALSE)
+    stop("not inside a nixsci analysis: NIXSCI_VIEW is not set", call. = FALSE)
   }
   view
 }
@@ -75,8 +75,8 @@ params <- function(x) {
 
 #' A path inside this pipeline's output directory.
 out <- function(...) {
-  root <- Sys.getenv("NIXSCI_OUT", Sys.getenv("NIX_LAB_OUT"))
-  if (!nzchar(root)) stop("not inside a nixsci analysis: NIX_LAB_OUT is not set", call. = FALSE)
+  root <- Sys.getenv("NIXSCI_OUT")
+  if (!nzchar(root)) stop("not inside a nixsci analysis: NIXSCI_OUT is not set", call. = FALSE)
   file.path(root, ...)
 }
 

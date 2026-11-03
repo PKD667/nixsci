@@ -92,7 +92,7 @@ def main(argv=None) -> int:
     e.add_argument("--closure", action="append", default=[], metavar="SYSTEM=PATH", help="the built closure for a system")
     e.add_argument("--source", default="{}", help="the flake's source identity, as JSON")
     e.add_argument("--again", action="store_true", help="add one more replicate per input")
-    e.add_argument("--hosts", help="ssh host names to run on instead of the spec's provider (or $NIXSCI_HOSTS)")
+    e.add_argument("--hosts", help="ssh host names to run on instead of the spec's provider")
     p = sub.add_parser("plan", help="print the jobs a spec expands to")
     p.add_argument("--spec", required=True)
     sub.add_parser("ls", help="what the runs directory holds").add_argument("app", nargs="?")
@@ -106,7 +106,7 @@ def main(argv=None) -> int:
     v.add_argument("run")
 
     d = sub.add_parser("data", help="datasets and models in the input store")
-    d.add_argument("--inputs", help="input store (default: $NIXSCI_INPUTS or ~/.nixsci)")
+    d.add_argument("--inputs", help="input store (default: `path` in inputs.json, else ~/.nixsci)")
     actions = d.add_subparsers(dest="action", required=True)
     i = actions.add_parser("import", help="add a dataset (a Parquet file) or a model (any file) as a revision")
     i.add_argument("kind", choices=inputs.KINDS)

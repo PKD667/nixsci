@@ -1,4 +1,4 @@
-"""Ad-hoc hosts: `--hosts a,b` (or NIXSCI_HOSTS) run an experiment on machines the user can already ssh to.
+"""Ad-hoc hosts: `--hosts a,b` runs an experiment on machines the user can already ssh to.
 
 The ssh layer is faked: `ssh -G HOST` returns canned configuration, and `ssh -o BatchMode=yes HOST true`
 returns a scripted status. The tests show which commands would run and in which order; they do not show
@@ -58,10 +58,10 @@ class ParseHosts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "repeated"):
             adhoc.parse_hosts("a,b,a")
 
-    def test_the_command_line_wins_over_the_environment(self):
-        self.assertEqual(adhoc.hosts_from("x,y", {"NIXSCI_HOSTS": "a"}), ["x", "y"])
-        self.assertEqual(adhoc.hosts_from(None, {"NIXSCI_HOSTS": "a,b"}), ["a", "b"])
-        self.assertIsNone(adhoc.hosts_from(None, {}))
+    def test_hosts_come_from_the_flag_only(self):
+        self.assertEqual(adhoc.hosts_from("x,y"), ["x", "y"])
+        self.assertIsNone(adhoc.hosts_from(None))
+        self.assertIsNone(adhoc.hosts_from(""))
 
 
 class SshConfig(unittest.TestCase):
