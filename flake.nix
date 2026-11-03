@@ -96,6 +96,7 @@
       lib.lab = { pkgs, project }:
         import ./lab/nix/lab.nix {
           inherit pkgs project;
+          rootless = rootlessBootstrap pkgs;
           nixsci = self.packages.${pkgs.stdenv.hostPlatform.system}.nixsci;
           python = self.packages.${pkgs.stdenv.hostPlatform.system}.python;
           rEnv = self.packages.${pkgs.stdenv.hostPlatform.system}.r-env;
@@ -327,6 +328,35 @@
         zip-check-template-paper = (templateDocument pkgs "paper").zipCheck;
         zip-check-template-slides = (templateDocument pkgs "slides").zipCheck;
         zip-check-template-poster = (templateDocument pkgs "poster").zipCheck;
+        # A lab export (lab/README.md, "Export") of the demo: its layout, its scripts parse under dash
+        # (POSIX sh), and its README names every column of data.loss.
+        lab-export-demo =
+          let
+            system = pkgs.stdenv.hostPlatform.system;
+            demo = self.lab.${system}.experiments.demo;
+            exported = (self.lib.lab { inherit pkgs; project = self; }).export { experiment = demo; };
+            columns = builtins.attrNames demo.spec.data.loss.columns;
+          in pkgs.runCommand "lab-export-demo" { nativeBuildInputs = [ pkgs.dash pkgs.gnugrep ]; } ''
+            e=${exported}
+            for f in check run evaluate; do
+              test -x $e/$f
+              dash -n $e/$f
+            done
+            for f in README.md experiment/spec.json experiment/jobs.tsv experiment/deployment.json \
+                     experiment/closure experiment/paths.tsv experiment/source.json experiment/system \
+                     experiment/alias tools/nix tools/evaluator tools/cache/nix-cache-info; do
+              test -s $e/$f
+            done
+            test -d $e/source
+            test -x $e/tools/nix
+            test "$(ls $e/experiment/env | wc -l)" -eq "$(( $(wc -l < $e/experiment/jobs.tsv) - 1 ))"
+            for f in $e/experiment/env/*.env; do test "$(grep -c '^NIX_LAB_RUN=' $f)" = 1; done
+            for c in ${pkgs.lib.concatStringsSep " " columns}; do
+              grep -qF "\`$c\`" $e/README.md || { echo "README does not name column $c"; exit 1; }
+            done
+            grep -qF "## Nix, for whoever wants to know" $e/README.md
+            touch $out
+          '';
         publish-refuses-draft =
           let draft = exampleDocument pkgs { static = true; };
           in assert draft.refusals != [ ] && draft.publish.name == "example-draft-publish-refused"; pkgs.runCommand "publish-refuses-draft" { } "touch $out";

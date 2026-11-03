@@ -1,0 +1,78 @@
+#!/bin/sh
+# run: run the jobs of experiment/jobs.tsv, or only line N: `./run` or `./run 3`.
+#
+# For each line: the line's environment (experiment/env/N.env) is exported, the job's workdir is
+# made, the job runs as the executor runs it (`nix shell --offline <closure> --command <closure>/bin/run`,
+# which is what deploy/native.py does for a rootless store), and its finished directory is sealed
+# into runs/ by `python -m nixsci.lab.offline seal-run`. No timeouts, no retries, no polling.
+
+here=$(cd "$(dirname "$0")" && pwd)
+nix="$here/tools/nix"
+store="$here/tools/store"
+closure=$(cat "$here/experiment/closure")
+evaluator=$(cat "$here/tools/evaluator")
+want=${1:-}
+
+# Run a command in the store: the same command line as `nix shell --offline <path> --command ...`.
+inside() {
+  "$nix" --extra-experimental-features nix-command --store "$store" shell --offline "$evaluator" --command "$@"
+}
+
+if ! "$here/check"; then
+  echo "FAIL: run: stopped because ./check failed (its FAIL line is above). Fix that line, then run ./run again."
+  exit 1
+fi
+
+# A job that spans several hosts needs hosts and a launcher. This export has one host.
+span=$(inside "$evaluator/bin/python" -m nixsci.lab.offline span "$here/experiment/spec.json") || exit 1
+if [ "$span" -gt 1 ]; then
+  echo "FAIL: run: the spec has span $span: each job needs $span hosts and a launcher. This export has neither: run the experiment where those exist."
+  exit 1
+fi
+
+if [ -n "$want" ]; then
+  lines=$(awk -F '\t' -v want="$want" 'NR > 1 && $1 == want { print $1 "\t" $2 }' "$here/experiment/jobs.tsv")
+else
+  lines=$(awk -F '\t' 'NR > 1 { print $1 "\t" $2 }' "$here/experiment/jobs.tsv")
+fi
+if [ -z "$lines" ]; then
+  echo "FAIL: run: no line ${want:-(any)} in experiment/jobs.tsv. Give a line number from its index column, or give no number."
+  exit 2
+fi
+
+failed=0
+while IFS='	' read -r index run_id; do
+  if ls -d "$here"/runs/*/"$run_id" >/dev/null 2>&1; then
+    echo "exists: $run_id is in runs/ already: skipped (delete its directory to run it again)"
+    continue
+  fi
+  work="$here/work/$run_id"
+  rm -rf "$work"
+  mkdir -p "$work"
+
+  echo "run $run_id (line $index)"
+  # The environment: exactly the lines of the env file, then what the executor sets itself.
+  while IFS='=' read -r key value; do
+    echo "  $key=$value"
+    export "$key=$value"
+  done < "$here/experiment/env/$index.env"
+  PATH=/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin
+  NIX_DEPLOY_WORKDIR="$work"
+  export PATH NIX_DEPLOY_WORKDIR
+  echo "  PATH=$PATH"
+  echo "  NIX_DEPLOY_WORKDIR=$NIX_DEPLOY_WORKDIR"
+
+  started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  echo "  $nix --extra-experimental-features nix-command --store $store shell --offline $closure --command $closure/bin/run"
+  (cd "$work" && "$nix" --extra-experimental-features nix-command --store "$store" \
+      shell --offline "$closure" --command "$closure/bin/run" < /dev/null) || true
+  inside "$evaluator/bin/python" -m nixsci.lab.offline seal-run "$here" "$index" "$work" "$started" \
+    < /dev/null || failed=$((failed + 1))
+done <<LINES
+$lines
+LINES
+
+if [ "$failed" -ne 0 ]; then
+  echo "$failed run(s) not ok"
+  exit 1
+fi

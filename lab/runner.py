@@ -19,7 +19,7 @@ from nixsci.lab.run import seal
 
 from . import health, rows, store
 from .publish import publish, read_lock, retain
-from .spec import Spec
+from .spec import Job, Spec
 
 
 def _utc() -> str:
@@ -129,6 +129,83 @@ def run(
         lease.release()
 
 
+def job_env(spec: Spec, job: Job, run_id: str) -> dict[str, str]:
+    """The NIX_LAB_* variables a job gets: its run id, parameters, seed and declared datasets."""
+    env = {"NIX_LAB_RUN": run_id, "NIX_LAB_PARAMS": json.dumps(job.params, sort_keys=True)}
+    if job.seed is not None:
+        env["NIX_LAB_SEED"] = str(job.seed)
+    if spec.data:
+        env["NIX_LAB_SCHEMA"] = json.dumps(spec.data, sort_keys=True)
+    if spec.keys:
+        env["NIX_LAB_KEYS"] = json.dumps(spec.keys, sort_keys=True)
+    return env
+
+
+def record(
+    dest: Path,
+    spec: Spec,
+    job: Job,
+    *,
+    ident: str,
+    replicate: int,
+    run_id: str,
+    status: dict[str, Any] | None,
+    target: str,
+    started: str,
+    source: Any,
+    closure: str,
+    members: list[tuple[str, str]] | None = None,
+) -> dict[str, Any]:
+    """Seal a finished job's directory `dest`: spec.json, the seal, and manifest.json.
+
+    `status` is the job's status.json (None if it never wrote one: the run is `incomplete`).
+    Shared by the executor and by `nixsci.lab.offline`, so an export's runs have the same record.
+    """
+    state = "incomplete" if status is None else ("ok" if status["exit_code"] == 0 else "failed")
+    notes: list[str] = []
+    if state == "ok":
+        # The exit status says the runner finished; the rows say whether the experiment worked.
+        records = dest / "lab" / "records.jsonl"
+        broken, notes = health.check(records, spec.data)
+        # Rows another language's recorder wrote are checked here, where the run can still be refused,
+        # and not when an analysis is built from it.
+        invalid = rows.problems(records, spec.data, spec.keys)
+        notes += [f"invalid rows: {problem}" for problem in invalid]
+        if broken or invalid:
+            state = "failed"
+    manifest = {
+        "app": spec.name,
+        "schema": spec.data,
+        "keys": spec.keys,
+        "run": run_id,
+        "state": state,
+        "seed": job.seed,
+        "params": job.params,
+        "status": status,
+        "target": target,
+        "started": started,
+        "ended": _utc(),
+        "source": source,
+        "closure": closure,
+        "input_id": ident,
+        "replicate": replicate,
+        "tolerance": spec.tolerance,
+    }
+    if members:
+        manifest["span"] = spec.span
+        manifest["hosts"] = [host for _, host in members]
+    spec_bytes = spec.json_bytes()
+    (dest / "spec.json").write_bytes(spec_bytes)
+    if notes:
+        manifest["health"] = notes
+    manifest["spec_sha256"] = hashlib.sha256(spec_bytes).hexdigest()
+    seal(dest, manifest, local=False)
+    (dest / "manifest.json").write_text(
+        json.dumps(manifest, sort_keys=True, indent=1, default=str) + "\n"
+    )
+    return manifest
+
+
 def _run_job(
     spec,
     job,
@@ -150,13 +227,7 @@ def _run_job(
     # `members`: (target, host) pairs of a span > 1 slice; the job starts on the first one.
     be = factory.backend(name, configs)
     backends = [be] + [factory.backend(n, configs) for n, _ in (members or [])[1:]]
-    env = {"NIX_LAB_RUN": run_id, "NIX_LAB_PARAMS": json.dumps(job.params, sort_keys=True)}
-    if job.seed is not None:
-        env["NIX_LAB_SEED"] = str(job.seed)
-    if spec.data:
-        env["NIX_LAB_SCHEMA"] = json.dumps(spec.data, sort_keys=True)
-    if spec.keys:
-        env["NIX_LAB_KEYS"] = json.dumps(spec.keys, sort_keys=True)
+    env = job_env(spec, job, run_id)
     started = _utc()
     if not members:
         be.stage(closure)
@@ -188,54 +259,18 @@ def _run_job(
     if be.exists(handle, "lab"):
         be.fetch(handle, "lab", dest / "lab")
     status = json.loads(be.read_file(handle, "lab/status.json") or "null")
-    state = "incomplete" if status is None else ("ok" if status["exit_code"] == 0 else "failed")
-    notes: list[str] = []
-    if state == "ok":
-        # The exit status says the runner finished; the rows say whether the experiment worked.
-        records = dest / "lab" / "records.jsonl"
-        broken, notes = health.check(records, spec.data)
-        # Rows another language's recorder wrote are checked here, where the run can still be refused,
-        # and not when an analysis is built from it.
-        invalid = rows.problems(records, spec.data, spec.keys)
-        notes += [f"invalid rows: {problem}" for problem in invalid]
-        if broken or invalid:
-            state = "failed"
-    manifest = {
-        "app": spec.name,
-        "schema": spec.data,
-        "keys": spec.keys,
-        "run": run_id,
-        "state": state,
-        "seed": job.seed,
-        "params": job.params,
-        "status": status,
-        "target": name,
-        "started": started,
-        "ended": _utc(),
-        "source": closure.source,
-        "closure": closure.path,
-        "input_id": ident,
-        "replicate": replicate,
-        "tolerance": spec.tolerance,
-    }
-    if notes:
-        manifest["health"] = notes
-    if members:
-        manifest["span"] = spec.span
-        manifest["hosts"] = [host for _, host in members]
-    spec_bytes = spec.json_bytes()
-    (dest / "spec.json").write_bytes(spec_bytes)
-    manifest["spec_sha256"] = hashlib.sha256(spec_bytes).hexdigest()
-    seal(dest, manifest, local=False)
-    (dest / "manifest.json").write_text(
-        json.dumps(manifest, sort_keys=True, indent=1, default=str) + "\n"
+    manifest = record(
+        dest, spec, job, ident=ident, replicate=replicate, run_id=run_id, status=status,
+        target=name, started=started, source=closure.source, closure=closure.path,
+        members=members,
     )
+    state = manifest["state"]
     if state == "ok":
         be.remove(handle)
         if project is not None:
             entry = publish(dest, project)
             log(f"[{run_id}] in the store: {entry['path']}")
-    for note in notes:
+    for note in manifest.get("health", []):
         log(f"[{run_id}] {'FAILED' if state == 'failed' else 'note'}: {note}")
     log(f"[{run_id}] {state} -> {dest}")
     return manifest

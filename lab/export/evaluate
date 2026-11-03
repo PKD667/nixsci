@@ -1,0 +1,106 @@
+#!/bin/sh
+# evaluate: rebuild the tables from your runs, run the analysis pipelines on them, and judge the claims
+# against the original runs. Each step is one plain command below; nothing is cached.
+#
+#   reproduction/data/          your runs, compacted to Parquet (python -m nixsci.lab.compact)
+#   reproduction/view/<alias>/  the same layout as the analysis view: <table>/*.parquet, runs.json
+#   reproduction/results/<p>/   the output of each pipeline p, run as the analysis runs it
+#   reproduction/claims-report.json   the claims judged on the original view and on yours
+#
+# Exit status: 0 when the steps ran and every claim is reproduced; 1 when a step failed or a claim
+# is not reproduced; 3 when the only problem is an inconclusive verdict (see nixsci.stats.claims).
+
+here=$(cd "$(dirname "$0")" && pwd)
+nix="$here/tools/nix"
+store="$here/tools/store"
+evaluator=$(cat "$here/tools/evaluator")
+renv=$(cat "$here/tools/r-env" 2>/dev/null || true)
+status=0
+
+inside() {
+  "$nix" --extra-experimental-features nix-command --store "$store" shell --offline "$evaluator" --command "$@"
+}
+
+if ! "$here/check"; then
+  echo "FAIL: evaluate: stopped because ./check failed (its FAIL line is above). Fix that line, then run ./evaluate again."
+  exit 1
+fi
+
+if [ -f "$here/evaluation/alias" ]; then
+  alias=$(cat "$here/evaluation/alias")
+else
+  alias=$(cat "$here/experiment/alias")
+fi
+view="$here/reproduction/view/$alias"
+
+# 1. Compact the runs. Each run must be ok: compaction refuses a failed run, and says which.
+set -- "$here"/runs/*/*
+if [ ! -d "$1" ]; then
+  echo "FAIL: evaluate: no runs in runs/. Run ./run first, then ./evaluate again."
+  exit 1
+fi
+rm -rf "$here/reproduction/data" "$view"
+mkdir -p "$view"
+if ! inside "$evaluator/bin/python" -m nixsci.lab.compact "$here/reproduction/data" "$@"; then
+  echo "FAIL: evaluate: compaction refused a run (its message is above). Delete that run's directory in runs/, run ./run, then ./evaluate again."
+  exit 1
+fi
+for dir in "$here"/reproduction/data/*/; do
+  table=$(basename "$dir")
+  mkdir -p "$view/$table"
+  mv "$dir"*.parquet "$view/$table/"
+done
+mv "$here/reproduction/data/runs.json" "$view/runs.json"
+rm -rf "$here/reproduction/data"
+printf '{"%s":"%s"}\n' "$(cat "$here/experiment/system")" "$(cat "$here/experiment/closure")" > "$view/code.json"
+echo "tables in $view:"
+inside "$evaluator/bin/python" -m nixsci.lab.offline tables "$view" || status=1
+
+# 2. The pipelines of the analysis, each in its own output directory, run from there.
+for script in "$here"/evaluation/pipelines/*; do
+  [ -f "$script" ] || continue
+  name=$(basename "$script")
+  base=${name%.*}
+  ext=${name##*.}
+  out="$here/reproduction/results/$base"
+  case "$ext" in
+    py) runner="$evaluator/bin/python"; env_path="$evaluator" ;;
+    R)
+      if [ -z "$renv" ]; then
+        echo "FAIL: pipeline $name is R, and this export has no R environment (tools/r-env). Ask the author to rebuild the export with R."
+        status=1
+        continue
+      fi
+      runner="$renv/bin/Rscript"; env_path="$renv" ;;
+    *) echo "FAIL: pipeline $name: its extension must be .py or .R. Ask the author to rename it."; status=1; continue ;;
+  esac
+  rm -rf "$out"
+  mkdir -p "$out"
+  echo "pipeline $base: $runner $script"
+  (
+    export NIX_LAB_VIEW="$here/reproduction/view" NIX_LAB_OUT="$out"
+    export NIXSCI_VIEW="$here/reproduction/view" NIXSCI_OUT="$out"
+    cd "$out" && "$nix" --extra-experimental-features nix-command --store "$store" \
+      shell --offline "$env_path" --command "$runner" "$script" < /dev/null
+  ) || { echo "FAIL: pipeline $base failed (its error is above). Fix the script's error, then run ./evaluate again. The analysis itself is not yours to change; tell the author."; status=1; }
+done
+
+# 3. The claims: judged on the original view and on yours, at the level the original report used.
+if [ ! -f "$here/evaluation/claims.json" ]; then
+  echo "no claims file: nothing to judge"
+elif ! inside "$evaluator/bin/python" -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["claims"] else 1)' \
+    "$here/evaluation/claims.json"; then
+  echo "this analysis declares no claims: nothing to judge"
+else
+  level=$(inside "$evaluator/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["level"])' \
+    "$here/original/results/claims-report.json")
+  inside "$evaluator/bin/python" -m nixsci.stats.claims "$here/evaluation/claims.json" \
+    --view "$here/original/view" --reproduction "$here/reproduction/view" --level "$level" \
+    --json "$here/reproduction/claims-report.json" < /dev/null
+  claims=$?
+  if [ "$claims" -ne 0 ] && [ "$status" -eq 0 ]; then
+    status=$claims
+  fi
+fi
+
+exit $status

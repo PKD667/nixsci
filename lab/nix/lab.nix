@@ -9,7 +9,7 @@
 # jobs on hosts, seals each finished run and adds it to the Nix store. The runs it produced are
 # listed in `lab.lock` next to the flake. Everything after that is pure: an analysis is built
 # from those run store paths in the sandbox, with no network, and sees only the data it `use`s.
-{ pkgs, nixsci, python, rEnv, project, lockedOverride ? null }:
+{ pkgs, nixsci, python, rEnv, project, rootless, lockedOverride ? null }:
 let
   inherit (pkgs) lib;
   host = pkgs.stdenv.hostPlatform.system;
@@ -216,8 +216,11 @@ rec {
         // {
           inherit view clean stale orphan missing untraced claimFile claimReport;
           pipelines = built;
+          # What an export reads: the inputs of the pipelines, and the locked runs of each alias.
+          pipelineSpecs = pipelines;
+          runs = runs;
           withLock = newLock: level:
-            (import ./lab.nix { inherit pkgs nixsci python rEnv project; lockedOverride = newLock; })
+            (import ./lab.nix { inherit pkgs nixsci python rEnv project rootless; lockedOverride = newLock; })
               .analysis (args // { confidence = level; });
           remeasureSpec = lib.mapAttrs (_: exp: {
             inherit (exp) name specFile closures source;
@@ -233,4 +236,92 @@ rec {
     if clean then result
     else if draft then lib.warn "${report}; built as a draft." result
     else throw "${report}, or pass draft = true.";
+
+  # A lab export: one experiment, and the analysis of its runs when given, as a directory a
+  # reviewer runs without Nix (lab/README.md, "Export"). The scripts are lab/export/{check,run,
+  # evaluate}, plain sh; the Python they call is lab/offline.py. Nix only builds the directory,
+  # and the store the directory ships (tools/cache), which `check` copies into tools/store.
+  #
+  #   nix build .#lab.<system>.exports.demo        the directory (result/)
+  #   (lab.export { experiment; analysis; }).tarball   the same, as <name>-export.tar.gz
+  export = { experiment, analysis ? null, source ? project }:
+    let
+      name = experiment.name;
+      # The shipped Nix: the same rootless bootstrap the deploy targets use (deploy/nix-bootstrap.nix),
+      # whose store root is a namespace root, so a job can make its own user namespace.
+      nixBinary = rootless;
+      systems = builtins.attrNames experiment.closures;
+      system = builtins.head systems;
+      closure = experiment.closures.${system};
+      useAliases = if analysis == null then [ ] else builtins.attrNames analysis.remeasureSpec;
+      alias = if analysis == null then name else builtins.head useAliases;
+      pipelines = if analysis == null then { } else analysis.pipelineSpecs;
+      languageOf = pname: p:
+        p.language or (if lib.hasSuffix ".py" (toString p.script) then "python" else "r");
+      extension = { python = "py"; r = "R"; };
+      # Pipeline packages are put into the evaluator, so every pipeline that builds here runs there.
+      packages = builtins.attrValues (builtins.listToAttrs (map (d: { name = toString d; value = d; })
+        (lib.concatMap (p: p.packages or [ ]) (builtins.attrValues pipelines))));
+      needsR = lib.any (pname: languageOf pname pipelines.${pname} == "r") (builtins.attrNames pipelines);
+      evaluator = pkgs.buildEnv { name = "lab-evaluator-${name}"; paths = [ python ] ++ packages; ignoreCollisions = true; };
+      rEvaluator = pkgs.buildEnv { name = "lab-r-env-${name}"; paths = [ rEnv ] ++ packages; ignoreCollisions = true; };
+      roots = [ closure evaluator ] ++ lib.optional needsR rEvaluator;
+      cache = pkgs.mkBinaryCache { name = "${name}-cache"; rootPaths = roots; compression = "zstd"; };
+      shipped = pkgs.closureInfo { rootPaths = roots; };
+      viewRuns = if analysis == null then [ ] else analysis.runs.${alias};
+      dir = pkgs.runCommand "${name}-export" { nativeBuildInputs = [ python ]; } ''
+        mkdir -p $out/experiment $out/tools
+        cp ${../export/check} $out/check
+        cp ${../export/run} $out/run
+        cp ${../export/evaluate} $out/evaluate
+        chmod 755 $out/check $out/run $out/evaluate
+        cp --no-preserve=mode ${experiment.specFile} $out/experiment/spec.json
+        cp --no-preserve=mode ${closure}/deployment.json $out/experiment/deployment.json
+        printf '%s\n' ${closure} > $out/experiment/closure
+        printf '%s\n' ${system} > $out/experiment/system
+        printf '%s\n' ${lib.escapeShellArg experiment.source} > $out/experiment/source.json
+        printf '%s\n' ${name} > $out/experiment/alias
+        cp -RL --no-preserve=mode ${source} $out/source
+        python -m nixsci.lab.offline write $out ${experiment.specFile} ${closure} $out/experiment/deployment.json
+        python -m nixsci.lab.offline paths ${shipped}/registration $out/experiment/paths.tsv
+        cp -R --no-preserve=mode ${cache} $out/tools/cache
+        cp --no-preserve=mode ${nixBinary}/bin/nix $out/tools/nix
+        chmod 755 $out/tools/nix
+        printf '%s\n' ${evaluator} > $out/tools/evaluator
+        ${lib.optionalString needsR ''printf '%s\n' ${rEvaluator} > $out/tools/r-env''}
+        ${lib.optionalString (analysis != null) ''
+          mkdir -p $out/original/results $out/evaluation/pipelines
+          cp -RL --no-preserve=mode ${analysis.view} $out/original/view
+          ${lib.concatStrings (lib.mapAttrsToList (pname: p: ''
+            cp -RL --no-preserve=mode ${analysis.pipelines.${pname}} $out/original/results/${pname}
+            cp --no-preserve=mode ${p.script} $out/evaluation/pipelines/${pname}.${extension.${languageOf pname p}}
+          '') pipelines)}
+          cp --no-preserve=mode ${analysis.claimFile} $out/evaluation/claims.json
+          if [ -f ${analysis.claimReport}/claims-report.json ]; then
+            cp --no-preserve=mode ${analysis.claimReport}/claims-report.json $out/original/results/claims-report.json
+          fi
+          printf '%s\n' ${alias} > $out/evaluation/alias
+          python -m nixsci.lab.offline machines $out/original/machines.json ${lib.concatMapStringsSep " " (r: "${r.path}") viewRuns}
+        ''}
+        python -m nixsci.lab.offline readme $out ${experiment.specFile}
+      '';
+      tarball = pkgs.runCommand "${name}-export.tar.gz" { nativeBuildInputs = [ pkgs.gnutar pkgs.gzip ]; } ''
+        mkdir stage
+        cp -RL --no-preserve=mode ${dir} stage/${name}-export
+        chmod -R u+w stage
+        chmod 755 stage/${name}-export/check stage/${name}-export/run stage/${name}-export/evaluate stage/${name}-export/tools/nix
+        tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -C stage -czf $out ${name}-export
+      '';
+    in
+    # Refusals, each with its reason.
+    assert lib.assertMsg (analysis == null || analysis.clean)
+      "export ${name}: the analysis is not clean (${lib.concatStringsSep "; " analysis.unclean}); a draft cannot be exported";
+    assert lib.assertMsg (analysis == null || builtins.length useAliases == 1)
+      "export ${name}: the analysis uses ${toString (builtins.length useAliases)} experiments; an export ships one";
+    assert lib.assertMsg (analysis == null || (analysis.remeasureSpec.${alias}.name == name
+      && toString analysis.remeasureSpec.${alias}.closures.${system} == toString closure))
+      "export ${name}: the analysis uses another experiment or closure than the one exported";
+    assert lib.assertMsg (builtins.length systems == 1)
+      "export ${name}: one system per export (closures for ${builtins.toJSON systems}); export each on its own";
+    dir // { inherit tarball; };
 }
