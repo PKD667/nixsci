@@ -25,15 +25,36 @@ let
     rawLock.runs else rawLock;
   fetchRun = import ./fetch-run.nix { inherit pkgs; };
 
+  # The jobs a spec expands to, as spec.py's Spec.jobs: every sweep point times every seed.
+  jobsOf = spec:
+    let points = if spec.sweep == { } then [ { } ] else lib.cartesianProduct spec.sweep;
+    in lib.concatMap (point: map (seed: { inherit seed; params = spec.params // point; })
+      (if spec.seeds == [ ] then [ null ] else spec.seeds)) points;
+
+  # The identity of one measurement: the same hash over the same canonical JSON as store.input_id in
+  # lab/store.py (sorted keys, compact, `span` only when it is not 1), so the id the executor wrote
+  # into lab.lock is the id computed here. tests/test_identity_nix.py checks the two agree.
+  inputId = exp: closure: job: builtins.hashString "sha256" (builtins.toJSON ({
+    app = exp.name;
+    closure = builtins.unsafeDiscardStringContext (toString closure);
+    inherit (job) params seed;
+    schema = lib.mapAttrs (_: d: d.columns) exp.spec.data;
+    keys = lib.mapAttrs (_: d: d.key) (lib.filterAttrs (_: d: d ? key) exp.spec.data);
+  } // lib.optionalAttrs ((exp.spec.span or 1) != 1) { span = exp.spec.span; }));
+
+  # The ids a job can have: one from each of the experiment's closures.
+  idsOfJob = exp: job: map (c: inputId exp c job) (lib.attrValues exp.closures);
+  currentIds = exp: lib.concatMap (idsOfJob exp) (jobsOf exp.spec);
+
   # The runs of an experiment that its lock names, each checked by the hash of its contents and
   # against the experiment as it is now. A run of another closure measured other code: stale. A
-  # run whose seed and parameters are no job of the spec: orphan. A run with no closure was
-  # recorded by hand: untraced.
+  # run of the current code whose id is no id of the experiment (another job, schema, keys or span):
+  # orphan. A run with no closure was recorded by hand: untraced.
   runsOf = exp:
     let
       entries = locked.${exp.name} or [ ];
       current = map toString (lib.attrValues exp.closures);
-      jobs = map (j: { inherit (j) seed params; }) (jobsOf exp.spec);
+      ids = currentIds exp;
     in
     assert lib.assertMsg (entries != [ ])
       "experiment ${exp.name} has no locked runs: run it (nix run .#${exp.name}) and commit lab.lock";
@@ -45,27 +66,21 @@ let
           # facts: fetch the old run once to read its manifest (legacy import-from-derivation).
           m = r.facts or (builtins.fromJSON (builtins.readFile "${path}/manifest.json"));
           closure = m.closure or null;
-          job = { seed = m.seed or null; params = m.params or { }; };
+          id = m.input_id or null;
+          stale = closure != null && !(builtins.elem closure current);
         in
         {
-          inherit (r) name; inherit path job; facts = r.facts or null;
+          inherit (r) name; inherit path id stale; facts = r.facts or null;
           traced = closure != null;
-          stale = closure != null && !(builtins.elem closure current);
-          orphan = closure != null && !(builtins.elem job jobs);
+          orphan = closure != null && !stale && !(builtins.elem id ids);
         })
       entries;
-
-  # The jobs a spec expands to, as spec.py's Spec.jobs: every sweep point times every seed.
-  jobsOf = spec:
-    let points = if spec.sweep == { } then [ { } ] else lib.cartesianProduct spec.sweep;
-    in lib.concatMap (point: map (seed: { inherit seed; params = spec.params // point; })
-      (if spec.seeds == [ ] then [ null ] else spec.seeds)) points;
 
   # Jobs of the spec with fewer finished runs of the current code than `replicates` asks for.
   missingOf = exp: runs:
     let fresh = lib.filter (r: r.traced && !r.stale) runs;
     in lib.optionals (exp.closures != { }) (lib.filter
-      (job: lib.count (r: r.job == job) fresh < exp.spec.replicates)
+      (job: lib.count (r: builtins.elem r.id (idsOfJob exp job)) fresh < exp.spec.replicates)
       (jobsOf exp.spec));
 
   # Every locked run of one experiment as the Parquet tables it declared, plus `runs.json`.
@@ -103,8 +118,10 @@ rec {
       specFile = pkgs.writeText "${name}-spec.json" (builtins.toJSON spec);
       source = builtins.toJSON { rev = project.rev or project.dirtyRev or null; narHash = project.narHash or null; };
     in
-    {
+    rec {
       inherit name spec specFile closures source;
+      # Every id a run of this experiment can have as it is now (see inputId): what lab.lock is checked against.
+      ids = currentIds { inherit name spec closures; };
       run = {
         type = "app";
         program = toString (pkgs.writeShellScript "run-${name}" ''
@@ -177,7 +194,23 @@ rec {
           --json $out/claims-report.json || { rc=$?; [ "$rc" = 1 ] || [ "$rc" = 3 ]; }
       '';
       built = lib.mapAttrs runPipeline pipelines;
-      result = (pkgs.symlinkJoin { name = n; paths = lib.attrValues built ++ lib.optional (claims != { }) claimReport; })
+      # The pipelines' outputs and the claim report in one directory. Two files of one name would
+      # silently lose one of them (symlinkJoin keeps the first), so that is a build error.
+      parts = built // lib.optionalAttrs (claims != { }) { "the claim report" = claimReport; };
+      joined = pkgs.runCommand n { } ''
+        mkdir $out
+        ${lib.concatStrings (lib.mapAttrsToList (what: dir: ''
+          (cd ${dir} && find . \( -type f -o -type l \) -printf '%P\n') | while IFS= read -r f; do
+            if [ -e "$out/$f" ]; then
+              echo "analysis ${n}: $f is written by two pipelines (second: ${what}); give them different names" >&2
+              exit 1
+            fi
+            mkdir -p "$out/$(dirname "$f")"
+            ln -s ${dir}/"$f" "$out/$f"
+          done
+        '') parts)}
+      '';
+      result = joined
         // {
           inherit view clean stale orphan missing untraced claimFile claimReport;
           pipelines = built;

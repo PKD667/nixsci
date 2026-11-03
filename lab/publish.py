@@ -23,8 +23,20 @@ _LOCK = threading.Lock()
 
 
 def add_entry(lock: dict[str, list[dict[str, str]]], app: str, entry: dict[str, str]) -> dict[str, list[dict[str, str]]]:
-    """The lock with `entry` among the runs of `app`: one entry per run name, sorted by name."""
+    """The lock with `entry` among the runs of `app`: one entry per run name, sorted by name.
+
+    A name that is already there with other contents is refused. Two machines that each measured the
+    same input are two different runs with one name, and replacing one with the other would lose a
+    measurement without a word.
+    """
     entries = {e["name"]: e for e in lock.get(app, [])}
+    old = entries.get(entry["name"])
+    if old is not None and old["sha256"] != entry["sha256"]:
+        raise ValueError(
+            f"{entry['name']}: lab.lock already lists a run of that name with other contents (another "
+            "machine measured this input too). Update lab.lock from git and run again; this run stays "
+            "in .nixsci/runs."
+        )
     entries[entry["name"]] = entry
     return {**lock, app: [entries[name] for name in sorted(entries)]}
 
@@ -49,27 +61,22 @@ def _write_lock(project: Path, lock: dict[str, list[dict[str, str]]]) -> None:
     os.replace(tmp, project / "lab.lock")
 
 
-def _job(seed, params) -> str:
-    return json.dumps({"seed": seed, "params": params or {}}, sort_keys=True)
+def retain(project: str | Path, app: str, current: set[str]) -> list[str]:
+    """Drop the locked runs of `app` that did not measure the experiment as it is now; returns their names.
 
-
-def retain(project: str | Path, app: str, closures: set[str], jobs: list[tuple[Any, dict]]) -> list[str]:
-    """Drop the locked runs of `app` that are not of the experiment as it is now; returns their names.
-
-    The lock lists runs of the current code (`closures`) whose seed and parameters are one of the
-    spec's `jobs`. Any other run stays in the runs directory, in the store until collected, and in
-    the lock's git history. A run recorded by hand has no closure and is kept.
+    The lock lists the runs whose input_id is one of `current` (store.current_ids): the current code,
+    a job of the current spec, its schema, keys and span. Any other run stays in the runs directory, in
+    the store until collected, and in the lock's git history. A run recorded by hand has no closure
+    and is kept.
     """
-    wanted = {_job(seed, params) for seed, params in jobs}
     project = Path(project)
     with _LOCK:
         lock = read_lock(project)
         keep, dropped = [], []
         for entry in lock.get(app, []):
             m = entry.get("facts") or read_manifest(Path(entry["path"]) / "manifest.json")
-            closure = m.get("closure")
-            current = closure in closures and _job(m.get("seed"), m.get("params")) in wanted
-            (dropped if closure is not None and not current else keep).append(entry)
+            traced = m.get("closure") is not None
+            (keep if not traced or m.get("input_id") in current else dropped).append(entry)
         if dropped:
             _write_lock(project, {**lock, app: keep})
     return [e["name"] for e in dropped]

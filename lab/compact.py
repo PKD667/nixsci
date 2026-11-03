@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from nixsci.lab import load
+from nixsci.lab.rows import validate as validate_rows
 from nixsci.lab.run import read_manifest, sha256_file
 from nixsci.lab.schema import parse
 
@@ -57,20 +58,16 @@ def compact_run(run: str | Path, out: str | Path) -> list[Path]:
     written = []
     for dataset, columns in (manifest.get("schema") or {}).items():
         parsed = parse(dataset, columns)
-        rows = load(run, dataset)
-        key = (manifest.get("keys") or {}).get(dataset)
-        if key:
-            seen = set()
-            for r in rows:
-                ident = tuple(r["data"][c] for c in key)
-                if ident in seen:
-                    raise ValueError(f"run {manifest['run']}: dataset {dataset!r}: duplicate key {ident!r}")
-                seen.add(ident)
+        records = load(run, dataset)
+        try:
+            validate_rows(dataset, columns, (manifest.get("keys") or {}).get(dataset), records)
+        except ValueError as error:
+            raise ValueError(f"run {manifest['run']}: {error}") from error
         fields = [pa.field("run", pa.string()), pa.field("seed", pa.int64()), pa.field("time", pa.string())]
         fields += [pa.field(c, getattr(pa, ARROW[k])()) for c, (k, _) in parsed.items()]
         schema = pa.schema(fields)
         data: dict[str, list[Any]] = {f.name: [] for f in fields}
-        for r in rows:
+        for r in records:
             data["run"].append(manifest["run"])
             data["seed"].append(manifest.get("seed"))
             data["time"].append(r["time"])

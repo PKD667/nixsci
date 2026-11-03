@@ -76,3 +76,17 @@ def test_sandbox_r_python_bindings_and_claim_report(tmp_path, monkeypatch):
     assert json.loads((result / "r-values.json").read_text()) == {"mean": 2.0}
     claim = json.loads((result / "claims-report.json").read_text())["claims"]["mean"]["original"]
     assert claim["verdict"] == "supported" and claim["level"] == 0.99
+
+
+def test_two_pipelines_writing_one_file_fail_the_build_naming_it(tmp_path, monkeypatch):
+    project, entries = recorded(tmp_path, monkeypatch)
+    scripts = {}
+    for name in ("a", "b"):
+        scripts[name] = tmp_path / f"{name}.py"
+        scripts[name].write_text(f'from nixsci.lab.analysis import values\nvalues({{"pipeline": "{name}"}})\n')
+    expr = flake() + f'l=f.lib.lab {{pkgs=p;project={project};}}; in l.analysis {{'
+    expr += (f'name="collide";use.demo=l.experiment {{name="demo";}};draft=true;'
+             f'pipelines.a.script={scripts["a"]};pipelines.b.script={scripts["b"]};}}')
+    done = subprocess.run(["nix", "build", "--impure", "--no-link", "--expr", expr], text=True, capture_output=True)
+    assert done.returncode != 0
+    assert "values.json is written by two pipelines (second: b)" in done.stderr

@@ -17,9 +17,8 @@ import hashlib
 
 from nixsci.lab.run import seal
 
-from . import health
-from . import store
-from .publish import publish, retain
+from . import health, rows, store
+from .publish import publish, read_lock, retain
 from .spec import Spec
 
 
@@ -54,6 +53,7 @@ def run(
     spanning all of them, unless the spec sets its own `span`.
     """
     factory, providers = _deploy()
+    identity = spec  # what the experiment declares: a span that --hosts adds below is not part of it
     if hosts:
         from nixsci.deploy import adhoc
 
@@ -61,6 +61,7 @@ def run(
         log(f"hosts {', '.join(hosts)} replace provider {spec.provider!r}")
         if len(hosts) > 1 and "span" not in spec.raw:
             spec = replace(spec, span=len(hosts))
+            log(f"one job spans all {len(hosts)} hosts; declare `span = {len(hosts)};` in the experiment to make that part of its identity")
     else:
         lease = providers.acquire(spec.provider, spec.resources, spec.resources.get("opts", {}))
     try:
@@ -89,12 +90,13 @@ def run(
             name = slots[job.index % len(slots)]
             return name, closures[configs[name]["system"]].path
 
+        locked = None
         if project is not None:
-            jobs = [(j.seed, j.params) for j in spec.jobs()]
-            dropped = retain(project, spec.name, {c.path for c in closures.values()}, jobs)
+            dropped = retain(project, spec.name, store.current_ids(identity, (c.path for c in closures.values())))
             if dropped:
                 log(f"lab.lock: dropped {len(dropped)} run(s) of older code or another spec: {', '.join(dropped)}")
-        todo, satisfied = store.plan(spec, out_root, assign, again=again)
+            locked = [e["facts"] for e in read_lock(project).get(spec.name, []) if e.get("facts")]
+        todo, satisfied = store.plan(identity, out_root, assign, again=again, locked=locked)
         if satisfied:
             log(f"{satisfied} input(s) already have {spec.replicates} finished run(s): skipped")
         if not todo:
@@ -190,8 +192,13 @@ def _run_job(
     notes: list[str] = []
     if state == "ok":
         # The exit status says the runner finished; the rows say whether the experiment worked.
-        broken, notes = health.check(dest / "lab" / "records.jsonl", spec.data)
-        if broken:
+        records = dest / "lab" / "records.jsonl"
+        broken, notes = health.check(records, spec.data)
+        # Rows another language's recorder wrote are checked here, where the run can still be refused,
+        # and not when an analysis is built from it.
+        invalid = rows.problems(records, spec.data, spec.keys)
+        notes += [f"invalid rows: {problem}" for problem in invalid]
+        if broken or invalid:
             state = "failed"
     manifest = {
         "app": spec.name,
