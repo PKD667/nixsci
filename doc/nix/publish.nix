@@ -39,10 +39,10 @@ let
     ""
     "That writes ${stem}.pdf. ${if texNames == [ ] then "It needs no TeX Live packages beyond the base install." else "It needs these TeX Live packages (texliveSmall; the packages they depend on come with them): ${lib.concatStringsSep ", " texNames}."}"
     ""
-    "For the same bytes as the published PDF, set FORCE_SOURCE_DATE=1 and SOURCE_DATE_EPOCH=315532800 first."
+    "nixsci/latexmkrc fixes the PDF's date, so the same source gives the same bytes as the published PDF."
   ] ++ lib.optionals (engineName != null) [
     "The engine is ${engineName}: the command above passes ${flag}, so run it exactly as written."
-    "Overleaf: Menu > Compiler, choose ${engineName}. ${engineName} writes a font cache: set HOME to a writable directory first."
+    "Overleaf: Menu > Compiler, choose ${engineName}."
   ] ++ lib.optional (fontFiles != [ ]) "The fonts under nixsci/fonts keep their own licence.") + "\n");
 
   # The LaTeX project: the source tree and README.txt. Sorted names and fixed times, so two
@@ -57,12 +57,13 @@ let
     find . -type f -printf '%P\n' | LC_ALL=C sort | zip -X -D -q $out/${name}.zip -@
   '';
 
+  # The check runs the README's command with nothing set but PATH: what the README says is all there is to do.
   zipCheck = pkgs.runCommand "${name}-zip-check"
-    { nativeBuildInputs = [ pkgs.unzip pkgs.gnugrep ]; FORCE_SOURCE_DATE = "1"; } ''
+    { nativeBuildInputs = [ pkgs.unzip pkgs.gnugrep ]; } ''
     unzip -q ${zip}/${name}.zip
     line=$(grep -m1 '^    latexmk ' README.txt) || { echo "doc: ${name}: README.txt prints no latexmk command" >&2; exit 1; }
     ${pkgs.coreutils}/bin/env -i PATH=${texEnv}/bin:${pkgs.coreutils}/bin:${pkgs.bash}/bin \
-      TEXMFHOME=/nonexistent HOME=$TMPDIR FORCE_SOURCE_DATE=1 SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH \
+      TEXMFHOME=/nonexistent \
       sh -c "$line" > build.out 2>&1 || { cat build.out; echo "doc: ${name}: the README's command failed" >&2; exit 1; }
     if grep -nE "There were undefined references|Citation .* undefined|Reference .* undefined" ${stem}.log; then
       echo "doc: ${name}: the README\'s command leaves an undefined reference" >&2; exit 1

@@ -1,0 +1,13 @@
+# Read by the command in the zip's README (`latexmk -r nixsci/latexmkrc ...`), so that nobody has to
+# set anything before building. It is Perl, which is what latexmk reads; it only prepares the
+# environment of the TeX engine latexmk starts.
+
+# The PDF carries a fixed date, not the time it was built: the same source gives the same bytes as the
+# published PDF.
+$ENV{FORCE_SOURCE_DATE} = 1;
+$ENV{SOURCE_DATE_EPOCH} = 315532800;
+
+# A font-aware engine (LuaLaTeX, XeLaTeX) writes a font cache under HOME. When HOME is unset or not
+# writable (a container, a clean environment) it gets a scratch directory.
+use File::Temp qw(tempdir);
+$ENV{HOME} = tempdir(CLEANUP => 1) unless defined $ENV{HOME} && -w $ENV{HOME};

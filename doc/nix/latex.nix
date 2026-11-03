@@ -21,7 +21,9 @@ let
   texName = p: p.pname or (lib.head p.pkgs).pname;
   texNames = lib.sort (a: b: a < b) (lib.unique (map texName (texPkgs pkgs.texlive)));
 
-  command = [ "latexmk" flag "-interaction=nonstopmode" "-file-line-error" "-halt-on-error" entry ];
+  # `-r nixsci/latexmkrc` (a toolkit file) fixes the PDF's date and gives a font engine a HOME, so the
+  # README's command needs no environment set by hand.
+  command = [ "latexmk" flag "-r" "nixsci/latexmkrc" "-interaction=nonstopmode" "-file-line-error" "-halt-on-error" entry ];
   stem = lib.removeSuffix ".tex" entry;
 
   # FORCE_SOURCE_DATE: the PDF carries the sandbox's fixed date, not the build time. The receipt
