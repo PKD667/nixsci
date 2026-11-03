@@ -196,7 +196,10 @@ rec {
       # The pipelines' outputs and the claim report in one directory. Two files of one name would
       # silently lose one of them (symlinkJoin keeps the first), so that is a build error.
       parts = built // lib.optionalAttrs (claims != { }) { "the claim report" = claimReport; };
-      joined = pkgs.runCommand n { } ''
+      # An analysis that is not clean carries it in its name. That name is in the build graph and in the
+      # context of any string made from the analysis, which is how doc tells a draft from a result when
+      # the analysis reaches a document without its `unclean` attribute (doc/nix/provenance.nix).
+      joined = pkgs.runCommand (if clean then n else "${n}-nixsci-draft") { } ''
         mkdir $out
         ${lib.concatStrings (lib.mapAttrsToList (what: dir: ''
           (cd ${dir} && find . \( -type f -o -type l \) -printf '%P\n') | while IFS= read -r f; do

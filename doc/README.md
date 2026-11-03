@@ -44,7 +44,7 @@ Each `values` entry is a JSON file. Its scalars become `\val{p/<entry>.<path>}`,
 
 ## Provenance
 
-`unclean` lists every input marked `static`, and every lab analysis that is not clean. If the list is not empty, each page of the PDF gets a DRAFT line, and a document whose TeX never loads `nixsci` does not build at all, because it could not show that line. `crate` is the RO-Crate; `publish` is the four-file directory above. Its build fails with `refusals` when `unclean` is not empty, when `source` is missing, or when the flake has uncommitted changes. `zip` remains the LaTeX source archive.
+`unclean` lists every input marked `static`, and every lab analysis that is not clean. If the list is not empty, each page of the PDF gets a DRAFT line, and a document whose TeX never loads `nixsci` does not build at all, because it could not show that line. An analysis that is not clean has `-nixsci-draft` in its derivation name, and `doc.project` refuses a plain string naming one of its files (`"${analysis}/file"`), which would carry no provenance: write `doc.output analysis "file"`. Reading a draft through a derivation of your own that copies its output is not caught yet. `crate` is the RO-Crate; `publish` is the four-file directory above. Its build fails with `refusals` when `unclean` is not empty, when `source` is missing, or when the flake has uncommitted changes. `zip` remains the LaTeX source archive.
 
 ## Workspace
 

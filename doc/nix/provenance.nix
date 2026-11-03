@@ -6,10 +6,19 @@
 # not clean) and its `view` (the tables the analysis read).
 { lib }:
 rec {
+  # The derivations a string was made from, by name: `"${analysis}/file"` carries the analysis's.
+  drvNamesIn = x: if lib.isString x then builtins.attrNames (builtins.getContext x) else [ ];
+  # A lab analysis that is not clean has `-nixsci-draft` in its name (lab/nix/lab.nix).
+  draftsIn = x: lib.filter (lib.hasInfix "-nixsci-draft") (drvNamesIn x);
+
   # A file with its provenance. Plain paths and derivations are clean; a derivation that carries
-  # `unclean` (a lab analysis) passes it on.
+  # `unclean` (a lab analysis) passes it on. A string that names a file of a draft analysis would
+  # arrive without it and make the document look clean, so it is refused: `output` is the way in.
   entry = x:
-    if lib.isAttrs x && x ? path && (x.type or null) != "derivation" then x
+    if draftsIn x != [ ] then throw (
+      "doc: an input is a plain string naming a file of a draft analysis (${lib.concatStringsSep ", " (draftsIn x)}). "
+      + "A string carries no provenance, so the document would look clean. Write `doc.output <analysis> \"<file>\"`.")
+    else if lib.isAttrs x && x ? path && (x.type or null) != "derivation" then x
     else { path = x; unclean = if lib.isAttrs x then x.unclean or [ ] else [ ]; };
 
   # A file copied by hand: the build cannot say where its numbers came from.

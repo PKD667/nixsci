@@ -96,3 +96,32 @@ def test_publish_is_not_built_before_the_zip_has_compiled_alone():
               '(doc.document { name = "t"; src = source "x"; source = { rev = "abc"; }; }).publish.drvPath').stdout
     needs = subprocess.run(["nix-store", "--query", "--requisites", drv], text=True, capture_output=True, check=True).stdout
     assert re.search(r"-t-zip-check\.drv$", needs, re.M)
+
+
+DRAFT_ANALYSIS = f'''let
+  lab = import {ROOT}/lab/nix/lab.nix {{ inherit pkgs; project = /nonexistent; nixsci = null; python = null; rEnv = null;
+    lockedOverride.demo = [ {{ name = "demo-x-r1"; sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+      facts = {{ closure = "/nix/store/00000000000000000000000000000000-old"; input_id = "x"; }}; }} ]; }};
+  experiment = lab.experiment {{ name = "demo"; closures.${{builtins.currentSystem}} = "/nix/store/11111111111111111111111111111111-new"; }};
+  draft = lab.analysis {{ name = "a"; use.demo = experiment; pipelines = {{ }}; draft = true; }};
+  project = values: doc.project {{ name = "p"; inherit values; }};
+in '''
+
+
+def test_a_draft_analysis_reaches_a_document_through_output_and_is_refused_as_a_string():
+    """Law: an analysis that is not clean makes the document a draft however it is read, or is not read.
+    A plain string naming its file used to arrive with no provenance, and the document looked clean."""
+    through_output = nix("eval", "--impure", "--json", "--expr", PRELUDE + DRAFT_ANALYSIS +
+                         '(project { v = doc.output draft "values.json"; }).unclean').stdout
+    assert any("older code" in reason for reason in json.loads(through_output))
+    as_string = nix("eval", "--impure", "--json", "--expr", PRELUDE + DRAFT_ANALYSIS +
+                    '(project { v = "${draft}/values.json"; }).unclean', check=False)
+    assert as_string.returncode != 0
+    assert "naming a file of a draft analysis" in as_string.stderr and "doc.output" in as_string.stderr
+
+
+def test_a_string_naming_any_other_derivation_stays_clean_as_before():
+    """The refusal is for draft analyses only: other derivations' paths are strings and stay clean."""
+    clean = nix("eval", "--impure", "--json", "--expr", PRELUDE + DRAFT_ANALYSIS +
+                '(project { v = "${pkgs.writeText "v.json" "{}"}"; }).unclean').stdout
+    assert json.loads(clean) == []
