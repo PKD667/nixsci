@@ -1,0 +1,92 @@
+#!/bin/sh
+# check: can this machine run the export? One line per test: `ok: ...` or `FAIL: ...`.
+# Exits 1 when any test fails. Run it first; `run` and `evaluate` run it too.
+
+here=$(cd "$(dirname "$0")" && pwd)
+nix="$here/tools/nix"
+store="$here/tools/store"
+status=0
+
+ok() { echo "ok: $1"; }
+fail() { echo "FAIL: $1"; status=1; }
+
+# 1. The machine is the kind of machine the closure was built for.
+want=$(cat "$here/experiment/system")
+have="$(uname -m)-$(uname -s | tr 'A-Z' 'a-z')"
+if [ "$have" = "$want" ]; then
+  ok "system $want"
+else
+  fail "system: this export was built for $want and this machine is $have. Run it on $want."
+fi
+
+# 2. Unprivileged user namespaces. The shipped store appears at /nix/store inside one.
+if unshare --user --map-root-user true 2>/dev/null; then
+  ok "user namespaces"
+else
+  apparmor=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)
+  fail "user namespaces: 'unshare --user --map-root-user true' failed (or unshare is missing). On Ubuntu the AppArmor sysctl kernel.apparmor_restrict_unprivileged_userns blocks them; it reads $apparmor here. An administrator can set it to 0 with 'sysctl -w kernel.apparmor_restrict_unprivileged_userns=0'."
+fi
+
+# 3. The static Nix runs. It is the only binary this export ships.
+if "$nix" --version >/dev/null 2>&1; then
+  ok "tools/nix runs"
+else
+  fail "tools/nix does not run. Check that it is executable (chmod +x tools/nix) and that this machine is $want."
+fi
+
+# 4. The store root, as deploy/native.py requires a rootless target's: a directory, not a symlink,
+#    owned by this user, mode 700, and not under the host /nix tree.
+owner=$(id -u)
+if [ -L "$store" ]; then
+  fail "store: $store is a symlink. It must be a real directory owned by you with mode 700."
+elif [ -e "$store" ]; then
+  mode=$(stat -c '%a' "$store")
+  uid=$(stat -c '%u' "$store")
+  real=$(cd "$store" && pwd -P)
+  case "$real" in
+    /nix|/nix/*) fail "store: $real is inside the host /nix tree. Move the export out of /nix." ;;
+    *) if [ "$uid" = "$owner" ] && [ "$mode" = 700 ]; then
+         ok "store root $real owned by you, mode 700"
+       else
+         fail "store: $real has owner $uid and mode $mode; it must be owned by $owner with mode 700."
+       fi ;;
+  esac
+fi
+
+# 5. Disk space for the store: the NAR sizes of every shipped path, in KiB.
+if [ -e "$store" ]; then
+  ok "store $store exists (disk not checked again)"
+else
+  need=$(awk -F '\t' 'NR > 1 { total += $3 } END { print int(total / 1024) + 1 }' "$here/experiment/paths.tsv")
+  free=$(df -Pk "$here" | awk 'NR == 2 { print $4 }')
+  if [ "$free" -ge "$need" ]; then
+    ok "disk: $free KiB free, $need KiB needed for the store"
+  else
+    fail "disk: the store needs $need KiB and $here has $free KiB free. Free space, or move the export to a disk with room."
+  fi
+fi
+
+# 6. The store: the closures in tools/cache, copied into tools/store. The root is made 700 before the
+#    copy, as a rootless target's root must be. `nix copy` checks every NAR's hash. It copies into
+#    tools/store.partial first, so an interrupted copy is never taken for a store.
+if [ -e "$store" ]; then
+  ok "store $store exists (not copied again)"
+elif [ "$status" -ne 0 ]; then
+  echo "skipped: store copy (a test above failed)"
+else
+  rm -rf "$store.partial"
+  mkdir -m 700 "$store.partial"
+  paths="$(cat "$here/experiment/closure") $(cat "$here/tools/evaluator")"
+  [ -f "$here/tools/r-env" ] && paths="$paths $(cat "$here/tools/r-env")"
+  # shellcheck disable=SC2086 # the paths are store paths: no spaces
+  if "$nix" --extra-experimental-features nix-command copy --no-check-sigs \
+      --from "file://$here/tools/cache" --to "$store.partial" $paths; then
+    mv "$store.partial" "$store"
+    ok "store copied from tools/cache into $store"
+  else
+    rm -rf "$store.partial"
+    fail "store: 'nix copy' from tools/cache failed (above). The export may be damaged: unpack it again."
+  fi
+fi
+
+exit $status
