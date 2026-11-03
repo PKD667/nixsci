@@ -1,14 +1,15 @@
 # Typesetting: the TeX Live environment of a document, the command that builds it, and the PDF with
 # its receipt.
 #
-#   latex { name; template; projects; packages; entry; sourceTree; unclean; }
+#   latex { name; template; projects; packages; entry; sourceTree; unclean; marked; }
 #     -> { flag; texEnv; texNames; command; stem; pdf; }
 #   texEnv    texliveSmall with the packages the template, the document and its projects name
 #   texNames  those packages by TeX Live name, sorted (the README lists them)
 #   command   the latexmk invocation; the zip's README prints it and zipCheck runs it
 #   pdf       $out/<name>.pdf and $out/receipt.json (the command, the TeX environment, what was untraced)
+#   marked    the PDF must carry nixsci's DRAFT or REMEASURED mark: a build whose TeX never loaded nixsci fails
 { pkgs, lib, engines, pkgNames }:
-{ name, template, projects, packages, entry, sourceTree, unclean }:
+{ name, template, projects, packages, entry, sourceTree, unclean, marked }:
 let
   t = template;
   flag = engines.flag t.engine;
@@ -29,6 +30,13 @@ let
     ${engines.home t.engine}
     cp -RL --no-preserve=mode ${sourceTree}/. .
     ${lib.escapeShellArgs command}
+    ${lib.optionalString marked ''
+      # The marks are hooks nixsci.sty installs. A document that never loaded it would ship unmarked.
+      grep -q 'nixsci/nixsci\.sty$' ${stem}.fls || {
+        echo "doc: ${name}: ${entry} does not load nixsci, so this PDF would not show its DRAFT or REMEASURED mark; add \usepackage{nixsci}" >&2
+        exit 1
+      }
+    ''}
     mkdir -p $out
     cp ${stem}.pdf $out/${name}.pdf
     jq -n --argjson command ${lib.escapeShellArg (builtins.toJSON command)} \

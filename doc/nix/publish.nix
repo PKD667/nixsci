@@ -75,6 +75,8 @@ let
 
   # publish: the document, its LaTeX project, and the reproduction artifact, with SHA256SUMS.
   publishDir = pkgs.runCommand "${name}-publish" { nativeBuildInputs = [ pkgs.zip ]; } ''
+    # The zip is only shipped once it has compiled alone with its README's command (zipCheck).
+    test -f ${zipCheck}/${name}.pdf
     mkdir -p $out art
     cp ${pdfBase}/${name}.pdf $out/${name}.pdf
     cp ${zip}/${name}.zip $out/${name}-latex.zip

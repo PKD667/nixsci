@@ -1,7 +1,7 @@
 # What a template's TeX engine implies, and the TeX Live environment a build runs in.
 #
 #   engines.flag "lualatex"  -> "-lualatex"       the latexmk flag
-#   engines.home "lualatex"  -> shell to run first the font cache a font-aware engine writes needs a HOME
+#   engines.home "lualatex"  -> shell to run first: the font cache a font-aware engine writes needs a HOME
 #   engines.name "lualatex"  -> "LuaLaTeX"        for the README; null for pdflatex
 #   engines.texEnv (ps: [ ... ])                  texliveSmall with those packages
 { pkgs, lib }:

@@ -1,6 +1,6 @@
 # nixsci doc: the unified template interface
 
-Status: proposal, implemented on branch `unified-template`. This file is the contract the
+Status: implemented (phase 2, the flat export, is not built). This file is the contract the
 implementation is checked against. Where it and the code disagree, one of them is a bug.
 
 ## What is wrong now
@@ -282,6 +282,5 @@ acceptance test 2 and its PDF has the same page count as the abstract one.
 
 ## Split of the code (so that work does not collide)
 
-`doc/nix/doc.nix` is 444 lines and does too much. New code goes in new files, and `doc.nix` only
-imports them: `fonts.nix`, `figures.nix`, `template.nix`, `workspace.nix`. The tree, zip and dev
-loop stay in `doc.nix` until a later split.
+`doc/nix/doc.nix` only imports and wires; each stage of a document is its own module (the table in
+`doc/README.md`, "Source layout"). New code goes in the module whose job it is.

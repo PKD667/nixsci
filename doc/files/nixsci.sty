@@ -1,13 +1,25 @@
 \NeedsTeXFormat{LaTeX2e}
 \ProvidesPackage{nixsci}
 
+% The TeX side of nixsci doc. Read in this order:
+%   1. what a document calls         \val, \nixscistyle, \nixscibib, and the DRAFT and REMEASURED marks
+%   2. the seam with Nix             the macros nixsci/generated.tex is written in (INTERFACE.md), and how it is read
+%   3. the media                     \nixsci@style@<medium>, one per medium a template can name
+%   4. loading                       as a package under a class the document names, or from nixsci.cls
+% Nothing here reads the environment: \nixsciroot (empty in a build and in the zip) is the one path input.
+
 \providecommand\nixsciroot{}
 
+% ---- 1. what a document calls -------------------------------------------------------------------
+
 \newcommand{\nixscistyle}[1]{%
-  \ifcsname nixsci@style@#1\endcsname
-    \csname nixsci@style@#1\endcsname
-  \else
-    \PackageError{nixsci}{unknown nixsci style `#1'}{The toolkit knows: slides.}%
+  \ifcsname nixsci@applied@#1\endcsname\else
+    \@namedef{nixsci@applied@#1}{}%
+    \ifcsname nixsci@style@#1\endcsname
+      \csname nixsci@style@#1\endcsname
+    \else
+      \PackageError{nixsci}{unknown nixsci style `#1'}{The toolkit knows: slides, paper, poster.}%
+    \fi
   \fi}
 
 \newcommand{\nixsci@defval}[2]{\expandafter\def\csname nixsci@val@#1\endcsname{#2}}
@@ -26,6 +38,8 @@
   {\bibliography{\nixscipath{#1}}}}
 
 \newcommand{\nixsciproject}[1]{\usepackage{#1}}
+
+% ---- 2. the seam with Nix -----------------------------------------------------------------------
 
 
 \newread\nixsci@in
@@ -78,24 +92,13 @@
   \nixsci@genbuf
   \nixsci@tuses
   \nixsci@fonts
-  \ifx\nixsci@tmedium\empty\else
-    \ifcsname nixsci@style@\nixsci@tmedium\endcsname
-      \csname nixsci@style@\nixsci@tmedium\endcsname
-    \else
-      \PackageError{nixsci}{unknown medium `\nixsci@tmedium'}{The toolkit knows: slides.}%
-    \fi
-  \fi
+  \ifx\nixsci@tmedium\empty\else\nixscistyle{\nixsci@tmedium}\fi
   \nixsci@tprojects
   \ifx\nixsci@tstyle\empty\else\usepackage{\nixsci@tstyle}\fi}
 
-\ifx\nixsci@inclass\@undefined
-  \nixsci@slurp
-  \nixsci@classscan
-  \nixsci@loadall
-\else
-  \nixsci@slurp
-  \nixsci@classscan
-\fi
+% ---- 3. the media -------------------------------------------------------------------------------
+% A medium is applied once, by \nixscistyle (from the template's \nixsci@medium line, or by hand).
+% paper and poster add nothing of their own yet; they are defined so that a template can name them.
 
 \newcommand{\nixsci@style@slides}{%
   \providecommand{\paperfig}[2]{{\centering\rmfamily
@@ -113,3 +116,18 @@
   \def\showURL##1{\unskip}
 
   \newcommand{\citehere}[2][]{\begingroup\renewcommand{\thefootnote}{}\footnote{\ifx\relax##1\relax\citeauthor{##2}~\citeyear{##2}\else\bibentry{##2}\fi}\endgroup}}
+\newcommand{\nixsci@style@paper}{}
+\newcommand{\nixsci@style@poster}{}
+
+% ---- 4. loading ---------------------------------------------------------------------------------
+% nixsci.cls defines \nixsci@inclass, reads generated.tex, loads the class, and then calls \nixsci@loadall.
+
+\ifx\nixsci@inclass\@undefined
+  \nixsci@slurp
+  \nixsci@classscan
+  \nixsci@loadall
+\else
+  \nixsci@slurp
+  \nixsci@classscan
+\fi
+

@@ -59,6 +59,15 @@
           figures.demo.curve-small = { from = "curve"; width = "6cm"; };
           source = self;
         };
+
+      # The document `nix flake init -t .#<name>` starts from (doc/templates/<name>).
+      templateDocument = pkgs: name:
+        (self.lib.doc { inherit pkgs; }).document {
+          inherit name;
+          template = (self.lib.doc { inherit pkgs; }).templates.${name};
+          src = ./doc/templates + "/${name}/tex";
+          source = self;
+        };
     in {
       # `pkgs.python3.withPackages (p: [ p.nixsci ])` in any consumer that applies this.
       overlays.default = final: prev: {
@@ -323,6 +332,13 @@
             (docOf "example" ./doc/examples/demo/tex examplePaper)
             (docOf "example-draft" ./doc/examples/demo/tex exampleDraft)
           ];
+        # The built-in templates' starting points build, and their zips compile alone.
+        template-paper = (templateDocument pkgs "paper").pdf;
+        template-slides = (templateDocument pkgs "slides").pdf;
+        template-poster = (templateDocument pkgs "poster").pdf;
+        zip-check-template-paper = (templateDocument pkgs "paper").zipCheck;
+        zip-check-template-slides = (templateDocument pkgs "slides").zipCheck;
+        zip-check-template-poster = (templateDocument pkgs "poster").zipCheck;
         publish-refuses-draft =
           let draft = exampleDocument pkgs { static = true; };
           in assert draft.refusals != [ ] && draft.publish.name == "example-draft-publish-refused"; pkgs.runCommand "publish-refuses-draft" { } "touch $out";

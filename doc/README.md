@@ -28,7 +28,7 @@ paper = doc.document {
 # paper.pdf  paper.publish  paper.refusals  paper.source  paper.crate  paper.zip  paper.shell  paper.apps  paper.unclean
 ```
 
-`paper.publish` builds a directory containing `paper.pdf`, `paper-latex.zip`, `paper-artifact.zip`, and `SHA256SUMS`. The LaTeX archive includes the dereferenced source tree, compiled figures, and a README with its compile command and TeX Live package requirements. The artifact archive contains the RO-Crate plus analysis views available through project outputs; these views are not full raw experiment runs. The checksum file covers the three sibling deliverables. No upload occurs.
+`paper.publish` builds a directory (after `zipCheck` has compiled the zip alone) containing `paper.pdf`, `paper-latex.zip`, `paper-artifact.zip`, and `SHA256SUMS`. The LaTeX archive includes the dereferenced source tree, compiled figures, and a README with its compile command and TeX Live package requirements. The artifact archive contains the RO-Crate plus analysis views available through project outputs; these views are not full raw experiment runs. The checksum file covers the three sibling deliverables. No upload occurs.
 
 ## Figures
 
@@ -36,7 +36,7 @@ Each figure is compiled in its own build, with the `standalone` class, the proje
 
 ## Values
 
-Each `values` entry is a JSON file. Its scalars become `\val{p/<entry>.<path>}`, where `<path>` is the JSON path joined with dots. `\val` with an unknown key is a LaTeX error.
+Each `values` entry is a JSON file. Its scalars become `\val{p/<entry>.<path>}`, where `<path>` is the JSON path joined with dots. Strings are escaped for TeX, so a `%` or `_` in an analysis's output is text, not markup; numbers print as JSON writes them. `\val` with an unknown key is a LaTeX error, and a key with `%`, `#`, `\`, `{` or `}` in it is an error at build time.
 
 ## Templates
 
@@ -44,7 +44,7 @@ Each `values` entry is a JSON file. Its scalars become `\val{p/<entry>.<path>}`,
 
 ## Provenance
 
-`unclean` lists every input marked `static`, and every lab analysis that is not clean. If the list is not empty, each page of the PDF gets a DRAFT line. `crate` is the RO-Crate; `publish` is the four-file directory above. Its build fails with `refusals` when `unclean` is not empty, when `source` is missing, or when the flake has uncommitted changes. `zip` remains the LaTeX source archive.
+`unclean` lists every input marked `static`, and every lab analysis that is not clean. If the list is not empty, each page of the PDF gets a DRAFT line, and a document whose TeX never loads `nixsci` does not build at all, because it could not show that line. `crate` is the RO-Crate; `publish` is the four-file directory above. Its build fails with `refusals` when `unclean` is not empty, when `source` is missing, or when the flake has uncommitted changes. `zip` remains the LaTeX source archive.
 
 ## Workspace
 
@@ -65,3 +65,24 @@ An exported PDF package exposes `measurementPlan` and `withMeasurements`. Run `n
 Analyses without declared claims are marked unjudged, not supported. Static inputs and experiments recorded by hand cannot be remeasured.
 
 The remeasurement path changes only lock inputs and analysis outputs. It does not override the code flake, make temporary commits, or modify the source checkout.
+
+## Source layout
+
+`doc/nix/doc.nix` is the entry point and only wires modules, each with one job and explicit inputs:
+
+| module | does |
+|---|---|
+| `template.nix`, `fonts.nix`, `figures.nix` | what a document is typeset with; figure widths and parameters |
+| `provenance.nix`, `project.nix` | `static`, `output`, and `doc.project` with what its inputs can be traced to |
+| `document.nix` | `doc.document`: the wiring of the stages below |
+| `meta.nix` | `meta` against the template's slots |
+| `figure-build.nix` | each figure variant, compiled on its own |
+| `remeasure.nix` | the lab analyses a document reads, and the plan to measure them again |
+| `tree.nix`, `values.jq` | the tree under `nixsci/` (and `generated.tex`, with values escaped for TeX); the source tree |
+| `latex.nix` | the TeX environment, the command, the PDF and its receipt |
+| `publish.nix` | the crate, the zip and its check, `publish` |
+| `dev.nix` | the dev shell and the apps |
+| `workspace.nix` | a whole flake of documents found by directory convention |
+
+The TeX side is `doc/files/nixsci.sty`, read in four parts (what a document calls, the seam with Nix, the
+media, loading); `doc/INTERFACE.md` is the contract between the two.

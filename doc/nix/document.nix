@@ -32,7 +32,7 @@ let
       figs = figureBuild { inherit name template projects figures; };
       measure = remeasure { inherit name projects; remeasurement = _remeasurement; };
       trees = treeOf { inherit name template projects unclean src; meta = meta'; marker = measure.marker; figureBuild = figs; };
-      latex = latexOf { inherit name template projects packages entry unclean; inherit (trees) sourceTree; };
+      latex = latexOf { inherit name template projects packages entry unclean; marked = unclean != [ ] || measure.marker != null; inherit (trees) sourceTree; };
       shipped = publishOf { inherit name template source projects unclean latex; inherit (trees) tree sourceTree fontFiles; };
       dev = devOf { inherit name template entry src srcDir latex; inherit (trees) tree; };
     in
