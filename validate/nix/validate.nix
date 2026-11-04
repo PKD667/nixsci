@@ -9,7 +9,7 @@
 let
   inherit (pkgs) lib;
   allowed = [ "name" "property" "model" "subject" "checker" "scope" "command" "runtime" ];
-  scalar = x: builtins.isInt x || builtins.isString x || builtins.isBool x || builtins.isList x;
+  scalar = x: builtins.isInt x || builtins.isFloat x || builtins.isString x || builtins.isBool x || builtins.isList x;
 
   check = c:
     let
